@@ -148,10 +148,12 @@ fn an_operation_watcher_sees_a_tool_calls_write_then_read_under_the_calls_origin
     };
     assert_eq!((written.as_str(), read.as_str()), ("/note.md", "/note.md"));
     assert_eq!(first, second, "one call's operations share its origin");
+    // `greeter` puts the section's one chunk on line 10 of the prompt.
     assert_eq!(
-        (first.label.as_str(), first.file.as_str()),
-        (KEEP, "greeter"),
-        "a tool call's origin holds the tool's id and the prompt's frontmatter `name`"
+        (first.label.as_str(), first.file.as_str(), first.line),
+        (KEEP, "greeter", 10),
+        "a tool call's origin holds the tool's id, the prompt's frontmatter `name`, and the \
+         line the calling section's first chunk starts on"
     );
     Ok(())
 }

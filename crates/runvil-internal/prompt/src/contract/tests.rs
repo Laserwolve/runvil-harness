@@ -167,6 +167,10 @@ fn a_duplicate_role_key_is_rejected() {
         &[],
     ));
     assert_eq!(error.code, ErrorCode::FrontmatterInvalid, "{error}");
+    assert!(
+        error.message.contains("duplicate model role `strong`"),
+        "the refusal names the role: {error:?}"
+    );
 }
 
 #[test]

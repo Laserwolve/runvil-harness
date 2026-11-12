@@ -250,13 +250,16 @@ fn json_null_in_var_reads_back_as_null_and_equals_json_null_in_lua() {
 #[test]
 fn reassigning_the_var_global_fails_read_back() {
     // `var = 5` drops the guarded proxy from reach; read-back must reject it
-    // rather than silently roll the pre-reassignment data forward.
-    let error =
-        run("var = 5", &json!({})).expect_err("reassigning the var global must fail at read-back");
-    assert!(
-        error.to_string().contains("`var` global was reassigned"),
-        "the error must name the reassignment: {error}"
-    );
+    // rather than silently roll the pre-reassignment data forward. Another
+    // table in its place is not the proxy either.
+    for source in ["var = 5", "var = {}"] {
+        let error =
+            run(source, &json!({})).expect_err("reassigning the var global must fail at read-back");
+        assert!(
+            error.to_string().contains("`var` global was reassigned"),
+            "the error must name the reassignment after {source}: {error}"
+        );
+    }
 }
 
 /// Runs `write` on a fresh VM under `pcall`, after `var.t = {}` and
