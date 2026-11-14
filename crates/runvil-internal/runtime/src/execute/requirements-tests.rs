@@ -2,7 +2,8 @@
 //! Pack against the roster, the reserved Pack ids `adhoc` and `dynamic`,
 //! the order of the refusal notice's lines, and the frontmatter key the
 //! refusal is placed on. The model role checks sit in the execution
-//! suite's `prepare` module.
+//! suite's `prepare` module, and the checks over the prompts a prompt
+//! links in `linked`.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -19,6 +20,9 @@ use crate::lua::RosterEntry;
 use crate::prompt::Prompt;
 use crate::test_support::scenario::{TEST_SEED, test_model_with};
 
+#[path = "requirements-tests-linked.rs"]
+mod linked;
+
 /// The notice line of a run whose catalog or roster names the reserved
 /// Pack id `reserved`.
 fn reserved_line(reserved: &str) -> String {
@@ -32,13 +36,19 @@ fn id(text: &str) -> PackId {
     PackId::parse(text).expect("a static valid id")
 }
 
+/// The source of a prompt with `front` added to its frontmatter, from
+/// file line 5, whose one section returns `done`.
+fn source(front: &str) -> String {
+    format!(
+        "---\nname: t\ndescription: d\nrunvil: 0\n{front}---\n\n\
+         ## Only\n\n```lua\nreturn 'done'\n```\n"
+    )
+}
+
 /// A prompt with `front` added to its frontmatter, whose one section
 /// returns `done`.
 fn prompt(front: &str) -> Prompt {
-    let source = format!(
-        "---\nname: t\ndescription: d\nrunvil: 0\n{front}---\n\n\
-         ## Only\n\n```lua\nreturn 'done'\n```\n"
-    );
+    let source = source(front);
     Prompt::parse(&|_: &str| Ok(source.clone()), "prompt")
         .expect("the requirements test prompt parses")
 }

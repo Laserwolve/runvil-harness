@@ -31,10 +31,12 @@
 //! chains and callbacks; the scheduler owns the root chain's copy and is
 //! the exclusively owned mutable counterpart. The two are deliberately not
 //! merged: `ChainState` is cloned into callbacks, while the scheduler must
-//! stay unreachable from the callback layer. The prompt tree is shared
-//! through the context's `Arc`, so a chain names its position in it by
-//! path ([`SectionPos`](crate::section_pos::SectionPos)) rather than by
-//! borrow, and the scheduler owns itself outright.
+//! stay unreachable from the callback layer. The tree of the prompt a
+//! chain runs is shared through the chain's context's `Arc`, so a chain
+//! names its position in it by path
+//! ([`SectionPos`](crate::section_pos::SectionPos)) rather than by borrow,
+//! and the scheduler owns itself outright. The scheduler's own copy holds
+//! the run's own prompt, which names the run in its start and end reports.
 //!
 //! This file holds the scheduler core: the run's lifecycle and the ready
 //! queue. The core owns five sub-objects that each hold their state and
@@ -233,10 +235,11 @@ impl Scheduler {
             .ok_or(error::make_internal_error("the run holds no scope handle"))
     }
 
-    /// The prompt's shared handle: a chain resolves its walk position
-    /// against this clone so the tree borrow never pins the arena.
-    fn prompt(&self) -> Arc<Prompt> {
-        Arc::clone(self.ctx.prompt())
+    /// The shared handle on the prompt chain `id` runs: the chain
+    /// resolves its walk position against this clone so the tree borrow
+    /// never pins the arena.
+    fn prompt_of(&self, id: ChainIndex) -> Arc<Prompt> {
+        Arc::clone(self.chains[id].ctx.prompt())
     }
 
     /// Whether the run's result is decided: its end boundary is reported,

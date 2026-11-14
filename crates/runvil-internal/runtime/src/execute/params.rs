@@ -59,7 +59,7 @@ pub struct RunParams {
     /// reason when it can't; set by `with_packs`, and `None` without a
     /// roster.
     pub(super) packs: Option<BTreeMap<PackId, RosterEntry>>,
-    /// The run's Pack preludes, in declaration order; set by `with_preludes`.
+    /// The run's Pack preludes; set by `with_preludes`.
     pub(super) preludes: Vec<Prelude>,
 }
 
@@ -189,10 +189,10 @@ impl RunParams {
     /// reason. Without a roster, the run's Lua sees the declared Packs and
     /// the Packs with a tool in the catalog.
     ///
-    /// The run's first step checks each Pack the prompt declares against
-    /// the roster: one the roster lacks is missing, and one it lists as
-    /// unavailable fails the run with its reason. A run given no roster
-    /// checks no declared Pack.
+    /// The run's first step checks each Pack that the prompt, or a prompt
+    /// it links, declares against the roster: one the roster lacks is
+    /// missing, and one it lists as unavailable fails the run with its
+    /// reason. A run given no roster checks no declared Pack.
     ///
     /// The caller reports each usable Pack's vendor, as it picked the
     /// Pack. Every tool-call and tool-result event for a catalog tool of
@@ -207,21 +207,26 @@ impl RunParams {
         self
     }
 
-    /// Sets the Pack preludes that every section VM of the run installs.
+    /// Sets the run's Pack preludes, which the section VMs of the run
+    /// install.
     ///
-    /// A prelude is Lua source that a Pack the prompt declares
-    /// contributed. The caller passes them in the order the prompt
-    /// declares the Packs. Every section VM of the run installs each
-    /// prelude after the other Engine globals and before `require` and any
-    /// block, so a prelude cannot call `require` while it installs, while
-    /// every block, and every library a block loads with `require`, can
-    /// call what the preludes define.
+    /// A prelude is Lua source that a Pack contributed. A section VM
+    /// installs the preludes of the Packs its own prompt declares, in the
+    /// order that prompt declares them, and no other: the run's prompt and
+    /// each prompt it links has its own `uses:` list. So the caller passes
+    /// the prelude of each Pack that any of those prompts declares, in any
+    /// order. A section VM installs each of its preludes after the other
+    /// Engine globals and before `require` and any block, so a prelude
+    /// cannot call `require` while it installs, while every block, and
+    /// every library a block loads with `require`, can call what the
+    /// preludes define.
     ///
     /// A prelude fails the run with an `ErrorCode::LuaRuntime` error if it
-    /// fails to load, or if it defines a global that another prelude, an
-    /// Engine global, or a reserved name already holds.
-    /// The failure happens when the first section VM is set up, before the
-    /// run issues any effect.
+    /// fails to load, or if it defines a global that another prelude of
+    /// the same prompt, an Engine global, or a reserved name already
+    /// holds. The failure happens when the first section VM that installs
+    /// the prelude is set up. For a Pack that the run's prompt declares,
+    /// that is before the run issues any effect.
     #[must_use]
     pub fn with_preludes(mut self, preludes: Vec<Prelude>) -> RunParams {
         self.preludes = preludes;
@@ -235,13 +240,15 @@ impl RunParams {
     /// A role's model is its own entry in `models`, else the `default`
     /// entry, so one entry for `default` fills all five roles. Every prompt
     /// gets all five roles, whether or not it declares them. A role's
-    /// declared `thinking` requirement turns thinking on or off for its
-    /// rounds.
+    /// declared `thinking` requirement turns thinking on or off for the
+    /// rounds that role makes in the sections of the prompt that declares
+    /// it.
     ///
-    /// The run's first step checks each declared role's `min_context` and
-    /// `thinking` requirements against the info of the model that fills
-    /// it, and fails the run naming each one that falls short, with the
-    /// required and actual values.
+    /// The run's first step checks the `min_context` and `thinking`
+    /// requirements of each role that the prompt, or a prompt it links,
+    /// declares against the info of the model that fills the role, and
+    /// fails the run naming each one that falls short, with the required
+    /// and actual values.
     ///
     /// An empty `models`, the default, means the caller has no model: the
     /// roles stay empty, nothing is checked, and a model round at run time

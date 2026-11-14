@@ -104,8 +104,8 @@ impl Scheduler {
         self.inboxes.queued(task).count()
     }
 
-    /// The run's tool set: the Packs the prompt declares, the roster, and
-    /// the run catalog.
+    /// The tool set of the run's own prompt: the Packs the prompt
+    /// declares, the roster, and the run catalog.
     pub(crate) fn tool_set_for_test(&self) -> &ToolSet {
         self.ctx.tool_set()
     }
@@ -116,7 +116,8 @@ impl Scheduler {
         self.ctx.turns().load(Ordering::Relaxed)
     }
 
-    /// The run's store: the one every chain's `store` calls operate on.
+    /// The root chain's store, which the `store` calls of every chain
+    /// with no store of its own operate on.
     pub(crate) fn store_for_test(&self) -> runvil_vfs::Store {
         self.ctx.store().clone()
     }

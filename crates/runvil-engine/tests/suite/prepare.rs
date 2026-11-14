@@ -171,6 +171,51 @@ fn a_thinking_requirement_the_filling_model_fails_is_refused() -> TestResult {
     Ok(())
 }
 
+#[test]
+fn the_first_step_checks_each_prompt_the_runs_prompt_links_and_names_the_one_that_fails()
+-> TestResult {
+    let listing = declaring("prompts: [review.md]");
+    let under = |review: String| -> TestResult<Scenario> {
+        let small = model("current", 32_000, ThinkingMode::Always)?;
+        Ok(Scenario::default()
+            .model(small)
+            .params(|ctx| ctx.with_packs([]))
+            .prompt("review.md", review))
+    };
+
+    assert_eq!(
+        refusal(under(declaring(STRONG))?, &listing)?,
+        "the environment cannot satisfy this prompt:\n\
+         - review.md: role 'strong': requires a context of at least 200000 tokens; \
+         the model filling it provides 32000 (at review.md:5)",
+        "a role requirement of the linked prompt"
+    );
+    assert_eq!(
+        refusal(under(declaring("uses: [web]"))?, &listing)?,
+        "the environment cannot satisfy this prompt:\n\
+         - review.md: missing required Pack: web (at review.md:5)",
+        "a Pack the linked prompt declares"
+    );
+
+    let unsupported = declaring("").replacen("runvil: 0\n", "runvil: 7\n", 1);
+    let trace = under(unsupported)?.run(&listing)?;
+    let error = trace.error()?;
+    assert_eq!(error.code, ErrorCode::UnsupportedVersion);
+    assert_eq!(
+        error.located_message(),
+        "unsupported runvil version: 7 (this build supports major 0) (at review.md:4)",
+        "the version the linked prompt declares"
+    );
+    assert!(trace.events.is_empty(), "nothing ran, nothing reported");
+
+    assert_eq!(
+        under(declaring(""))?.run(&listing)?.text()?,
+        "done",
+        "a linked prompt that requires nothing lets the run start"
+    );
+    Ok(())
+}
+
 /// `scenario` with its catalog replaced by one that holds `info` alone.
 fn over_catalog(scenario: Scenario, info: &ToolInfo) -> TestResult<Scenario> {
     let catalog = ToolCatalog::new([info.clone()])?;

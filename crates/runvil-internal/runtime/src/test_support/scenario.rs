@@ -1,12 +1,13 @@
 //! The run-level test driver. A [`Scenario`] holds a run's setup as data:
-//! its source, args, seed, params edits, store, tools, model,
-//! the sets it fills in before the run starts, the effects it holds, and
-//! the effect that cancels it. It parses the source, builds the run, and
-//! steps it on the calling thread, answering every effect it does not hold
-//! the moment it is issued, and returns a [`Trace`] of what the run
-//! produced. Nothing awaits or sleeps: a timer fires at once, a tool is a
-//! closure, and the model is a script or a closure. Only a canceller runs
-//! on a second thread, and the scenario joins it.
+//! its source, the sources its prompt can link, args, seed, params edits,
+//! store, tools, model, the sets it fills in before the run starts, the
+//! effects it holds, and the effect that cancels it. It parses the source,
+//! builds the run, and steps it on the calling thread, answering every
+//! effect it does not hold the moment it is issued, and returns a
+//! [`Trace`] of what the run produced. Nothing awaits or sleeps: a timer
+//! fires at once, a tool is a closure, and the model is a script or a
+//! closure. Only a canceller runs on a second thread, and the scenario
+//! joins it.
 //!
 //! The serial helpers the scheduler-level suites drive a bare [`Run`] with
 //! sit beside it in `scenario_serial`.
@@ -56,6 +57,10 @@ pub(crate) const TEST_STARTED_AT: Timestamp = Timestamp::from_unix_millis(1_700_
 
 /// The gateway model a bound scenario's `default` role resolves to.
 pub(crate) const TEST_MODEL: &str = "claude-sonnet-4-6";
+
+/// The name a scenario's parse finds its run's own prompt under, which is
+/// the file its failures are placed in.
+pub(crate) const MAIN_PROMPT: &str = "prompt";
 
 /// The gateway model `id` as the tests bind it: a 131072-token window and
 /// switchable thinking.
@@ -265,6 +270,9 @@ impl TestStore {
 #[must_use]
 pub(crate) struct Scenario {
     source: String,
+    /// The source of each prompt the run's prompt can link, by the name a
+    /// `prompts:` list gives it.
+    linked: BTreeMap<String, String>,
     args: String,
     seed: RunSeed,
     params: ParamsEdit,
@@ -290,6 +298,7 @@ impl Scenario {
     pub(crate) fn new(source: impl Into<String>) -> Scenario {
         Scenario {
             source: source.into(),
+            linked: BTreeMap::new(),
             args: "{}".to_owned(),
             seed: TEST_SEED,
             params: Box::new(|ctx| ctx),
@@ -303,6 +312,14 @@ impl Scenario {
             roles: BTreeMap::new(),
             cancel: CancelHandle::new(),
         }
+    }
+
+    /// Serves `source` to the parse under `name`, so the run's prompt, or
+    /// a prompt it links, can list `name` under `prompts:`. The run's own
+    /// prompt is found under [`MAIN_PROMPT`].
+    pub(crate) fn prompt(mut self, name: &str, source: impl Into<String>) -> Scenario {
+        self.linked.insert(name.to_owned(), source.into());
+        self
     }
 
     /// Sets the args the run receives: the text of one JSON object, which
@@ -371,8 +388,8 @@ impl Scenario {
         self
     }
 
-    /// Fills the run's model set with `set` before the run starts, in
-    /// place of the set the role map fills.
+    /// Fills the model set of the run's own prompt with `set` before the
+    /// run starts, in place of the set the role map fills.
     pub(crate) fn models(mut self, set: ModelSet) -> Scenario {
         self.prefill.models = Some(set);
         self
@@ -519,10 +536,23 @@ impl Scenario {
         self.prefill.start(Arc::new(prompt), &self.args, ctx)
     }
 
-    /// Parses the source and builds the run's params.
+    /// Parses the source, with every prompt it links, and builds the run's
+    /// params.
     #[track_caller]
     fn params_of(&mut self) -> (Prompt, RunParams) {
-        let prompt = match Prompt::parse(&|_: &str| Ok(self.source.clone()), "prompt") {
+        let finder = |name: &str| -> Result<String, Error> {
+            if name == MAIN_PROMPT {
+                return Ok(self.source.clone());
+            }
+            self.linked.get(name).cloned().ok_or_else(|| {
+                Error::new(
+                    ErrorCode::NotFound,
+                    format!("no prompt named {name}"),
+                    "No prompt has that name.",
+                )
+            })
+        };
+        let prompt = match Prompt::parse(&finder, MAIN_PROMPT) {
             Ok(prompt) => prompt,
             Err(error) => panic!("expected the scenario source to parse, got {error}"),
         };

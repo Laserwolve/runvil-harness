@@ -359,8 +359,8 @@ fn library_resolver(
     move |path: String| walk_target::resolve_library(&prompt, &path)
 }
 
-/// Builds the section VM for `name` over the run's shared sets, with the
-/// run's cancel flag and Lua limits applied.
+/// Builds the section VM for `name` over the sets of the chain's prompt,
+/// with the run's cancel flag and Lua limits applied.
 ///
 /// # Errors
 /// Returns the failure of the VM construction or the limits install.
@@ -387,8 +387,8 @@ fn limited_vm(ctx: &ChainState, name: &str) -> Result<SectionVm<Uninjected>> {
 /// and the libraries `require` loads alike: each render substitutes from
 /// the chain's `args`, shared with the chain rather than copied,
 /// the frame's `item`, and the section state the first read snapshots,
-/// and places a failure in the run's prompt file from the line the
-/// template starts on.
+/// and places a failure in the file of the chain's prompt from the line
+/// the template starts on.
 fn prose_renderer(
     ctx: &ChainState,
     item: Option<serde_json::Value>,

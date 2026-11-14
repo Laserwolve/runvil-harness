@@ -13,7 +13,8 @@ use crate::test_support::scenario::Trace;
 
 use super::*;
 
-/// Runs `source` with `preludes` installed in every section VM.
+/// Runs `source` over `preludes`, which every section VM installs when
+/// `source` declares their Packs.
 #[track_caller]
 fn run_with_preludes(source: &str, preludes: Vec<Prelude>) -> Trace {
     require_case(source.to_owned())
@@ -148,7 +149,7 @@ fn a_library_that_raises_while_loading_runs_again_on_the_next_require() {
 #[test]
 fn a_prelude_cannot_define_require_or_call_it_while_it_installs() {
     let source = prompt(
-        "",
+        "uses: [shadow, eager]",
         &[("Main", "return 'unreachable'"), ("lib", "return 'lib'")],
     );
     let defines = lua_failure(&run_with_preludes(

@@ -276,6 +276,84 @@ fn missing_version_is_not_a_runvil_prompt() {
     );
 }
 
+/// A scenario whose prompt, under the version line `version`, lists
+/// `a.md` and `b.md`, each a prompt named for its file under its own
+/// version line, or with none when the line is empty.
+fn linking_under(version: &str, a: &str, b: &str) -> Scenario {
+    let linked = |name: &str, version: &str| {
+        PromptSource::new()
+            .name(name)
+            .section("Only", "return \"linked\"")
+            .build()
+            .replacen("runvil: 0\n", version, 1)
+    };
+    let listing = PromptSource::new()
+        .front("prompts: [b.md, a.md]")
+        .section("Only", "return \"ran\"")
+        .build()
+        .replacen("runvil: 0\n", version, 1);
+    Scenario::new(listing)
+        .prompt("a.md", linked("a", a))
+        .prompt("b.md", linked("b", b))
+}
+
+#[test]
+fn a_linked_prompt_under_an_unsupported_major_refuses_the_run_naming_that_prompt() {
+    let trace = linking_under("runvil: 0\n", "runvil: 0\n", "runvil: 2\n").run();
+    let message = "unsupported runvil version: 2 (this build supports major 0)";
+    let mut expected = runvil_types::error::Error::new(
+        ErrorCode::UnsupportedVersion,
+        message,
+        format!(
+            "b.md:4: {message}. {}",
+            ErrorCode::UnsupportedVersion.prose()
+        ),
+    );
+    let line = std::num::NonZeroU32::new(4).expect("4 is non-zero");
+    expected.at = Some(SourceLoc::line("b.md", line));
+    expected.facts.insert(ErrorFact::Name, Value::from("b"));
+    assert_eq!(
+        trace.error(),
+        &expected,
+        "the refusal is placed on the linked prompt's `runvil:` line and names that prompt"
+    );
+    assert!(trace.events().is_empty(), "nothing ran, nothing reported");
+}
+
+#[test]
+fn a_linked_prompt_with_no_version_refuses_the_run_naming_that_prompt() {
+    let trace = linking_under("runvil: 0\n", "", "runvil: 0\n").run();
+    let error = trace.error();
+    assert_eq!(error.code, ErrorCode::StructureInvalid, "got {error:?}");
+    assert_eq!(
+        error.located_message(),
+        "not a runvil prompt: no runvil version (prompt a)"
+    );
+    assert!(
+        error.prose.starts_with("a.md: not a runvil prompt"),
+        "the prose names the linked prompt's file: {}",
+        error.prose
+    );
+    assert!(trace.events().is_empty(), "nothing ran, nothing reported");
+}
+
+#[test]
+fn the_gate_reads_the_runs_own_prompt_first_and_then_each_linked_prompt_by_name() {
+    let refused = |scenario: Scenario| scenario.run().error().located_message();
+    assert_eq!(
+        refused(linking_under("runvil: 3\n", "runvil: 4\n", "runvil: 5\n")),
+        "unsupported runvil version: 3 (this build supports major 0) (at prompt:4)",
+        "the run's own prompt is gated before the prompts it links"
+    );
+    assert_eq!(
+        refused(linking_under("runvil: 0\n", "runvil: 4\n", "runvil: 5\n")),
+        "unsupported runvil version: 4 (this build supports major 0) (at a.md:4)",
+        "`a.md` is gated before `b.md`, though the prompt lists `b.md` first"
+    );
+    let trace = linking_under("runvil: 0\n", "runvil: 0\n", "runvil: 0\n").run();
+    assert_eq!(trace.text(), "ran", "every prompt clears the gate");
+}
+
 // --- A caller code ends the run as an internal error ---
 
 #[test]

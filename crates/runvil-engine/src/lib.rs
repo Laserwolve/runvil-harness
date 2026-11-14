@@ -12,9 +12,10 @@
 //! Before the run starts, the caller puts on its [`RunParams`] the tools
 //! a run may offer, the Packs it holds, and the role map that fills the
 //! five model roles. The run's first step checks the params against what
-//! the prompt requires, and params that fall short end the run there
-//! with a [`RequirementsUnmet`](ErrorCode::RequirementsUnmet)
-//! failure that names every gap.
+//! the prompt and every prompt it links require, and params that fall
+//! short end the run there with a
+//! [`RequirementsUnmet`](ErrorCode::RequirementsUnmet) failure that names
+//! every gap.
 //!
 //! The crate's `greeter` example is that whole loop in one program.
 

@@ -137,7 +137,7 @@ impl Scheduler {
     /// a `return` that gave nil or no value and for a walk that ran off its
     /// slice's last section, or the chain's failure.
     pub(super) fn finish(&mut self, id: ChainIndex, outcome: Result<Option<String>>) -> ChainStep {
-        let prompt = self.prompt();
+        let prompt = self.prompt_of(id);
         let chain = &mut self.chains[id];
         let blocks = chain.blocks(&prompt);
         let parent = chain.kind.parent();

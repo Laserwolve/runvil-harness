@@ -20,6 +20,7 @@ use runvil_types::event_lifecycle;
 use runvil_types::ids::AbandonReason;
 
 use crate::execute::run::{EffectAnswer, EffectId, Step};
+use crate::prompt::Prompt;
 use crate::{Error, Result, error};
 
 use super::chain::ChainStep;
@@ -163,39 +164,25 @@ impl Scheduler {
         }
     }
 
-    /// Checks that the run can start: the version gate, then the caller's
-    /// arguments, then what the prompt requires of the params.
+    /// Checks that the run can start: the version gate of the run's prompt
+    /// and then of each prompt it links, in the order of their names, then
+    /// the caller's arguments, then what those prompts require of the
+    /// params.
     ///
     /// # Errors
     /// Returns an `UnsupportedVersion` failure on the `runvil:` line, or a
     /// structural parse failure for a prompt with no `runvil:` key, either
-    /// naming the prompt; an `ArgsInvalid` failure with no location when
-    /// the arguments are not a JSON object or do not match the prompt's
-    /// `args` declaration; or `RequirementsUnmet` with
-    /// the refusal notice when the params lack a declared Pack or a model
-    /// the prompt's roles require, or names a Pack id the Engine reserves,
-    /// placed on the frontmatter key of the first gap the prompt caused.
+    /// naming the prompt that fails the gate; an `ArgsInvalid` failure
+    /// with no location when the arguments are not a JSON object or do not
+    /// match the `args` declaration of the run's prompt; or
+    /// `RequirementsUnmet` with the refusal notice when the params lack a
+    /// declared Pack or a model a prompt's roles require, or names a Pack
+    /// id the Engine reserves, placed in the first prompt that caused a
+    /// gap, on the frontmatter key of its first gap.
     fn check_start(&self) -> Result<()> {
         let prompt = self.ctx.prompt();
-        let frontmatter = prompt.frontmatter();
-        let declined = match frontmatter.runvil() {
-            Some(0) => None,
-            Some(other) => Some(place(
-                error::make_unsupported_version_error(other),
-                prompt.file(),
-                crate::prompt::detail::key_line(prompt, "runvil"),
-            )),
-            None => Some(make_failure_error(
-                ErrorCode::StructureInvalid,
-                "not a runvil prompt: no runvil version",
-            )),
-        };
-        if let Some(error) = declined {
-            return Err(crate::prompt::detail::with_prompt_context(
-                error,
-                frontmatter.name(),
-                prompt.file(),
-            ));
+        for prompt in std::iter::once(prompt).chain(prompt.linked()) {
+            check_version(prompt)?;
         }
         // The arguments are the caller's to fix, so their refusal points
         // at no line of the prompt.
@@ -306,6 +293,34 @@ impl Scheduler {
         }
         self.effects.orphan_all();
     }
+}
+
+/// The version gate: checks that `prompt` declares the one `runvil:`
+/// version this build runs.
+///
+/// # Errors
+/// Returns an `UnsupportedVersion` failure on the `runvil:` line for any
+/// other version, or a structural parse failure for a prompt with no
+/// `runvil:` key. Either names `prompt` and is placed in its file.
+fn check_version(prompt: &Prompt) -> Result<()> {
+    let frontmatter = prompt.frontmatter();
+    let declined = match frontmatter.runvil() {
+        Some(0) => return Ok(()),
+        Some(other) => place(
+            error::make_unsupported_version_error(other),
+            prompt.file(),
+            crate::prompt::detail::key_line(prompt, "runvil"),
+        ),
+        None => make_failure_error(
+            ErrorCode::StructureInvalid,
+            "not a runvil prompt: no runvil version",
+        ),
+    };
+    Err(crate::prompt::detail::with_prompt_context(
+        declined,
+        frontmatter.name(),
+        prompt.file(),
+    ))
 }
 
 /// The result `Done` reports for a run that ended with `result`: `result`

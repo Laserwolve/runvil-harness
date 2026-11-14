@@ -293,7 +293,8 @@ impl ChainOps<'_> {
 }
 
 /// What the scope gate reads for one arrived round: the frozen sets of
-/// the section the chain is parked in, and the run's tool set.
+/// the section the chain is parked in, and the tool set of the chain's
+/// prompt.
 struct Scope<'a> {
     frozen: &'a RenderedTools,
     tool_set: &'a ToolSet,

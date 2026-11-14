@@ -70,15 +70,6 @@ const ALLOWED: &[Allowed] = &[
                  before it runs or steps the scenario.",
     },
     Allowed {
-        krate: "crates/runvil-internal/runtime",
-        name: "SharedState",
-        limit: Limit::Fields,
-        recorded: 15,
-        reason: "The run-wide state every chain of one run shares through one `Arc`, built \
-                 once with the root chain and never forked; every field is the same for every \
-                 chain.",
-    },
-    Allowed {
         krate: "crates/runvil-internal/lua",
         name: "SectionVm",
         limit: Limit::Methods,

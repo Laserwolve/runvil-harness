@@ -77,8 +77,8 @@ pub(crate) struct SectionVmSetup<'a> {
     /// raw-model-id `models.get` fallback. Shared through the run's `Arc`,
     /// so every section VM serializes the one tree.
     pub(crate) ui: Option<&'a Arc<serde_json::Value>>,
-    /// The run's Pack preludes, installed in order after the coroutine
-    /// shims and before `require`.
+    /// The preludes of the Packs the section's prompt declares, installed
+    /// in order after the coroutine shims and before `require`.
     pub(crate) preludes: &'a [Prelude],
     /// Test-only: installs the raw `tools.call_as_model` shim, so a fixture
     /// section can yield one model-issued `tool_call`.
@@ -100,7 +100,7 @@ pub(crate) struct SectionVmSetup<'a> {
 /// `prompt` reads, plus [`SectionVm::install_coro_shims`] for the
 /// suspending calls, which the scheduler drives as yield shims,
 /// `models.loop`, `models.compact`, and the `store` functions included),
-/// the run's Pack preludes, and [`SectionVm::install_require`] over
+/// the prompt's Pack preludes, and [`SectionVm::install_require`] over
 /// `resolve` and `render`.
 ///
 /// # Errors

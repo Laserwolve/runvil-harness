@@ -130,11 +130,14 @@ impl Run {
     /// describes, and an empty map leaves the model set empty. Its tool set
     /// holds whatever catalog and roster the params' builders set.
     ///
+    /// A run holds `prompt` and every prompt it links, the ones
+    /// [`Prompt::linked`] gives, and the first step checks them all.
+    ///
     /// Building a run never fails. The first `step` checks, in order,
-    /// that the prompt declares a supported `runvil:` version, that
-    /// `args` is a JSON object the prompt's `args` declaration accepts,
-    /// and that the params meet what the prompt requires: each
-    /// Pack the prompt declares is on the roster and can serve (a run given
+    /// that each of those prompts declares a supported `runvil:` version,
+    /// that `args` is a JSON object the `args` declaration of `prompt`
+    /// accepts, and that the params meet what the prompts require: each
+    /// Pack a prompt declares is on the roster and can serve (a run given
     /// no roster skips this check), each declared role's requirements hold
     /// for the model that fills it, a non-empty role map has a `default`
     /// entry, and no tool of the catalog and no Pack of the roster has a
@@ -143,8 +146,9 @@ impl Run {
     /// arguments failure has the code `ErrorCode::ArgsInvalid`, and its
     /// message names the first argument that does not match. The
     /// requirements failure has the code `ErrorCode::RequirementsUnmet`,
-    /// and its message names every gap. When the run's cancel flag is set
-    /// as a check fails, the run ends with the cancel instead.
+    /// and its message names every gap, with the name of the linked prompt
+    /// that has it. When the run's cancel flag is set as a check fails,
+    /// the run ends with the cancel instead.
     #[must_use]
     pub fn new(prompt: Arc<Prompt>, args: &str, params: RunParams) -> Run {
         Self::from_state(ChainState::root(prompt, args, params))

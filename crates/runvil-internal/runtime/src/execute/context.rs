@@ -2,12 +2,14 @@
 //!
 //! [`ChainState`] is built once in [`run`](super::run), as the root
 //! chain's state, and travels through the execute subtree as parameter one
-//! (`ctx: &ChainState`). It holds the run's one [`SharedState`] and the
-//! fields a chain's fork replaces. The invariant: a new run-scoped concern
-//! becomes a field here, never a new parameter: a field of
-//! [`SharedState`] when it is the same for every chain, and a field of
-//! [`ChainState`] when a fork replaces it. Per-call data (a section, a
-//! `var` snapshot) stays in parameters or on the per-section frame.
+//! (`ctx: &ChainState`). It holds the run's one [`SharedState`], the
+//! [`PromptState`] of the prompt its chain runs, and the fields a chain's
+//! fork replaces. The invariant: a new run-scoped concern becomes a field
+//! here, never a new parameter: a field of [`SharedState`] when it is the
+//! same for every chain, a field of [`PromptState`] when it is the same
+//! for every chain that runs one prompt, and a field of [`ChainState`]
+//! when a fork replaces it. Per-call data (a section, a `var` snapshot)
+//! stays in parameters or on the per-section frame.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -25,7 +27,7 @@ use runvil_vfs::{Store, VfsRef};
 
 use crate::Error;
 use crate::lua::{RosterEntry, ToolSet};
-use crate::model::{ModelBinding, ModelRole, ModelSet};
+use crate::model::{ModelBinding, ModelInfo, ModelRole, ModelSet};
 use crate::prompt::Prompt;
 
 use super::fill;
@@ -51,19 +53,16 @@ pub(super) struct ReportingHandles {
 /// Every field is the same for every chain. Its handles are fixed for the
 /// run, though the cancel flag and the event buffer change behind them.
 struct SharedState {
-    /// The prompt this run executes.
-    prompt: Arc<Prompt>,
+    /// Each prompt of the run with its sets, under the name
+    /// [`Prompt::file`] gives it: the run's own prompt and every prompt
+    /// that one links.
+    prompts: BTreeMap<String, Arc<PromptState>>,
     /// The untrusted-envelope nonce, derived once here from the run's seed
     /// so every wrap in the run shares it.
     nonce: GuardNonce,
     /// The run's VFS handle: the files the run's tool calls work in. Chain
     /// steps acquire or spawn their access capabilities from it.
     vfs: VfsRef,
-    /// The run's store: the files every section's Lua `store` table
-    /// operates on. It is made empty with the run, sits outside `vfs`,
-    /// and never leaves the run, so the caller reaches it only through
-    /// the store view of a `Vfs` effect.
-    store: Store,
     /// The run's resource limits.
     limits: RunLimits,
     /// The run's event buffer, shared by every chain's emitter, spawned
@@ -75,31 +74,19 @@ struct SharedState {
     /// hold, the flag the caller supplies with `RunParams::with_cancel` and
     /// keeps its own clone of.
     cancel: CancelHandle,
-    /// The run's tool set: built from the params' catalog at construction
-    /// and changed by nothing during the run, so every reader, every
-    /// section VM among them, shares it with no lock and no
-    /// copy.
-    tool_set: Arc<ToolSet>,
-    /// The run's model set: filled from the params' role map at
-    /// construction, shared with every section VM and changed
-    /// by nothing during the run, so every reader shares it with no lock and
-    /// no copy.
-    model_set: Arc<ModelSet>,
-    /// The refusal the run's first step fails with: what the prompt
-    /// requires that the params lack, or `None` when they lack nothing.
+    /// The refusal the run's first step fails with: what the run's
+    /// prompts require that the params lack, or `None` when they lack
+    /// nothing.
     refusal: Option<Error>,
     /// The failure the run's first step fails with when the caller's
-    /// arguments are not a JSON object or do not match the prompt's
-    /// `args` declaration, or `None` when they match.
+    /// arguments are not a JSON object or do not match the `args`
+    /// declaration of the run's own prompt, or `None` when they match.
     args_refusal: Option<Error>,
     /// The run's `started_at` rendered as RFC 3339, stamped into every
     /// section's `sys.when`.
     when: Arc<str>,
     /// The run's application-state snapshot, when the caller supplied one.
     ui: Option<Arc<serde_json::Value>>,
-    /// The run's Pack preludes, in install order: every section VM
-    /// installs each one before `require`.
-    preludes: Arc<[Prelude]>,
     /// Test-only: installs the raw `tools.call_as_model` shim in every
     /// section VM, so a fixture section can yield one model-issued
     /// `tool_call` at the scheduler's dispatch arm without going through a
@@ -108,19 +95,133 @@ struct SharedState {
     raw_shims: bool,
 }
 
-/// One chain's state: the run's [`SharedState`] and the fields a chain's
-/// fork replaces.
+/// One prompt of a run with the sets its sections run over: built once
+/// with the run, for the run's own prompt and for each prompt that one
+/// links, and shared by every chain that runs the prompt.
 ///
-/// Cheap to clone: a clone shares the run's state and this chain's
-/// reporting handles, so it advances the same turn counter.
-/// The two sanctioned forks: [`with_task`](Self::with_task) giving a
-/// spawned chain its own task emitter and turn counter, and
+/// Nothing changes a set during the run, so every reader, every section
+/// VM among them, shares it with no lock and no copy.
+#[derive(Clone)]
+struct PromptState {
+    /// The prompt.
+    prompt: Arc<Prompt>,
+    /// The prompt's tool set: the run's catalog and roster, with the Packs
+    /// this prompt declares as the declared ones.
+    tool_set: Arc<ToolSet>,
+    /// The prompt's model set: filled from the params' role map, with the
+    /// thinking switch each role of this prompt declares.
+    model_set: Arc<ModelSet>,
+    /// The preludes of the Packs the prompt declares, in declaration
+    /// order: every section VM of the prompt installs each one before
+    /// `require`.
+    preludes: Arc<[Prelude]>,
+}
+
+/// What the params give every prompt of a run alike, which each
+/// [`PromptState`] is built over.
+struct RunSets<'a> {
+    /// The caller's role map.
+    models: &'a BTreeMap<ModelRole, ModelInfo>,
+    /// The run's tool catalog.
+    tools: &'a ToolCatalog,
+    /// The run's Pack roster, when the caller gave one.
+    roster: Option<&'a BTreeMap<PackId, RosterEntry>>,
+    /// The run's Pack preludes.
+    preludes: &'a [Prelude],
+}
+
+impl PromptState {
+    /// Builds the state of `prompt`, one of the run's prompts, over `run`,
+    /// and records in `requirements` what the prompt requires that `run`
+    /// lacks: each declared Pack the roster lacks or lists as unable to
+    /// serve, and each declared role requirement the role's model falls
+    /// short of. `linked` says whether `prompt` is one the run's own
+    /// prompt links, so its gaps name it.
+    ///
+    /// The prompt's preludes are those of `run` whose Pack the prompt
+    /// declares, in the prompt's declaration order, so a section installs
+    /// no prelude of a Pack that only another prompt declares.
+    fn new(
+        prompt: Arc<Prompt>,
+        linked: bool,
+        run: &RunSets<'_>,
+        requirements: &mut Requirements,
+    ) -> Self {
+        let by = linked.then(|| prompt.file());
+        let model_set = fill::fill_model_set(&prompt, by, run.models, requirements);
+        requirements.check_packs(&prompt, by, run.roster);
+        let uses = prompt.frontmatter().uses();
+        // Nothing is bound here: each section entry binds the tools it
+        // offers when it freezes its sets.
+        let tool_set = ToolSet::new(
+            uses.iter().map(|entry| entry.id().clone()).collect(),
+            run.roster.cloned().unwrap_or_default(),
+            run.tools.clone(),
+        );
+        let preludes = uses
+            .iter()
+            .flat_map(|entry| {
+                run.preludes
+                    .iter()
+                    .filter(move |prelude| prelude.pack() == entry.id())
+            })
+            .cloned()
+            .collect();
+        Self {
+            prompt,
+            tool_set: Arc::new(tool_set),
+            model_set: Arc::new(model_set),
+            preludes,
+        }
+    }
+}
+
+/// A store, with the id of the chain it was made for.
+struct ChainStore {
+    /// The store: a set of files in memory that sits outside the run's
+    /// VFS handle and never leaves the run, so the caller reaches it only
+    /// through the store view of a `Vfs` effect.
+    store: Store,
+    /// The id of the chain the store was made for: the root chain's for
+    /// the store the run starts with.
+    made_for: ChainId,
+}
+
+impl ChainStore {
+    /// A new, empty store made for the chain `made_for`.
+    fn new(made_for: ChainId) -> Arc<Self> {
+        Arc::new(Self {
+            store: Store::new(),
+            made_for,
+        })
+    }
+}
+
+/// One chain's state: the run's [`SharedState`], the [`PromptState`] of
+/// the prompt the chain runs, and the fields a chain's fork replaces.
+///
+/// Cheap to clone: a clone shares the run's state, the prompt's state,
+/// this chain's store, and its reporting handles, so it advances the same
+/// turn counter.
+/// The three sanctioned forks: [`with_task`](Self::with_task) giving a
+/// spawned chain its own task emitter and turn counter,
 /// [`with_args`](Self::with_args) giving the chain of a `call` or a
-/// `tasks.spawn` the arguments it was passed.
+/// `tasks.spawn` the arguments it was passed, and
+/// [`with_prompt`](Self::with_prompt) giving a chain another of the run's
+/// prompts to run, with its arguments and a store of its own.
 #[derive(Clone)]
 pub(crate) struct ChainState {
     /// The run-wide state every chain of the run shares.
     shared: Arc<SharedState>,
+    /// The prompt this chain runs, with its sets: the run's own prompt for
+    /// the root chain, and the prompt of the chain it was forked from
+    /// unless [`with_prompt`](Self::with_prompt) replaced it.
+    prompt: Arc<PromptState>,
+    /// The store this chain's `store` calls operate on: the one made with
+    /// the run for the root chain, and the store of the chain it was
+    /// forked from unless [`with_prompt`](Self::with_prompt) made it a new
+    /// one.
+    store: Arc<ChainStore>,
     /// This context's reporting handles: the root task's at construction,
     /// a spawned chain's own after [`with_task`](Self::with_task). The Lua
     /// layer's seams (`require`'s library loads, `log`, teardown, the
@@ -136,13 +237,14 @@ pub(crate) struct ChainState {
 impl ChainState {
     /// Builds the run's shared state and the root chain's state for one
     /// run of `prompt` over `params`, which it consumes. The turn counter
-    /// is minted here (starting at zero), as are the run's shared tool and
-    /// model sets - the tool set built from the catalog and the roster,
-    /// the model set filled from the role map (it stays empty for an empty
-    /// map) - and the refusal for what the prompt requires that
-    /// `params` lacks; the nonce derives from `params`'s seed and `when`
-    /// renders `params`'s `started_at`, so two states over the same inputs
-    /// agree on both.
+    /// is minted here (starting at zero), as are the root chain's store
+    /// and the state of each of the run's prompts, `prompt` and every
+    /// prompt it links - its tool set built from the catalog and the
+    /// roster, its model set filled from the role map (it stays empty for
+    /// an empty map), and its preludes - and the refusal for what those
+    /// prompts require that `params` lacks; the nonce derives from
+    /// `params`'s seed and `when` renders `params`'s `started_at`, so two
+    /// states over the same inputs agree on both.
     ///
     /// `args` is the caller's argument text. The state holds the object
     /// the prompt's `args` declaration accepts it as, or, when the
@@ -164,10 +266,24 @@ impl ChainState {
             preludes,
         } = params;
         let mut requirements = Requirements::default();
-        let model_set = Arc::new(fill::fill_model_set(&prompt, models, &mut requirements));
-        requirements.check_packs(&prompt, &tools, packs.as_ref());
-        let refusal = requirements.refusal(&prompt);
-        let tool_set = Arc::new(run_tool_set(&prompt, tools, packs.unwrap_or_default()));
+        requirements.check_run(&models, &tools, packs.as_ref());
+        let sets = RunSets {
+            models: &models,
+            tools: &tools,
+            roster: packs.as_ref(),
+            preludes: &preludes,
+        };
+        // The run's own prompt first, then each prompt it links in the
+        // order of their names: the order the refusal notice lists their
+        // gaps in.
+        let own = Arc::new(PromptState::new(prompt, false, &sets, &mut requirements));
+        let prompt = &own.prompt;
+        let mut prompts = BTreeMap::from([(prompt.file().to_owned(), Arc::clone(&own))]);
+        for linked in prompt.linked() {
+            let state = PromptState::new(Arc::clone(linked), true, &sets, &mut requirements);
+            prompts.insert(linked.file().to_owned(), Arc::new(state));
+        }
+        let refusal = requirements.refusal(prompt);
         let events = EventSink::default();
         // The root chain - the main walk - is task `0`.
         let emitter = Arc::new(Emitter::new(
@@ -175,7 +291,7 @@ impl ChainState {
             TaskId::from(ChainId::root()),
             report_debug,
         ));
-        let (args, args_refusal) = match crate::prompt::detail::accept_args(&prompt, args) {
+        let (args, args_refusal) = match crate::prompt::detail::accept_args(prompt, args) {
             Ok(args) => (args, None),
             Err(refusal) => (
                 serde_json::Value::Object(serde_json::Map::new()),
@@ -184,23 +300,21 @@ impl ChainState {
         };
         Self {
             shared: Arc::new(SharedState {
-                prompt,
+                prompts,
                 nonce: GuardNonce::from_seed(&seed),
                 vfs,
-                store: Store::new(),
                 limits,
                 events,
                 cancel,
-                tool_set,
-                model_set,
                 refusal,
                 args_refusal,
                 when: Arc::from(started_at.to_rfc3339()),
                 ui: ui.map(Arc::new),
-                preludes: preludes.into(),
                 #[cfg(test)]
                 raw_shims: false,
             }),
+            prompt: own,
+            store: ChainStore::new(ChainId::root()),
             reporting: ReportingHandles {
                 emitter,
                 turns: Arc::new(AtomicU32::new(0)),
@@ -229,19 +343,27 @@ impl ChainState {
         self.shared_mut_for_test().raw_shims = true;
     }
 
-    /// Sets the run's model set to `set`, so a test can run a prompt
-    /// over bindings it builds by hand. Call it before the run starts: every
-    /// section VM shares the set it finds here.
+    /// Sets the model set of the run's own prompt to `set`, so a test can
+    /// run a prompt over bindings it builds by hand. Call it on the root
+    /// chain's state before the run starts: every section VM of that
+    /// prompt shares the set it finds here.
     #[cfg(test)]
     #[must_use]
     pub(crate) fn with_models_for_test(mut self, set: ModelSet) -> Self {
-        self.shared_mut_for_test().model_set = Arc::new(set);
+        let own = Arc::new(PromptState {
+            model_set: Arc::new(set),
+            ..PromptState::clone(&self.prompt)
+        });
+        self.shared_mut_for_test()
+            .prompts
+            .insert(own.prompt.file().to_owned(), Arc::clone(&own));
+        self.prompt = own;
         self
     }
 
-    /// The prompt this run executes.
+    /// The prompt this chain runs.
     pub(super) fn prompt(&self) -> &Arc<Prompt> {
-        &self.shared.prompt
+        &self.prompt.prompt
     }
 
     /// The run's cancel flag.
@@ -259,11 +381,10 @@ impl ChainState {
         &self.shared.vfs
     }
 
-    /// The store this chain's `store` calls operate on: the run's one
-    /// store, which every chain of the run shares. Every store view the
-    /// Engine makes derives from it.
+    /// The store this chain's `store` calls operate on. Every store view
+    /// the Engine makes for the chain derives from it.
     pub(super) fn store(&self) -> &Store {
-        &self.shared.store
+        &self.store.store
     }
 
     /// The chain's arguments, a JSON object.
@@ -301,46 +422,48 @@ impl ChainState {
         &self.reporting.turns
     }
 
-    /// The run's shared tool set, the one every section VM the run
-    /// constructs holds.
+    /// The tool set of the prompt this chain runs, the one every section
+    /// VM of that prompt holds.
     pub(super) fn tool_set(&self) -> &Arc<ToolSet> {
-        &self.shared.tool_set
+        &self.prompt.tool_set
     }
 
-    /// The binding of the `default` role: the model a section starts on.
-    /// It is `None` when the caller supplied no model.
+    /// The binding of the `default` role in the model set of the prompt
+    /// this chain runs: the model a chain that starts that prompt starts
+    /// on. It is `None` when the caller supplied no model.
     pub(super) fn default_binding(&self) -> Option<ModelBinding> {
-        self.shared
+        self.prompt
             .model_set
             .binding(ModelRole::Default.as_str())
             .cloned()
     }
 
-    /// The run's model set, shared with every section VM the run
-    /// constructs.
+    /// The model set of the prompt this chain runs, shared with every
+    /// section VM of that prompt.
     pub(super) fn model_set(&self) -> Arc<ModelSet> {
-        Arc::clone(&self.shared.model_set)
+        Arc::clone(&self.prompt.model_set)
     }
 
     /// The refusal the run's first step fails with, or `None` when the
-    /// params lack nothing the prompt requires.
+    /// params lack nothing the run's prompts require.
     pub(super) fn refusal(&self) -> Option<&Error> {
         self.shared.refusal.as_ref()
     }
 
     /// The failure the run's first step fails with, or `None` when the
-    /// prompt's `args` declaration accepts the caller's arguments.
+    /// `args` declaration of the run's own prompt accepts the caller's
+    /// arguments.
     pub(super) fn args_refusal(&self) -> Option<&Error> {
         self.shared.args_refusal.as_ref()
     }
 
-    /// The resolved tool-loop cap per `models.loop` call: the frontmatter's
-    /// `max_tool_iterations` over the limits default, held to the limits
-    /// ceiling.
+    /// The resolved tool-loop cap per `models.loop` call in the prompt
+    /// this chain runs: its frontmatter's `max_tool_iterations` over the
+    /// limits default, held to the limits ceiling.
     fn max_tool_iterations(&self) -> usize {
         let limits = &self.shared.limits;
         let cap = self
-            .shared
+            .prompt
             .prompt
             .frontmatter()
             .max_tool_iterations()
@@ -348,18 +471,18 @@ impl ChainState {
         cap.min(limits.tool_iterations_ceiling).get() as usize
     }
 
-    /// The run's top-level section count, the preamble included, reported
-    /// as `sys.section_count`.
+    /// The top-level section count of the prompt this chain runs, the
+    /// preamble included, reported as `sys.section_count`.
     fn section_count(&self) -> usize {
-        crate::prompt::detail::sections(&self.shared.prompt).len()
+        crate::prompt::detail::sections(&self.prompt.prompt).len()
     }
 
     /// The context a contained chain runs under when a `call` or a
     /// `tasks.spawn` passed it arguments: `args` in place of the caller's.
     /// An object is the chain's arguments as given, and a string is the
     /// one field `text` of them. The prompt's `args` declaration describes
-    /// what a caller passes the run, so nothing checks a chain's own
-    /// arguments against it.
+    /// what a caller passes a chain that starts the prompt, so nothing
+    /// checks these arguments against it.
     #[must_use]
     pub(super) fn with_args(&self, args: serde_json::Value) -> Self {
         let args = match args {
@@ -371,6 +494,38 @@ impl ChainState {
         let mut ctx = self.clone();
         ctx.args = Arc::new(args);
         ctx
+    }
+
+    /// The context a chain runs another of the run's prompts under: the
+    /// prompt the run holds under `name`, with that prompt's own sets;
+    /// `args`, a JSON object, as the chain's arguments; and a new, empty
+    /// store made for the chain `made_for`, in place of this chain's. The
+    /// reporting handles stay, as does everything the run shares. `None`
+    /// when the run holds no prompt under `name`.
+    ///
+    /// Nothing here checks `args` against that prompt's `args`
+    /// declaration, and nothing checks that this chain's prompt lists
+    /// `name`.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "no request switches a chain to another prompt, so only tests call this fork"
+        )
+    )]
+    #[must_use]
+    pub(super) fn with_prompt(
+        &self,
+        name: &str,
+        args: serde_json::Value,
+        made_for: ChainId,
+    ) -> Option<Self> {
+        let prompt = Arc::clone(self.shared.prompts.get(name)?);
+        let mut ctx = self.clone();
+        ctx.prompt = prompt;
+        ctx.args = Arc::new(args);
+        ctx.store = ChainStore::new(made_for);
+        Some(ctx)
     }
 
     /// The context a spawned task chain runs under: an emitter stamping
@@ -405,10 +560,10 @@ impl ChainState {
             seed,
             emitter: &self.reporting.emitter,
             section_name,
-            file: self.shared.prompt.file(),
+            file: self.prompt.prompt.file(),
             max_tool_iterations: self.max_tool_iterations(),
             ui: self.shared.ui.as_ref(),
-            preludes: &self.shared.preludes,
+            preludes: &self.prompt.preludes,
             #[cfg(test)]
             raw_shims: self.shared.raw_shims,
         }
@@ -436,6 +591,8 @@ impl fmt::Debug for ChainState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ChainState")
             .field("shared", &self.shared)
+            .field("prompt", &self.prompt)
+            .field("store_made_for", &self.store.made_for)
             .field("reporting", &self.reporting)
             .field("args", &self.args)
             .finish()
@@ -448,19 +605,26 @@ impl fmt::Debug for SharedState {
         #[cfg(test)]
         state.field("raw_shims", &self.raw_shims);
         state
-            .field("prompt", &self.prompt)
+            .field("prompts", &self.prompts.keys().collect::<Vec<_>>())
             .field("nonce", &self.nonce)
             .field("vfs", &"<VfsRef>")
-            .field("store", &self.store)
             .field("limits", &self.limits)
             .field("events", &self.events)
             .field("cancel", &self.cancel)
-            .field("tool_set", &self.tool_set)
-            .field("model_set", &self.model_set)
             .field("refusal", &self.refusal)
             .field("args_refusal", &self.args_refusal)
             .field("when", &self.when)
             .field("ui", &self.ui)
+            .finish()
+    }
+}
+
+impl fmt::Debug for PromptState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PromptState")
+            .field("prompt", &self.prompt)
+            .field("tool_set", &self.tool_set)
+            .field("model_set", &self.model_set)
             .field(
                 "preludes",
                 &self.preludes.iter().map(Prelude::pack).collect::<Vec<_>>(),
@@ -469,31 +633,11 @@ impl fmt::Debug for SharedState {
     }
 }
 
-/// Builds the run's shared tool set: the frontmatter's declared Packs,
-/// and the run catalog and roster, all moved out of the params. Nothing
-/// is bound here: each section entry binds the tools it offers when it
-/// freezes its sets.
-fn run_tool_set(
-    prompt: &Prompt,
-    tools: ToolCatalog,
-    packs: BTreeMap<PackId, RosterEntry>,
-) -> ToolSet {
-    ToolSet::new(
-        prompt
-            .frontmatter()
-            .uses()
-            .iter()
-            .map(|entry| entry.id().clone())
-            .collect(),
-        packs,
-        tools,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     //! Tests for `ChainState` construction, forking, task sequence seeding,
-    //! and the model set a run binds from its filled roles.
+    //! the model set a run binds from its filled roles, and the sets each
+    //! prompt of a run gets.
 
     use std::collections::BTreeMap;
     use std::num::NonZeroU32;
@@ -507,11 +651,50 @@ mod tests {
     use crate::execute::section_vm::VmSeed;
     use crate::lua::RosterEntry;
     use crate::model::{ModelRole, ThinkingMode};
-    use crate::test_support::scenario::{TEST_SEED, test_model_with};
+    use crate::test_support::scenario::{TEST_SEED, fresh_store_view, test_model, test_model_with};
 
     fn test_prompt() -> Prompt {
         let source = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n## Only\n\ndone\n";
         Prompt::parse(&|_: &str| Ok(source.to_owned()), "prompt").expect("the test prompt parses")
+    }
+
+    /// The prompt `prompt`, whose frontmatter adds `front` and lists
+    /// `review.md`, a prompt of two sections whose frontmatter adds
+    /// `review`.
+    fn linking_prompt(front: &str, review: &str) -> Prompt {
+        let main = format!(
+            "---\nname: t\ndescription: d\nrunvil: 0\n{front}prompts: [review.md]\n---\n\n\
+             ## Only\n\ndone\n"
+        );
+        let review = format!(
+            "---\nname: review\ndescription: d\nrunvil: 0\n{review}---\n\n\
+             ## First\n\none\n\n## Second\n\ntwo\n"
+        );
+        let finder = move |name: &str| -> Result<String, Error> {
+            Ok(if name == "review.md" {
+                review.clone()
+            } else {
+                main.clone()
+            })
+        };
+        Prompt::parse(&finder, "prompt").expect("the two test prompts parse")
+    }
+
+    fn pack(id: &str) -> PackId {
+        PackId::parse(id).expect("a static valid Pack id")
+    }
+
+    /// The Pack of each prelude a section VM of `ctx`'s prompt installs,
+    /// in install order.
+    fn prelude_packs(ctx: &ChainState) -> Vec<String> {
+        let sys = json!({});
+        let selection = Arc::new(Mutex::new(None));
+        let setup = ctx.vm_setup(&sys, VmSeed::default(), &selection, "Only");
+        setup
+            .preludes
+            .iter()
+            .map(|prelude| prelude.pack().to_string())
+            .collect()
     }
 
     fn test_state(prompt: &Prompt) -> ChainState {
@@ -629,6 +812,127 @@ mod tests {
         assert!(Arc::ptr_eq(&ctx.shared, &arm.shared));
         assert_eq!(arm.emitter().task(), &task);
         assert_eq!(ctx.emitter().task(), &TaskId::from(ChainId::root()));
+    }
+
+    #[test]
+    fn each_prompt_of_a_run_gets_its_own_tool_set_model_set_and_preludes() {
+        let prompt = linking_prompt(
+            "uses: [web]\nmodels: { strong: { thinking: true } }\n",
+            "uses: [kit, web]\nmodels: { strong: { thinking: false } }\nmax_tool_iterations: 3\n",
+        );
+        // The preludes come in no prompt's order, and `stray` is of a Pack
+        // neither prompt declares.
+        let preludes = ["web", "stray", "kit"]
+            .map(|id| Prelude::new(pack(id), format!("{id}_loaded = true")))
+            .to_vec();
+        let ctx = state_over(
+            &prompt,
+            RunParams::new(TEST_SEED, runvil_types::timestamp::Timestamp::UNIX_EPOCH)
+                .with_models(BTreeMap::from([(ModelRole::Default, test_model("m"))]))
+                .with_preludes(preludes),
+        );
+        let review = ctx
+            .with_prompt("review.md", json!({}), ChainId::root().child(0))
+            .expect("the run holds the prompt its prompt links");
+        assert_eq!(ctx.prompt().file(), "prompt");
+        assert_eq!(review.prompt().file(), "review.md");
+        assert_eq!(ctx.tool_set().declared(), [pack("web")]);
+        assert_eq!(review.tool_set().declared(), [pack("kit"), pack("web")]);
+        let thinking = |ctx: &ChainState| {
+            let set = ctx.model_set();
+            let strong = set.binding("strong").expect("the role map fills the role");
+            strong.invocation().thinking
+        };
+        assert_eq!(thinking(&ctx), Some(true));
+        assert_eq!(thinking(&review), Some(false));
+        assert_eq!(
+            ctx.default_binding()
+                .expect("the role map fills the role")
+                .invocation()
+                .thinking,
+            None,
+            "neither prompt declares a thinking switch for `default`"
+        );
+        assert_eq!(prelude_packs(&ctx), ["web"]);
+        assert_eq!(
+            prelude_packs(&review),
+            ["kit", "web"],
+            "each prompt's own Packs' preludes, in the order it declares them"
+        );
+        assert_eq!((ctx.section_count(), review.section_count()), (1, 2));
+        assert_eq!(
+            (ctx.max_tool_iterations(), review.max_tool_iterations()),
+            (24, 3)
+        );
+        assert_eq!(ctx.refusal(), None, "the params lack nothing");
+    }
+
+    #[test]
+    fn a_prompt_fork_swaps_the_prompt_the_arguments_and_the_store_and_keeps_the_rest() {
+        let ctx = test_state(&linking_prompt("", ""));
+        let made_for = ChainId::root().child(3);
+        let child = ctx
+            .with_prompt("review.md", json!({ "topic": "tea" }), made_for.clone())
+            .expect("the run holds the prompt its prompt links");
+        assert!(Arc::ptr_eq(&ctx.shared, &child.shared));
+        assert!(Arc::ptr_eq(ctx.turns(), child.turns()));
+        assert!(Arc::ptr_eq(ctx.emitter(), child.emitter()));
+        assert_eq!(**child.args(), json!({ "topic": "tea" }));
+        assert_eq!(**ctx.args(), json!({}), "the fork leaves its source alone");
+        assert_eq!(ctx.store.made_for, ChainId::root());
+        assert_eq!(child.store.made_for, made_for);
+
+        // A file in one store is no file of the other.
+        let write = |ctx: &ChainState, path: &str| {
+            fresh_store_view(ctx.store(), "the fork test's write")
+                .and_then(|view| view.write(path, b"x"))
+                .expect("a fresh view writes");
+        };
+        let exists = |ctx: &ChainState, path: &str| {
+            fresh_store_view(ctx.store(), "the fork test's read")
+                .and_then(|view| view.exists(path))
+                .expect("a fresh view reads")
+        };
+        write(&ctx, "own.md");
+        write(&child, "child.md");
+        assert!(exists(&ctx, "own.md") && !exists(&ctx, "child.md"));
+        assert!(exists(&child, "child.md") && !exists(&child, "own.md"));
+
+        // The other forks keep the prompt and the store.
+        let task: TaskId = "0.3.1".parse().expect("a task id parses");
+        for fork in [
+            child.with_args(json!("text")),
+            child.with_task(task, Arc::new(AtomicU32::new(0))),
+        ] {
+            assert_eq!(fork.prompt().file(), "review.md");
+            assert!(Arc::ptr_eq(&fork.store, &child.store));
+        }
+
+        // A fork back onto the run's own prompt gets a store of its own
+        // too, and a name the run holds no prompt under gets nothing.
+        let back = child
+            .with_prompt("prompt", json!({}), made_for.child(0))
+            .expect("the run holds its own prompt under its name");
+        assert_eq!(back.prompt().file(), "prompt");
+        assert!(Arc::ptr_eq(ctx.prompt(), back.prompt()));
+        assert!(!exists(&back, "own.md"));
+        assert!(
+            ctx.with_prompt("absent.md", json!({}), made_for).is_none(),
+            "the run holds no prompt under that name"
+        );
+    }
+
+    #[test]
+    fn a_test_model_set_replaces_the_set_of_the_runs_own_prompt_alone() {
+        let ctx = test_state(&linking_prompt("", "")).with_models_for_test(ModelSet::default());
+        assert!(ctx.model_set().bindings().is_empty());
+        let back = ctx
+            .with_prompt("prompt", json!({}), ChainId::root().child(0))
+            .expect("the run holds its own prompt under its name");
+        assert!(
+            Arc::ptr_eq(&ctx.model_set(), &back.model_set()),
+            "a fork onto the run's own prompt finds the replaced set"
+        );
     }
 
     #[test]

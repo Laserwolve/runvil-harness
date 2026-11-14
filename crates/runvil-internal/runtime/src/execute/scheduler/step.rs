@@ -100,7 +100,7 @@ impl Scheduler {
     /// block's start, SUCCEEDED or FAILED when its coroutine finally
     /// returns or fails - a suspension is neither.
     pub(super) fn step_chain(&mut self, id: ChainIndex) -> Result<ChainStep> {
-        let prompt = self.prompt();
+        let prompt = self.prompt_of(id);
         let chain = &mut self.chains[id];
         let blocks = chain.blocks(&prompt);
         let name = chain.section_name().to_owned();

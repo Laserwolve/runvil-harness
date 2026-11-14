@@ -162,7 +162,7 @@ impl Scheduler {
                     .and_then(|task| self.tasks.spawn_line_of(task));
                 Err(place(
                     error::make_tasks_live_error(&leaked),
-                    self.ctx.prompt().file(),
+                    self.chains[owner].ctx.prompt().file(),
                     line,
                 ))
             }

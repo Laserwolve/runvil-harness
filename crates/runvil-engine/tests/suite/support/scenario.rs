@@ -16,13 +16,13 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
-use runvil_engine::Error;
 use runvil_engine::ToolCatalog;
 use runvil_engine::effect::{Effect, EffectAnswer, EffectId, IssuedEffect};
 use runvil_engine::event::Event;
 use runvil_engine::ids::Provenance;
 use runvil_engine::model::{Completion, ModelInfo, ModelRole};
 use runvil_engine::vfs::perform_vfs_op;
+use runvil_engine::{Error, ErrorCode};
 use runvil_engine::{Prompt, Run, RunParams, RunSeed, Step, Timestamp};
 use serde_json::{Value, json};
 
@@ -37,6 +37,9 @@ const TEST_SEED: RunSeed = RunSeed::from_bytes([7; 32]);
 /// as its arguments unless it sets them, and gives the `default` role
 /// [`canned`] unless it names a model or a role map.
 pub(crate) struct Scenario {
+    /// The source of each prompt the run's prompt can link, by the name a
+    /// `prompts:` list gives it.
+    linked: BTreeMap<String, String>,
     args: String,
     started_at: Timestamp,
     model: Option<ModelInfo>,
@@ -51,6 +54,7 @@ pub(crate) struct Scenario {
 impl Default for Scenario {
     fn default() -> Self {
         Self {
+            linked: BTreeMap::new(),
             args: "{}".to_owned(),
             started_at: Timestamp::default(),
             model: None,
@@ -81,6 +85,14 @@ impl Scenario {
             tool: Some(tool),
             ..Self::replies(replies)
         }
+    }
+
+    /// Serves `source` to the parse under `name`, so the run's prompt, or
+    /// a prompt it links, can list `name` under `prompts:`. The run's own
+    /// prompt is found under `prompt`.
+    pub(crate) fn prompt(mut self, name: &str, source: impl Into<String>) -> Self {
+        self.linked.insert(name.to_owned(), source.into());
+        self
     }
 
     /// Holds each effect `hold` picks, unanswered, until the run withdraws
@@ -131,9 +143,22 @@ impl Scenario {
         self
     }
 
-    /// Parses `source` and builds its params.
+    /// Parses `source`, with every prompt it links, and builds its params.
     pub(crate) fn build(&self, source: &str) -> TestResult<Built> {
-        let prompt = Prompt::parse(&|_: &str| Ok(source.to_owned()), "prompt")?;
+        let linked = &self.linked;
+        let finder = |name: &str| -> Result<String, Error> {
+            if name == "prompt" {
+                return Ok(source.to_owned());
+            }
+            linked.get(name).cloned().ok_or_else(|| {
+                Error::new(
+                    ErrorCode::NotFound,
+                    format!("no prompt named {name}"),
+                    "No prompt has that name.",
+                )
+            })
+        };
+        let prompt = Prompt::parse(&finder, "prompt")?;
         let roles = match (&self.roles, &self.model) {
             (Some(roles), _) => roles.clone(),
             (None, Some(model)) => BTreeMap::from([(ModelRole::Default, model.clone())]),

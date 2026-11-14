@@ -612,8 +612,9 @@ impl Scheduler {
         let model = chain.current_model()?;
         let spawner_access = Arc::clone(chain.access()?);
         // `chain`'s arena borrow ends here; the resolution names the
-        // target's slice by path, resolved against the shared tree.
-        let prompt = self.prompt();
+        // target's slice by path, resolved against the shared tree of the
+        // spawner's prompt.
+        let prompt = self.prompt_of(id);
         let resolved = self.with_chain(id, |ops| ops.resolve_chain_target(target, from))?;
         let worker = resolved
             .pos

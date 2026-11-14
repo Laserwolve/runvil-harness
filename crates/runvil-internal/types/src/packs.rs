@@ -219,7 +219,8 @@ impl serde::de::Visitor<'_> for PackRefVisitor {
     }
 }
 
-/// Holds the Lua source a declared Pack adds to every section's VM.
+/// Holds the Lua source a Pack adds to the VM of every section of a
+/// prompt that declares it.
 ///
 /// A prelude defines tables and functions, such as `sh.run(script)`, that
 /// call the Pack's own tools through `tools.call`. The Engine runs
@@ -231,7 +232,8 @@ impl serde::de::Visitor<'_> for PackRefVisitor {
 pub struct Prelude {
     /// The Pack that contributed the source.
     pack: PackId,
-    /// The Lua source, compiled from text in every section VM.
+    /// The Lua source, compiled from text in every section VM that
+    /// installs it.
     source: String,
 }
 
