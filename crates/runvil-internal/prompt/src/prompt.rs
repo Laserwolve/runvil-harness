@@ -1,13 +1,15 @@
 //! Holds the parsed prompt tree: [`Prompt`], its [`Section`]s, and their [`Block`]s.
 //!
-//! Code outside the Engine reads a prompt's file and frontmatter; the tree
-//! below them is the Engine's, reached through [`crate::detail`].
+//! Code outside the Engine reads a prompt's file, its frontmatter, and the
+//! prompts its lists reach; the tree below them is the Engine's, reached
+//! through [`crate::detail`].
 //!
 //! Construction happens in the parsing modules; this module holds the value
 //! types and their accessors.
 
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
+use std::sync::Arc;
 
 use crate::{BodyText, Frontmatter};
 use runvil_lua::LuaProgram;
@@ -152,6 +154,10 @@ pub struct Prompt {
     /// line declares, by the key's name; the Engine reaches it through
     /// [`crate::detail::key_line`].
     pub(crate) key_lines: BTreeMap<String, NonZeroU32>,
+    /// Every other prompt the `prompts:` lists reach from this one, by the
+    /// name it was found under. Only the prompt a parse returns holds any:
+    /// the table of each prompt in it is empty.
+    pub(crate) linked: BTreeMap<String, Arc<Prompt>>,
 }
 
 impl Prompt {
@@ -166,6 +172,17 @@ impl Prompt {
     #[must_use]
     pub fn frontmatter(&self) -> &Frontmatter {
         &self.frontmatter
+    }
+
+    /// Returns every other prompt the `prompts:` lists reach from this
+    /// one, in the order of their names: the prompts this one lists, the
+    /// prompts those list, and so on, each once and each already parsed.
+    /// [`file`](Prompt::file) is the name a prompt was listed under.
+    ///
+    /// The prompt [`Prompt::parse`](crate::Prompt::parse) returns holds
+    /// them all, so each prompt this returns has none of its own.
+    pub fn linked(&self) -> impl Iterator<Item = &Arc<Prompt>> {
+        self.linked.values()
     }
 
     /// The entry-point section: the first top-level section in file order;

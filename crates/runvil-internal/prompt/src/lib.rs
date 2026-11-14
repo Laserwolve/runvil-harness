@@ -26,6 +26,12 @@
 //! [`detail::accept_args`] checks a caller's arguments against it for the
 //! executor.
 //!
+//! The frontmatter's `prompts` key lists prompts by the names a
+//! [`PromptFinder`] finds them under. [`Prompt::parse`] finds and parses
+//! every prompt those lists reach, so a parsed prompt holds each of them
+//! ready to run too ([`Prompt::linked`]), and no finder is asked again
+//! once a parse returns.
+//!
 //! ## Invariants
 //!
 //! - May depend on: `runvil-types` and `runvil-lua`.

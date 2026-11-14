@@ -47,6 +47,11 @@ pub struct Frontmatter {
     /// The requirements declared per model role.
     #[serde(default)]
     models: RoleMap,
+    /// The prompts the prompt lists, each by the name a
+    /// [`PromptFinder`](crate::PromptFinder) finds it under, in
+    /// declaration order.
+    #[serde(default)]
+    prompts: Vec<String>,
 }
 
 /// The largest explicit `max_tool_iterations` a prompt may declare.
@@ -135,6 +140,16 @@ impl Frontmatter {
     #[must_use]
     pub fn role_requirements(&self, role: ModelRole) -> Option<&RoleRequirements> {
         self.models.get(role)
+    }
+
+    /// Returns the `prompts:` entries, in declaration order: the name of
+    /// each prompt this one lists, as a
+    /// [`PromptFinder`](crate::PromptFinder) finds it.
+    ///
+    /// No entry is empty, and no two entries are the same name.
+    #[must_use]
+    pub fn prompts(&self) -> &[String] {
+        &self.prompts
     }
 }
 

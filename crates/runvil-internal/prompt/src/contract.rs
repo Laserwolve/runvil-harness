@@ -1,18 +1,20 @@
-//! Parses the frontmatter contract keys: `uses`, `args`, and `models`.
+//! Parses the frontmatter contract keys: `uses`, `args`, `models`, and
+//! `prompts`.
 //!
 //! The YAML is the whole contract: Packs install, models declare, args
-//! type. Parsing validates the static shape - each `uses:` entry a bare
-//! Pack id or vendor/name, no Pack id declared twice, no reserved Pack id,
-//! the alias grammar on argument names, the five model role names, and the
-//! keywords of the `args` declaration against each other - and exposes
-//! the FULL declaration on the parsed [`Prompt`](crate::Prompt); checking
-//! the declaration against the caller's environment and arguments is the
-//! job of the run's first step, never the parser's.
+//! type, prompts list. Parsing validates the static shape - each `uses:`
+//! entry a bare Pack id or vendor/name, no Pack id declared twice, no
+//! reserved Pack id, the alias grammar on argument names, the five model
+//! role names, the keywords of the `args` declaration against each other,
+//! and no `prompts:` entry empty or listed twice - and exposes the FULL
+//! declaration on the parsed [`Prompt`](crate::Prompt); checking the
+//! declaration against the caller's environment and arguments is the job
+//! of the run's first step, never the parser's.
 //!
 //! `args` and `models` are defined in submodules, and `args_check` checks
 //! a caller's arguments against the `args` declaration; this root owns
-//! the `uses:` checks, the argument-name check, and the map deserializer
-//! the two map keys share.
+//! the `uses:` checks, the `prompts:` check, the argument-name check, and
+//! the map deserializer the two map keys share.
 
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
@@ -176,4 +178,34 @@ pub(crate) fn check_no_reserved_pack(packs: &[PackRef]) -> crate::Result<()> {
         )),
         None => Ok(()),
     }
+}
+
+/// Refuses a `prompts:` list that holds an empty entry or names one prompt
+/// twice, because each entry is the one name a finder finds a prompt
+/// under.
+///
+/// The refusal is for the first such entry, with the `Reason` fact
+/// `prompt_empty` or `prompt_duplicate`, and a repeated name is its `Name`
+/// fact.
+pub(crate) fn check_listed_prompts(names: &[String]) -> crate::Result<()> {
+    let mut seen = BTreeSet::new();
+    for name in names {
+        if name.is_empty() {
+            return Err(error::make_prompts_refusal_error(
+                "prompt_empty",
+                None,
+                "invalid frontmatter: a prompts entry must not be empty".to_owned(),
+            ));
+        }
+        if !seen.insert(name) {
+            return Err(error::make_prompts_refusal_error(
+                "prompt_duplicate",
+                Some(name),
+                format!(
+                    "invalid frontmatter: prompt {name} is listed more than once under prompts"
+                ),
+            ));
+        }
+    }
+    Ok(())
 }

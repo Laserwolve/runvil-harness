@@ -1,8 +1,10 @@
-//! Parses a prompt's source into a [`Prompt`]: frontmatter and sections.
+//! Parses a prompt's source into a [`Prompt`]: frontmatter and sections,
+//! and every prompt its `prompts:` lists reach.
 
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
-use runvil_types::error::Error;
+use runvil_types::error::{Error, place};
 
 use crate::frontmatter::SplitSource;
 use crate::sections::{self, SectionWalker};
@@ -10,22 +12,42 @@ use crate::{
     Frontmatter, Prompt, PromptFinder, Result, Section, contract, error, fence, frontmatter,
 };
 
+/// The frontmatter key that lists a prompt's prompts.
+const PROMPTS_KEY: &str = "prompts";
+
 impl Prompt {
-    /// Finds the prompt `name` through `finder` and parses it. A find
-    /// failure is the parse result. `name` names the prompt in failures
-    /// and in [`Prompt::file`].
+    /// Finds the prompt `name` through `finder` and parses it, then finds
+    /// and parses every prompt its `prompts:` list reaches. A find failure
+    /// is the parse result. `name` names the prompt in failures and in
+    /// [`Prompt::file`].
+    ///
+    /// A listed prompt is found under the name its entry gives, parsed as
+    /// `name` is, and its own list is read in turn, so the returned prompt
+    /// holds every prompt the lists reach, each once, as
+    /// [`Prompt::linked`] gives them. An entry that names a prompt the
+    /// parse has already reached, `name` included, finds nothing again, so
+    /// prompts may list each other.
     ///
     /// # Errors
-    /// Returns the error `finder` returned, unchanged, or an [`Error`]
-    /// whose code is:
+    /// Returns the error `finder` returned for `name`, unchanged. The
+    /// error it returned for a listed prompt comes back as given, except
+    /// that one with no location is placed on the `prompts:` line of the
+    /// prompt whose list named it, when one line declares that key. A
+    /// listed prompt that fails to parse fails the parse with its own
+    /// failure, located in the listed prompt. Otherwise returns an
+    /// [`Error`] whose code is:
     ///
     /// - `FrontmatterInvalid` when the `---` delimiters are missing, the
     ///   frontmatter fails to decode, a `uses:` entry is neither a Pack id
     ///   nor vendor/name, two entries share a Pack id, an entry names a
-    ///   Pack id the Engine reserves, or the `args:` declaration is outside
-    ///   its subset of JSON Schema. A refused `uses:` list has the `Reason`
-    ///   fact `pack_duplicate` or `pack_reserved` and the Pack id as its
-    ///   `Name` fact, and is located on the `uses:` line when one line
+    ///   Pack id the Engine reserves, a `prompts:` entry is empty or is
+    ///   listed twice, or the `args:` declaration is outside its subset of
+    ///   JSON Schema. A refused `uses:` list has the `Reason` fact
+    ///   `pack_duplicate` or `pack_reserved` and the Pack id as its `Name`
+    ///   fact, and is located on the `uses:` line when one line declares
+    ///   the key. A refused `prompts:` list has the `Reason` fact
+    ///   `prompt_empty` or `prompt_duplicate`, a repeated name as its
+    ///   `Name` fact, and is located on the `prompts:` line when one line
     ///   declares the key. An `args:` declaration is refused when a node
     ///   holds a keyword other than `type`, `properties`, `required`,
     ///   `additionalProperties`, `items`, `enum`, `description`, and
@@ -68,14 +90,61 @@ impl Prompt {
     /// - `Internal` when the parser fails through no fault of the prompt:
     ///   one of its own invariants breaks, or the Lua compiler cannot start.
     ///
-    /// The failure's location, when known, is in `name`, except that an
-    /// `Internal` failure is located at the Rust source position of the
-    /// fault. A failure found past the frontmatter, other than an
-    /// `Internal` one, has the prompt's frontmatter name as its `Name` fact.
+    /// The failure's location, when known, is in the prompt that failed to
+    /// parse, `name` or a listed one, except that an `Internal` failure is
+    /// located at the Rust source position of the fault. A failure found
+    /// past the frontmatter, other than an `Internal` one, has that
+    /// prompt's frontmatter name as its `Name` fact.
     pub fn parse(finder: &dyn PromptFinder, name: &str) -> std::result::Result<Prompt, Error> {
-        finder
-            .find(name)
-            .and_then(|source| Self::parse_source(&source, name))
+        let source = finder.find(name)?;
+        let mut prompt = Self::parse_source(&source, name)?;
+        prompt.linked = Self::parse_linked(finder, &prompt)?;
+        Ok(prompt)
+    }
+
+    /// Finds and parses every prompt the `prompts:` lists reach from
+    /// `main`, each once: the prompts `main` lists, in list order, then
+    /// the prompts each of those lists, in the order the parse reached
+    /// them. `main` is the prompt its own name finds, so no entry finds
+    /// it again.
+    fn parse_linked(
+        finder: &dyn PromptFinder,
+        main: &Prompt,
+    ) -> std::result::Result<BTreeMap<String, Arc<Prompt>>, Error> {
+        let mut linked = BTreeMap::new();
+        // The prompts whose lists are still unread, oldest first.
+        let mut unread = VecDeque::new();
+        Self::parse_listed(finder, main, main, &mut linked, &mut unread)?;
+        while let Some(lister) = unread.pop_front() {
+            Self::parse_listed(finder, main, &lister, &mut linked, &mut unread)?;
+        }
+        Ok(linked)
+    }
+
+    /// Finds and parses each prompt `lister` lists that is neither `main`
+    /// nor in `linked`, adds it to `linked`, and queues it on `unread` for
+    /// its own list. A find failure with no location is placed on
+    /// `lister`'s `prompts:` line.
+    fn parse_listed(
+        finder: &dyn PromptFinder,
+        main: &Prompt,
+        lister: &Prompt,
+        linked: &mut BTreeMap<String, Arc<Prompt>>,
+        unread: &mut VecDeque<Arc<Prompt>>,
+    ) -> std::result::Result<(), Error> {
+        let line = lister.key_lines.get(PROMPTS_KEY).copied();
+        for name in lister.frontmatter.prompts() {
+            if *name == main.file || linked.contains_key(name) {
+                continue;
+            }
+            let source = finder
+                .find(name)
+                .map_err(|error| place(error, &lister.file, line))?;
+            let prompt = Arc::new(Self::parse_source(&source, name)?);
+            linked.insert(name.clone(), Arc::clone(&prompt));
+            unread.push_back(prompt);
+        }
+        Ok(())
     }
 
     /// Parses `input`, the source of the prompt `file`, and adds the
@@ -94,7 +163,8 @@ impl Prompt {
     }
 
     /// Splits the frontmatter from the body, decodes it, and checks its
-    /// `uses:` list, placing a refused list on the `uses:` line.
+    /// `uses:` list and its `prompts:` list, placing a refused list on the
+    /// line of its key.
     fn parse_frontmatter(input: &str) -> Result<(Frontmatter, SplitSource)> {
         let split = frontmatter::split_frontmatter(input)?;
         let frontmatter: Frontmatter = serde_yaml_ng::from_str(&split.yaml)
@@ -102,6 +172,9 @@ impl Prompt {
         contract::check_distinct_packs(frontmatter.uses())
             .and_then(|()| contract::check_no_reserved_pack(frontmatter.uses()))
             .map_err(|refusal| error::on_line(refusal, split.key_lines.get("uses").copied()))?;
+        contract::check_listed_prompts(frontmatter.prompts()).map_err(|refusal| {
+            error::on_line(refusal, split.key_lines.get(PROMPTS_KEY).copied())
+        })?;
         Ok((frontmatter, split))
     }
 
@@ -127,6 +200,7 @@ impl Prompt {
             frontmatter,
             sections,
             key_lines: split.key_lines,
+            linked: BTreeMap::new(),
         })
     }
 }

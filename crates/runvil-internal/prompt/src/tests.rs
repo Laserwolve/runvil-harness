@@ -1,5 +1,5 @@
-//! Crate-wide parser tests: frontmatter, headings, the preamble, fences, lists, breaks, and
-//! line mapping.
+//! Crate-wide parser tests: frontmatter, headings, the preamble, fences, lists, breaks,
+//! line mapping, and the prompts a prompt lists.
 
 use runvil_lua::LuaProgram;
 use runvil_types::error::{Error, ErrorCode, ErrorFact};
@@ -13,6 +13,7 @@ mod breaks;
 mod frontmatter;
 mod headings;
 mod line_mapping;
+mod linked;
 mod lists;
 mod preamble_fences;
 mod section_fences;

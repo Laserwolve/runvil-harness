@@ -53,6 +53,22 @@ pub(crate) fn make_pack_refusal_error(reason: &str, pack: &PackId, message: Stri
     error
 }
 
+/// Builds the frontmatter failure for a refused `prompts:` list: `reason`
+/// is its `Reason` fact, and `name`, the refused entry when it has text,
+/// its `Name` fact.
+pub(crate) fn make_prompts_refusal_error(
+    reason: &str,
+    name: Option<&str>,
+    message: String,
+) -> Error {
+    let mut error = make_failure_error(ErrorCode::FrontmatterInvalid, message);
+    error.facts.insert(ErrorFact::Reason, reason.into());
+    if let Some(name) = name {
+        error.facts.insert(ErrorFact::Name, name.into());
+    }
+    error
+}
+
 /// Builds the failure for frontmatter that did not decode: it was not
 /// valid YAML, or a key or value broke the frontmatter schema.
 ///
