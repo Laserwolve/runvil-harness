@@ -86,6 +86,10 @@ fn a_runs_roster_and_catalog_are_the_same_whatever_its_prompt_declares() {
         let run = begin(&host, BTreeMap::new(), &prompt(uses));
         assert_eq!(run.roster(), plain.roster(), "{uses:?}");
         assert_eq!(snapshot_ids(&run), snapshot_ids(&plain), "{uses:?}");
+        // The same entries declared by a prompt the run's prompt links.
+        let run = begin(&host, BTreeMap::new(), &linking("", &[("review.md", uses)]));
+        assert_eq!(run.roster(), plain.roster(), "linked: {uses:?}");
+        assert_eq!(snapshot_ids(&run), snapshot_ids(&plain), "linked: {uses:?}");
     }
     assert_eq!(
         plain.roster(),
@@ -237,14 +241,14 @@ fn refusals_name_each_declared_pack_not_installed_or_inserted_unavailable() {
     assert_eq!(
         host.refusals(&declares),
         [
-            (name("nope"), "runvil/nope is not installed".to_owned()),
-            (name("gone"), "acme/gone is not installed".to_owned()),
-            (
-                name("poop"),
-                "poop means runvil/poop, which is not installed; write acme/poop to use that Pack"
-                    .to_owned(),
+            refused(None, "nope", "runvil/nope is not installed"),
+            refused(None, "gone", "acme/gone is not installed"),
+            refused(
+                None,
+                "poop",
+                "poop means runvil/poop, which is not installed; write acme/poop to use that Pack",
             ),
-            (name("offline"), "offline takes no configuration".to_owned()),
+            refused(None, "offline", "offline takes no configuration"),
         ],
         "a bare id means runvil/<id>, the installed runvil/web is no refusal, and neither is \
          acme/broken, whose factory only a run calls"

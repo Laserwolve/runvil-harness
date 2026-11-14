@@ -1,8 +1,9 @@
 //! Tests for the stock prompt finders: what each one finds and how its
 //! finds fail, which files of a directory a `PromptSet` takes, which
 //! insert wins a name, what a rescan changes and reports, what the set
-//! names, and a `Host` that parses a prompt its application added to a
-//! set the two share.
+//! names, a `Host` that parses a prompt its application added to a set
+//! the two share, and a `Host` that parses a prompt with the prompt it
+//! lists from one set.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -505,4 +506,76 @@ fn a_host_parses_a_prompt_added_to_the_set_it_shares_once_its_application_rescan
         .expect("the rescanned set finds the added prompt");
     assert_eq!(prompt.file(), "greet.md");
     assert_eq!(prompt.frontmatter().name(), "greet");
+}
+
+/// A prompt that parses, names itself `plan`, and lists `greet.md` on file
+/// line 5.
+const PLAN: &str =
+    "---\nname: plan\ndescription: d\nrunvil: 0\nprompts: [greet.md]\n---\n\n## Only\n\nDone.\n";
+
+/// A Host with no Pack but the built-ins, whose finder is `prompts`.
+fn host_over(prompts: Arc<PromptSet>) -> Host {
+    Host {
+        packs: Packs::new(PackRegistry::new()),
+        prompts,
+        timer: Arc::new(NoWait),
+    }
+}
+
+/// The file name of each prompt `prompt` links, in the order it gives
+/// them.
+fn linked_names(prompt: &runvil_engine::Prompt) -> Vec<&str> {
+    prompt.linked().map(|linked| linked.file()).collect()
+}
+
+#[test]
+fn one_parse_reads_a_prompt_and_the_prompt_it_lists_from_the_set() {
+    let dir = Scratch::new("one_parse_reads_a_prompt_and_the_prompt_it_lists");
+    write(dir.path(), "plan.md", PLAN);
+    write(dir.path(), "greet.md", GREET);
+    let host = host_over(Arc::new(set_over(dir.path())));
+    let prompt = host.parse("plan.md").expect("the set serves both prompts");
+    assert_eq!(prompt.file(), "plan.md");
+    assert_eq!(linked_names(&prompt), ["greet.md"]);
+    let greet = prompt.linked().next().expect("plan.md links greet.md");
+    assert_eq!(greet.frontmatter().name(), "greet");
+}
+
+#[test]
+fn a_listed_name_the_set_lacks_fails_the_parse_on_the_listing_prompts_line() {
+    let dir = Scratch::new("a_listed_name_the_set_lacks_fails_the_parse");
+    write(dir.path(), "plan.md", PLAN);
+    let host = host_over(Arc::new(set_over(dir.path())));
+    let mut expected = missing("greet.md");
+    expected.at = Some(runvil_engine::SourceLoc::line(
+        "plan.md",
+        std::num::NonZeroU32::new(5).expect("5 is non-zero"),
+    ));
+    assert_eq!(
+        host.parse("plan.md"),
+        Err(expected),
+        "the set's failure for the listed name, placed where `plan.md` lists it"
+    );
+}
+
+#[test]
+fn a_parsed_prompt_keeps_the_prompt_it_links_when_a_rescan_drops_that_prompts_file() {
+    let dir = Scratch::new("a_parsed_prompt_keeps_the_prompt_it_links");
+    write(dir.path(), "plan.md", PLAN);
+    let listed = write(dir.path(), "greet.md", GREET);
+    let prompts = Arc::new(set_over(dir.path()));
+    let host = host_over(prompts.clone());
+    let prompt = host.parse("plan.md").expect("the set serves both prompts");
+
+    fs::remove_file(&listed).expect("the file is removed");
+    rescan_all(&prompts);
+    let error = host
+        .parse("plan.md")
+        .expect_err("the next parse finds no greet.md");
+    assert_eq!(error.message, "no prompt named greet.md");
+    assert_eq!(
+        linked_names(&prompt),
+        ["greet.md"],
+        "the prompt parsed before the rescan holds what it read then"
+    );
 }

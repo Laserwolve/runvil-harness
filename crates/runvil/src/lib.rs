@@ -13,8 +13,9 @@
 //! [`PromptFinder`], its own or a stock one such as
 //! [`harness::PromptSet`], and its [`harness::Timer`], which also stamps
 //! each run's start as a [`Timestamp`], and shares it behind an `Arc`.
-//! [`Host::parse`] finds a prompt by its name and parses it. For each run
-//! the launcher builds a [`RunSetup`] with the run's recorder, inference
+//! [`Host::parse`] finds a prompt by its name and parses it, with every
+//! prompt its `prompts:` lists reach. For each run the launcher
+//! builds a [`RunSetup`] with the run's recorder, inference
 //! broker, filesystem, model selection, workspace roots, [`RunLimits`],
 //! tool-call cap, arguments, and whether a user answers it, and
 //! [`Harness::new`] takes the Host, the parsed prompt, and that setup.

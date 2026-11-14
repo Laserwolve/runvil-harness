@@ -1,14 +1,14 @@
 //! What every run of one Host shares: [`Host`], its installed Packs, how
 //! it finds prompts, and its timer, and [`Host::parse`], which finds a
-//! prompt by its name, parses it, and checks its `uses:` list against the
-//! Host's Packs.
+//! prompt by its name, parses it and every prompt it links, and checks
+//! the `uses:` list of each against the Host's Packs.
 
 use std::fmt::{self, Write as _};
 use std::sync::Arc;
 
 use runvil_engine::{Error, ErrorCode, Prompt, PromptFinder};
 
-use crate::packs::Packs;
+use crate::packs::{Packs, Refused};
 use crate::performers::Timer;
 
 /// What every run of one Host shares: its installed Packs, how it finds
@@ -25,13 +25,17 @@ pub struct Host {
 }
 
 impl Host {
-    /// Parses the prompt `name` with `Prompt::parse` over `prompts`, then
-    /// checks its `uses:` against `packs`. Returns the parse failure, a
-    /// finder's included, as given, or `RequirementsUnmet` naming each
-    /// Pack that `Packs::refusals` reports, with its reason: one not
-    /// installed, or inserted unavailable. Parsing makes no Pack, so a
-    /// factory that would refuse a run is refused at that run's first step
-    /// instead.
+    /// Parses the prompt `name` with `Prompt::parse` over `prompts`, which
+    /// finds and parses every prompt its `prompts:` lists reach too, then
+    /// checks the `uses:` of each of them against `packs`. Returns the
+    /// parse failure, a finder's included, as given, or
+    /// `RequirementsUnmet` naming each Pack that `Packs::refusals`
+    /// reports, with its reason: one not installed, or inserted
+    /// unavailable. The line of a Pack that only a linked prompt declares
+    /// starts with that prompt's name, as in
+    /// `- review.md: web is unavailable: runvil/web is not installed`.
+    /// Parsing makes no Pack, so a factory that would refuse a run is
+    /// refused at that run's first step instead.
     ///
     /// The parse's outcome goes to `tracing` at debug level, as one line;
     /// no run exists yet to record it.
@@ -52,9 +56,12 @@ impl Host {
             return Ok(prompt);
         }
         let mut notice = String::from("the environment cannot satisfy this prompt:");
-        for (id, reason) in &refusals {
+        for Refused { by, id, reason } in &refusals {
             // Writing to a String is infallible.
-            let _ = write!(notice, "\n- {id} is unavailable: {reason}");
+            let _ = match by {
+                Some(linked) => write!(notice, "\n- {linked}: {id} is unavailable: {reason}"),
+                None => write!(notice, "\n- {id} is unavailable: {reason}"),
+            };
         }
         Err(Error::new(
             ErrorCode::RequirementsUnmet,

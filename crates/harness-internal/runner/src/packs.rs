@@ -10,10 +10,13 @@
 //! A run's Packs are every Pack the Host installed, whatever each one's
 //! vendor and whatever the run's prompt declares under `uses:`. A declared
 //! Pack is required, and every other Pack is in the run for a section to
-//! offer or call. The registry holds one Pack per Pack id, so when a
-//! `uses:` entry names a Pack id under a vendor the Host did not install
-//! it from, that Pack id is unavailable to the run, and the run leaves out
-//! the Pack another vendor installed under it. Before each run, the
+//! offer or call. A run reads the `uses:` entries of its prompt and of
+//! every prompt that one links, an entry that two of them declare once,
+//! because the linked prompts are part of the run. The registry holds one
+//! Pack per Pack id, so when a `uses:` entry names a Pack id under a
+//! vendor the Host did not install it from, that Pack id is unavailable
+//! to the run, and the run leaves out the Pack another vendor installed
+//! under it. Before each run, the
 //! Harness's preparation picks those Packs and makes the run's instance of
 //! each through its factory. A factory's refusal or panic is not an error: the
 //! Pack is unavailable to that run alone, with the refusal or "the Pack's
@@ -25,9 +28,9 @@
 //! it takes a snapshot of the instances: the catalog the Engine offers
 //! the run, the roster that says how each Pack stands, a declared Pack
 //! the pick could not resolve included, the preludes of the Packs the
-//! prompt declares, and the performer that sends each tool call to the
-//! instance its id names. The instances drop with the snapshot, when the
-//! run's future ends.
+//! prompt and the prompts it links declare, and the performer that sends
+//! each tool call to the instance its id names. The instances drop with
+//! the snapshot, when the run's future ends.
 //!
 //! The snapshot reads each usable Pack's tool list once, so the run's
 //! catalog stays fixed for the run. A render may add tools only the model
@@ -87,18 +90,66 @@ struct Installed {
     factory: Result<Arc<dyn PackFactory>, String>,
 }
 
-/// The Packs one run holds, picked by `Packs::pick`, and each of its
-/// prompt's `uses:` entries the pick cannot resolve.
+/// The Packs one run holds, picked by `Packs::pick`, and each `uses:`
+/// entry of its prompt, or of a prompt that one links, that the pick
+/// cannot resolve.
 #[derive(Debug)]
 pub(crate) struct Picked {
-    /// The FQN of each of the run's Packs: the declared ones, in
-    /// declaration order, then every other installed Pack whose Pack id
-    /// no unresolved entry names.
+    /// The FQN of each of the run's Packs: the declared ones, in the
+    /// order `declared` reads their entries, then every other installed
+    /// Pack. A Pack whose Pack id an unresolved entry names is not among
+    /// them.
     fqns: Vec<&'static str>,
     /// Each declared Pack id the Host installed no Pack for under the
-    /// vendor its entry names, with the reason it is unavailable, or
+    /// vendor an entry names, with the reason it is unavailable, or
     /// `None` when it is simply missing.
     unresolved: BTreeMap<PackId, Option<String>>,
+}
+
+/// One `uses:` entry a run reads, and the prompt that declares it.
+struct Declared<'a> {
+    /// The entry.
+    entry: &'a PackRef,
+    /// The file of the linked prompt that declares the entry, or `None`
+    /// for an entry of the run's own prompt.
+    by: Option<&'a str>,
+}
+
+/// The `uses:` entries a run of `prompt` reads: those of `prompt`, in
+/// declaration order, then those of each prompt it links, in the order of
+/// the linked prompts' names. An entry that two of them declare, the same
+/// vendor and Pack id, is read once, for the first of them.
+fn declared(prompt: &Prompt) -> Vec<Declared<'_>> {
+    let own = prompt
+        .frontmatter()
+        .uses()
+        .iter()
+        .map(|entry| Declared { entry, by: None });
+    let linked = prompt.linked().flat_map(|linked| {
+        let by = Some(linked.file());
+        linked
+            .frontmatter()
+            .uses()
+            .iter()
+            .map(move |entry| Declared { entry, by })
+    });
+    let mut seen = BTreeSet::new();
+    own.chain(linked)
+        .filter(|declared| seen.insert((declared.entry.vendor(), declared.entry.id())))
+        .collect()
+}
+
+/// A declared Pack that can serve no run of a Host, as `Packs::refusals`
+/// reports it.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Refused {
+    /// The file of the linked prompt that declares the Pack, or `None`
+    /// when the parsed prompt declares it.
+    pub(crate) by: Option<String>,
+    /// The Pack id the entry names.
+    pub(crate) id: PackId,
+    /// Why the Pack cannot serve.
+    pub(crate) reason: String,
 }
 
 /// One of a run's Packs as the run made it: its FQN, Pack id, and
@@ -155,26 +206,40 @@ impl Packs {
     }
 
     /// Picks the Packs a run of `prompt` holds: every installed Pack, the
-    /// ones its `uses:` entries name first, less a Pack whose Pack id an
-    /// entry the pick cannot resolve names.
+    /// ones the `uses:` entries of `prompt` and of the prompts it links
+    /// name first, less a Pack whose Pack id an entry the pick cannot
+    /// resolve names.
     ///
     /// A bare entry means the `runvil` Pack of that id. One the Host did
     /// not install is missing, or unavailable naming the other vendor's
     /// Pack of that id; a `vendor/name` the Host did not install is
     /// unavailable. The run holds an unresolved entry's Pack id as
     /// unavailable or missing, so the Pack another vendor installed under
-    /// that Pack id stays out of the run.
+    /// that Pack id stays out of the run, though the entry of another of
+    /// the run's prompts names it. A Pack id that two unresolved entries
+    /// name keeps the first reason either gives.
     fn pick(&self, prompt: &Prompt) -> Picked {
         let mut fqns = Vec::new();
-        let mut unresolved = BTreeMap::new();
-        for entry in prompt.frontmatter().uses() {
+        let mut unresolved: BTreeMap<PackId, Option<String>> = BTreeMap::new();
+        for Declared { entry, .. } in declared(prompt) {
             match self.find(entry) {
                 Ok((fqn, _)) => fqns.push(fqn),
                 Err(reason) => {
-                    unresolved.insert(entry.id().clone(), reason);
+                    let known = unresolved.entry(entry.id().clone()).or_default();
+                    if known.is_none() {
+                        *known = reason;
+                    }
                 }
             }
         }
+        // One prompt's entries share no Pack id, so only an entry of
+        // another of the run's prompts leaves a resolved Pack here to
+        // drop.
+        fqns.retain(|fqn| {
+            self.installed
+                .get(fqn)
+                .is_some_and(|installed| !unresolved.contains_key(&installed.id))
+        });
         let others: Vec<&'static str> = self
             .installed
             .iter()
@@ -216,25 +281,30 @@ impl Packs {
             .collect()
     }
 
-    /// Why each Pack `prompt` declares can serve no run of this Host: not
-    /// installed, or inserted unavailable. A bare `uses:` id means
-    /// `runvil/<id>`. Empty when every one is installed with a factory.
+    /// Why each Pack that `prompt` or a prompt it links declares can serve
+    /// no run of this Host: not installed, or inserted unavailable. A bare
+    /// `uses:` id means `runvil/<id>`. Each refusal names the linked
+    /// prompt that declares the Pack, and the entries come in the order
+    /// `declared` reads them. Empty when every one is installed with a
+    /// factory.
     ///
     /// Only a run makes a Pack, so a factory that would refuse a run is no
     /// refusal here.
-    pub(crate) fn refusals(&self, prompt: &Prompt) -> Vec<(PackId, String)> {
-        prompt
-            .frontmatter()
-            .uses()
-            .iter()
-            .filter_map(|entry| {
+    pub(crate) fn refusals(&self, prompt: &Prompt) -> Vec<Refused> {
+        declared(prompt)
+            .into_iter()
+            .filter_map(|Declared { entry, by }| {
                 let reason = match self.find(entry) {
                     Ok((_, installed)) => installed.factory.as_ref().err()?.clone(),
                     Err(reason) => reason.unwrap_or_else(|| {
                         format!("{}/{} is not installed", entry.vendor(), entry.id())
                     }),
                 };
-                Some((entry.id().clone(), reason))
+                Some(Refused {
+                    by: by.map(str::to_owned),
+                    id: entry.id().clone(),
+                    reason,
+                })
             })
             .collect()
     }
@@ -392,7 +462,8 @@ impl RunPacks {
     /// is unavailable with that reason; one with no reason stays out, so
     /// the run finds it missing. The roster names each of the run's Packs
     /// with the reason of each one that can't serve, and the declared
-    /// preludes are the declared, usable Packs', in declaration order.
+    /// preludes are the declared, usable Packs', in the order `declared`
+    /// reads their entries.
     fn snapshot(
         made: Vec<Made<'_>>,
         mut failures: BTreeMap<&'static str, String>,
@@ -465,14 +536,15 @@ impl RunPacks {
             .collect()
     }
 
-    /// The preludes of the usable Packs `prompt` declares, in
-    /// declaration order, each under the Pack's id.
+    /// The prelude of each usable Pack that `prompt` or a prompt it links
+    /// declares, in the order `declared` reads their entries, each under
+    /// the Pack's id and each Pack's once.
     pub(crate) fn preludes(&self, prompt: &Prompt) -> Vec<Prelude> {
-        prompt
-            .frontmatter()
-            .uses()
-            .iter()
-            .filter_map(|entry| match self.packs.get(entry.id()) {
+        let mut seen = BTreeSet::new();
+        declared(prompt)
+            .into_iter()
+            .filter(|Declared { entry, .. }| seen.insert(entry.id()))
+            .filter_map(|Declared { entry, .. }| match self.packs.get(entry.id()) {
                 Some(PackState::Usable { info, .. }) => info
                     .prelude
                     .map(|source| Prelude::new(entry.id().clone(), source)),

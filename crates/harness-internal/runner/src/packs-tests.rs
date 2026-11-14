@@ -4,9 +4,10 @@
 //! unavailable to that run alone and never waited on, and a run with no
 //! user holding `runvil/user` unavailable; and the snapshot's roster,
 //! catalog, preludes, and calls. The pick of each run's Packs and
-//! the ready wait over them sit in the `pick` child module, and the
-//! snapshot's renders and its routing of a call the catalog lacks in the
-//! `render` child module.
+//! the ready wait over them sit in the `pick` child module, what a run
+//! reads of the prompts its prompt links in the `linked` child module,
+//! and the snapshot's renders and its routing of a call the catalog lacks
+//! in the `render` child module.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -26,9 +27,11 @@ use runvil_plugin::{
 };
 use serde_json::{Value, json};
 
-use super::{Packs, RunPacks};
+use super::{Packs, Refused, RunPacks};
 use crate::performers::ToolPerformer;
 
+#[path = "packs-tests-linked.rs"]
+mod linked;
 #[path = "packs-tests-pick.rs"]
 mod pick;
 #[path = "packs-tests-render.rs"]
@@ -179,14 +182,46 @@ fn host_with(services: &HostServices, packs: &[(PackInfo, Make, Value)]) -> Pack
     Packs::new(registry)
 }
 
-/// A prompt with the given `uses:` and `tools:` frontmatter lines.
-fn prompt(frontmatter: &str) -> Prompt {
-    let source = format!(
+/// The source of a prompt with the given frontmatter lines after its
+/// fixed ones, so the first of them is file line 5.
+fn source(frontmatter: &str) -> String {
+    format!(
         "---\nname: host-test\ndescription: d\nrunvil: 0\n{frontmatter}---\n\n\
          ## Only\n\nDone.\n"
-    );
+    )
+}
+
+/// A prompt with the given `uses:` and `tools:` frontmatter lines.
+fn prompt(frontmatter: &str) -> Prompt {
+    let source = source(frontmatter);
     let prompt = Prompt::parse(&|_: &str| Ok(source.clone()), "prompt");
     prompt.unwrap()
+}
+
+/// The prompt `prompt` with the frontmatter lines `own`, which lists each
+/// of `linked`, a name beside the frontmatter lines of the prompt found
+/// under it.
+fn linking(own: &str, linked: &[(&str, &str)]) -> Prompt {
+    let names: Vec<&str> = linked.iter().map(|(name, _)| *name).collect();
+    let main = source(&format!("{own}prompts: [{}]\n", names.join(", ")));
+    let sources: BTreeMap<String, String> = linked
+        .iter()
+        .map(|(name, frontmatter)| ((*name).to_owned(), source(frontmatter)))
+        .collect();
+    let finder = move |name: &str| -> Result<String, Error> {
+        Ok(sources.get(name).unwrap_or(&main).clone())
+    };
+    Prompt::parse(&finder, "prompt").unwrap()
+}
+
+/// The refusal of the Pack `id` for `reason`, declared by the linked
+/// prompt `by`, or by the parsed prompt when `by` is `None`.
+fn refused(by: Option<&str>, id: &str, reason: &str) -> Refused {
+    Refused {
+        by: by.map(str::to_owned),
+        id: name(id),
+        reason: reason.to_owned(),
+    }
 }
 
 /// Picks `prompt`'s Packs, makes them for a run with no user, and takes

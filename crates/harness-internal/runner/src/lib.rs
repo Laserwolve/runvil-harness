@@ -1,10 +1,10 @@
 //! harness-runner - the per-run Harness and the effect loop it drives. A
 //! Host builds one [`Host`] at startup, holding its installed [`Packs`],
 //! how it finds prompts, and its timer, and [`Host::parse`] finds a prompt
-//! by its name, parses it, and checks its `uses:` list against those
-//! Packs. Three stock finders serve a Host that writes none of
-//! its own: [`FindTextPrompt`] one prompt from text,
-//! [`FindFilePrompt`] one from a file, and [`PromptSet`] the prompts
+//! by its name, parses it and every prompt it links, and checks the
+//! `uses:` list of each against those Packs. Three stock finders serve a
+//! Host that writes none of its own: [`FindTextPrompt`] one prompt from
+//! text, [`FindFilePrompt`] one from a file, and [`PromptSet`] the prompts
 //! a Host inserts as text, as files, and as directories.
 //! A launcher hands each run a [`RunSetup`] with everything that
 //! run gets on top of the Host. A [`Harness`] over the Host, the parsed
@@ -58,21 +58,22 @@
 //!   `user`. A run whose [`RunSetup`] has no user holds `runvil/user`
 //!   unavailable, with the reason "this run has no user", and never makes
 //!   it.
-//! - A run holds every Pack the Host installed, whatever its prompt
-//!   declares: a `uses:` entry only marks a Pack as required. The one
-//!   Pack a run leaves out is a Pack whose Pack id a `uses:` entry names
-//!   under a vendor the Host did not install it from, and that run is
-//!   refused. A run makes its own instance of each of its Packs, waits on
-//!   the `ready` of each instance, and drops its instances when its future
-//!   ends.
+//! - A run holds every Pack the Host installed, whatever its prompt and
+//!   the prompts that one links declare: a `uses:` entry only marks a
+//!   Pack as required. The one Pack a run leaves out is a Pack whose Pack
+//!   id a `uses:` entry of one of those prompts names under a vendor the
+//!   Host did not install it from, and that run is refused. A run makes
+//!   its own instance of each of its Packs, waits on the `ready` of each
+//!   instance, and drops its instances when its future ends.
 //! - Host services reach only a Plugin's `install`, and a tool call gets
 //!   only facts about that call.
 //! - A factory that refuses or panics leaves its Pack unavailable to that
 //!   run alone: a refusal is logged at debug and a panic at error, and the
 //!   next run calls the factory again.
 //! - A stock finder reads a file only inside a find, and the Harness calls
-//!   a finder only from [`Host::parse`], before the run exists. So no file
-//!   read happens inside a run's future.
+//!   a finder only from [`Host::parse`], before the run exists, which
+//!   finds every prompt the run holds. So no file read happens inside a
+//!   run's future.
 
 mod display_chain;
 pub mod effect_loop;

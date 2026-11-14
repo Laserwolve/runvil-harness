@@ -2,13 +2,16 @@
 //! itself by that name, a finder or parse failure comes back as given, a
 //! `uses:` entry naming a Pack not installed or inserted unavailable is
 //! refused naming the Pack and its reason, and one naming a Pack whose
-//! factory refuses parses, since parsing makes no Pack.
+//! factory refuses parses, since parsing makes no Pack. A prompt that
+//! links others parses with them, and an entry of a linked prompt is
+//! refused the same way, naming that prompt.
 
 use std::collections::BTreeMap;
+use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 
-use runvil_engine::{Error, ErrorCode, Prompt, make_tool_error};
+use runvil_engine::{Error, ErrorCode, Prompt, SourceLoc, make_tool_error};
 use runvil_plugin::{
     BoxFuture, Pack, PackId, PackInfo, PackRegistry, ToolContext, ToolInfo, ToolOutput,
 };
@@ -156,6 +159,69 @@ fn a_uses_entry_naming_a_pack_inserted_unavailable_is_refused_with_its_reason() 
         error.message,
         "the environment cannot satisfy this prompt:\n\
          - offline is unavailable: offline takes no configuration"
+    );
+}
+
+#[test]
+fn a_prompt_parses_with_every_prompt_it_links_when_their_packs_are_installed() {
+    let host = host(&[
+        (
+            "research.md",
+            declaring("uses:\n  - acme/kit\nprompts: [review.md]\n"),
+        ),
+        (
+            "review.md",
+            declaring("uses:\n  - acme/broken\nprompts: [research.md]\n"),
+        ),
+    ]);
+    let prompt = host
+        .parse("research.md")
+        .expect("every Pack the two prompts declare is installed");
+    let linked: Vec<&str> = prompt.linked().map(|linked| linked.file()).collect();
+    assert_eq!(linked, ["review.md"]);
+}
+
+#[test]
+fn a_linked_prompts_uses_entry_the_host_cannot_serve_is_refused_naming_that_prompt() {
+    let host = host(&[
+        (
+            "research.md",
+            declaring("uses:\n  - acme/gone\nprompts: [review.md]\n"),
+        ),
+        (
+            "review.md",
+            declaring("uses:\n  - acme/kit\n  - acme/offline\n  - acme/gone\n  - web\n"),
+        ),
+    ]);
+    let error = host
+        .parse("research.md")
+        .expect_err("the linked prompt requires Packs this Host cannot serve");
+    assert_eq!(error.code, ErrorCode::RequirementsUnmet, "{error:?}");
+    assert_eq!(
+        error.message,
+        "the environment cannot satisfy this prompt:\n\
+         - gone is unavailable: acme/gone is not installed\n\
+         - review.md: offline is unavailable: offline takes no configuration\n\
+         - review.md: web is unavailable: runvil/web is not installed",
+        "the parsed prompt's own entry has no prompt name, and the entry both declare is \
+         listed once"
+    );
+}
+
+#[test]
+fn a_linked_prompt_the_finder_lacks_fails_the_parse_where_it_is_listed() {
+    let host = host(&[("research.md", declaring("prompts: [absent.md]\n"))]);
+    let error = host
+        .parse("research.md")
+        .expect_err("the finder has no absent.md");
+    let mut expected = missing_prompt("absent.md");
+    expected.at = Some(SourceLoc::line(
+        "research.md",
+        NonZeroU32::new(5).expect("5 is non-zero"),
+    ));
+    assert_eq!(
+        error, expected,
+        "the finder's failure, placed on the `prompts:` line that lists the name"
     );
 }
 

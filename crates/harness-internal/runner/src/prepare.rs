@@ -81,9 +81,9 @@ pub(crate) async fn prepare(
     // each of its Packs, and the snapshot of them is taken once each is
     // ready or the run is canceled: its catalog is what the run offers,
     // its roster gives each Pack's object in the run's Lua and is what the
-    // run's first step checks the declared Packs against, its preludes go
-    // to every section VM, and the snapshot itself is the run's tool
-    // performer.
+    // run's first step checks the declared Packs against, its preludes,
+    // those of the Packs the prompt and the prompts it links declare, go
+    // to the run, and the snapshot itself is the run's tool performer.
     let packs = host.packs.snapshot(&prompt, setup.has_user, cancel).await;
     let params = params
         .with_cancel(cancel.clone())
