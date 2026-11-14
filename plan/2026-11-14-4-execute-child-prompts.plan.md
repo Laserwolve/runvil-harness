@@ -4,25 +4,25 @@ overview: "Add `execute(name, args?)`: a prompt lists other prompts under `promp
 todos:
   - id: parse-linked
     content: "runvil-harness: copy the plan to `plan/2026-11-14-4-execute-child-prompts.plan.md`. runvil-prompt: `prompts:` frontmatter key, the flat table of linked prompts, the worklist in `Prompt::parse`, tests, bless both facade listings; commit"
-    status: in_progress
+    status: completed
   - id: harness-packs
     content: "harness-runner: `pick`, `refusals`, and `preludes` read the `uses:` entries of every prompt; `Host::parse` docs and tests; commit"
-    status: pending
+    status: completed
   - id: per-prompt-state
     content: "runvil-runtime: per-prompt bundle (prompt, model set, tool set, preludes) and the store on `ChainState`, table of bundles in `SharedState`, requirements and version gate over every prompt, chain-level prompt reads in the scheduler; tests; commit"
-    status: pending
+    status: completed
   - id: execute
     content: "runvil-prompt, runvil-lua, runvil-runtime, and the Harness: an `args` check that takes a JSON object, the `execute` shim and request, `dispatch_execute` beside `dispatch_call` with checked arguments and a new store, the store's id on `Effect::Vfs` and its record, named prompt sources in `Scenario`, the full test list, bless both facade listings; commit"
-    status: pending
+    status: completed
   - id: design-docs
     content: "runvil-design: state the `execute` contract as name-based and update the decision pages; one commit"
-    status: pending
+    status: completed
   - id: guide
     content: "runvil-docs: chapters 2, 5, 6, 8, 9, 12, 16, and 17, with example values from the built Engine; site build; one commit"
-    status: pending
+    status: completed
   - id: verify-close
     content: "runvil-harness: run every AGENTS.md check and the wording sweep, mark the plan copy's todos done, record what the build found, final commit with the `Plan:` trailer"
-    status: pending
+    status: completed
 isProject: false
 ---
 
@@ -183,4 +183,68 @@ One commit each, once the code passes. The two can be written at the same time.
 - Step 2 comes before step 3, so the roster reports a linked prompt's unserved Pack, and the run's preludes hold a linked prompt's, when the Engine starts reading them.
 - Step 4 needs step 3's per-chain prompt and store.
 - Step 5 needs the built Engine.
+
+## What the build found
+
+The design held. These points differ from the plan above, or add to it.
+
+The steps:
+
+- **`Scenario` took its named prompt sources in step 3.** The tests of step 3 need a run that links prompts, so `Scenario::prompt(name, source)` is in that commit, for the runtime's test support and for the facade's suite. The plan put it in step 4.
+- **The run half of one step 2 test is in step 4.** Step 2 shows through `Host::parse` on a `PromptSet` that the parsed prompt keeps the prompts it links after a rescan, and that the next parse fails. Only a run with `execute` can show that it executes such a prompt, so `a_run_executes_the_prompt_its_parse_linked_though_the_set_has_lost_that_prompts_file` is in `harness-execute.rs`, in the step 4 commit.
+- **Between the commits of step 2 and step 3, a section installed every prelude the run was given**, a linked prompt's included. The Harness passed them from step 2 on, and the Engine picks each prompt's own from step 3 on.
+
+Parse:
+
+- **The parse reads the lists breadth first.** `parse_linked` keeps a queue of the prompts whose lists are unread, and `parse_listed` finds each listed name that is neither the main prompt nor in the table. So a listed prompt is parsed after the whole body of the prompt that lists it.
+- **A refused list has a `Reason` fact**, `prompt_empty` or `prompt_duplicate`, and a repeated name is its `Name` fact.
+- **Each facade listing gained two lines**, for `Prompt::linked` and `Frontmatter::prompts`.
+- **The message for an unknown frontmatter key lists `prompts`**, because serde writes the fields it expects. The guide quotes that message in chapter 2.
+
+The Harness:
+
+- **`declared` is the one reader of the `uses:` entries.** It gives the entries of the run's own prompt in declaration order, then those of each linked prompt in the order of the prompts' names, and it reads an entry that two prompts declare once. `pick`, `refusals`, and `preludes` go through it.
+- **A Pack id that two unresolved entries name keeps the first reason.** A resolved Pack whose Pack id an unresolved entry of another prompt names stays out of the run.
+- **The line of `Host::parse` for a linked prompt's Pack starts with the prompt's name**, as in `- review.md: web is unavailable: runvil/web is not installed`.
+
+The Engine's state:
+
+- **The bundle is `PromptState`.** `RunSets` holds what the params give every prompt alike. `Requirements` gathers the gaps of every prompt: `check_run` once for the run, then `check_packs` and `fill_model_set` for each prompt.
+- **The notice orders its lines by kind first**: missing Packs, unavailable Packs, reserved ids, then models. Within a kind, the run's own prompt comes first and the linked prompts follow in the order of their names. A Pack that two prompts declare has one line.
+- **The refusal is placed in the first prompt that caused a gap**, on its `uses:` key when it has a Pack gap and on its `models:` key otherwise. A refusal made only of the caller's gaps has no place.
+- **The `SharedState` entry left the type-size allowlist.** The struct has 10 fields, and one more under test.
+- **`with_prompt` waited one commit for its caller.** The step 3 commit has it with an `expect` of `dead_code` outside tests, and the step 4 commit calls it.
+- **Engine tests that pass preludes declare their Packs**, because a section installs only the preludes of the Packs its prompt declares.
+
+`execute`:
+
+- **A chain holds its store behind an `Option`.** `finish`, `abort_subtree`, and `teardown` each call `release_store`, and `ChainState::store()` fails as an internal failure after that. This is how a store is gone when the executed prompt ends: the store is freed once the last chain that shared it has ended.
+- **Two helpers moved to `PromptState`.** `max_tool_iterations` and `section_count` left `ChainState`, which keeps it within the limit of 25 methods with no allowlist entry.
+- **`args_invalid` has the kind `lua` in Lua.** The code could not reach Lua before `execute`, so `kind_of` had no arm for it. A caught refusal reads `err.kind == 'lua'` and `err.code == 'args_invalid'`.
+- **The prose of `CallDepthExceeded` names `execute`**: ``Nest `call`, `execute`, `tasks.spawn`, and `tasks.fanout` less deeply.`` The guide quotes it in chapters 5, 8, 14, 15, and 16.
+- **A run built over a linked prompt holds that prompt alone.** `Prompt::linked` gives prompts whose own tables are empty. In a run built over one of them, an `execute` of another prompt that it lists is `make_prompt_not_held_error`, an internal failure. The doc of `Run::new` says to build a run over the prompt that a parse returned.
+- **`execute` also works while a library loads, and in an adhoc tool handler.** A library of an executed prompt executes from that prompt's list.
+- **An `execute` sends no `var`.** So an `execute` after `var = 5` starts, where a `call` raises the refusal of a reassigned `var`.
+- **A prelude that fails to load in an executed prompt is raised at the `execute`**, placed on the caller's line. A linked prompt that no `execute` runs installs no prelude.
+- **The `runvil-engine` listing gained one line**, `Effect::Vfs::store`. The `runvil` listing did not change, because `runvil` leaves `Effect` out.
+- **A few docs outside the plan's files changed**: the docs of `ArgsInvalid` and `CallDepthExceeded` and three module docs in `runvil-types`, the crate docs of both facades, the READMEs of `runvil-lua` and `runvil-runtime`, and the `AGENTS.md` of `runvil-runtime`.
+
+Tests and checks:
+
+- **The whole workspace runs 3,927 tests, all passing, and skips 24.** It ran 3,818 before. 61 of the 109 are in the step 4 commit: most in `tests/execute.rs` and its five children, with `harness-execute.rs` for the Harness and `suite/execute.rs` for the facade.
+- **Every command in `AGENTS.md` passed before each of the four code commits and on the final tree**, and so did `cargo run -p runvil --example run-prompt`, the doc build of `runvil` alone, the private-items doc build of `runvil-runtime`, and `cargo deny check`.
+- **The sweep of the added lines has one hit outside this plan copy**, and it is no history word: the one-line paragraph of the README of `runvil-runtime` names the Harness, as it did before, to say who performs an effect.
+
+Documents:
+
+- **The design pages have eleven more entries**, so `decisions/README.md` counts 557. `engine.md` has three, `prompt-language.md` four, `files-and-the-vfs.md` two, and `harness-and-host.md` and `tools-and-packs.md` one each. `tasks-and-fanout.md` names `execute` in the depth cap, the chains of a run, and the inbox rule.
+- **`harness-and-host.md` counts 121 re-exports of `runvil`**, where it said 118. The three stock prompt finders are the difference, and the page had not named them.
+- **The planned work of two design pages lists `execute_async`** in the place of child prompts.
+- **The guide changed in sixteen chapters, where the plan named eight.** Chapters 2, 5, 6, 8, 9, 12, 16, and 17 teach the rule, with five sections of their own beside "Executing another prompt" in chapter 8. Chapters 4 and 10 say that the start checks cover every listed prompt and that an executed prompt starts on `default`. Chapters 1, 3, 7, 11, 14, and 15 have the sentences that the rule made incomplete. Chapter 13 needed no change.
+- **The guide checker finds its prompts by name.** An example that lists another prompt finds it among the other examples of its chapter, and the Harness probe takes named prompts the same way. Both are scratch programs outside this repository.
+- **The guide checker finds 559 examples, and 377 return their documented result.** It found 529 and 362 before. Every example that returned its documented result still does. It found 2,317 links and no broken one, and `cargo xtask site --books-only` built both books.
+- **Four statements of the guide come from tests**, because neither program can show them: that tool calls of an executed prompt count toward the Harness's one number of calls at once, that they work in the run's files, that a notice line reads `- review.md: missing required Pack: gone` for a Pack that only a listed prompt declares, and where a refusal is placed when one prompt has a Pack gap and another a model gap.
+- **The runs for the guide showed four things that the plan does not say.** An empty Lua table is the empty object, so `{ tags = {} }` is refused for a field that the executed prompt declares as an array, and `json.array()` passes. A float with no fraction arrives as an integer, as it does through `call`. A refused `execute` inside an adhoc tool handler ends an uncaught `models.loop` as `lua_runtime`, by the rule for a `lua` value that the loop raises again. A task that waits on an `execute` reports `blocked` as `call`, and as `inbox` while the executed prompt idles after its own `tasks.reply`.
+- **Two differences between the guide and the code stay, both older than this plan.** The guide shows `- missing required Pack: web` for a Pack that the Host lacks, where `Host::parse` refuses first with `- web is unavailable: runvil/web is not installed`. Chapter 15 says that a task waiting in `tasks.receive()` reports `blocked` as `inbox`, and inside a section that the task runs with `call`, or a prompt that it runs with `execute`, the field reads `call`.
+- **Commits.** `runvil-design` commit `7e85172` and `runvil-docs` commit `1d28c66` hold the document changes. The code is in `e8d396f0`, `c5ffae66`, `65d2cfb4`, and `a3e29216`. Each is local on `master`.
 
