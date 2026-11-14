@@ -284,7 +284,7 @@ fn a_captured_store_function_called_after_load_reaches_the_caller_as_a_store_eff
     assert!(
         trace.effects().iter().any(|(effect, _)| matches!(
             effect,
-            EffectRecord::Vfs { op: VfsOp::Write { path, .. } } if path == "note.txt"
+            EffectRecord::Vfs { op: VfsOp::Write { path, .. }, .. } if path == "note.txt"
         )),
         "the captured write is performed by the test driver: {:?}",
         trace.effects()

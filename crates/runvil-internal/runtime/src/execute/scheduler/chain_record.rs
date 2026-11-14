@@ -42,7 +42,10 @@ pub(super) struct Counters {
 pub(in crate::execute::scheduler) enum ChainKind {
     /// The main walk.
     Root,
-    /// A `call` child, whose parent is blocked on it.
+    /// A `call` child, whose parent is blocked on it. The chain an
+    /// `execute` starts is one too: it differs from the chain of a `call`
+    /// only in the state it starts from, another prompt on a store of its
+    /// own, so what the scheduler says of a `call` child holds for it.
     Call {
         /// The call parent blocked on this chain.
         parent: ChainIndex,
@@ -146,13 +149,15 @@ impl Entered {
     }
 }
 
-/// The deepest nesting a chain may run at, counting `call` children and
-/// spawned tasks, fanout arms included; the first level counts.
+/// The deepest nesting a chain may run at, counting `call` children,
+/// executed prompts, and spawned tasks, fanout arms included; the first
+/// level counts.
 const MAX_CALL_DEPTH: usize = 8;
 
-/// A chain's call nesting depth: each `call` child and each spawned task
-/// runs one level deeper than the chain that started it, so the cap holds
-/// across a spawn boundary as well as a call.
+/// A chain's call nesting depth: each `call` child, each chain an
+/// `execute` starts, and each spawned task runs one level deeper than the
+/// chain that started it, so the one cap holds across a spawn boundary
+/// and from one prompt into another as well as across a call.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct CallDepth(usize);
 
@@ -201,7 +206,7 @@ pub(super) enum Parked {
     /// parks, and once a member's end has answered the wait, so no other
     /// member wakes the chain again.
     Tasks(Vec<TaskId>),
-    /// A `call` child.
+    /// A `call` child, the chain of an `execute` included.
     Call,
     /// A concurrency slot: a fresh spawn before admission, or a wake that
     /// takes back the slots its wait gave up.
@@ -375,7 +380,9 @@ pub(super) struct Chain {
     /// and the caller's for a `call` child or the spawner's for a task,
     /// through `with_args` when the call or spawn passed arguments. A task's
     /// fork also reports under its own task id with its own turn counter
-    /// (`with_task`).
+    /// (`with_task`), and the fork of the chain an `execute` starts runs
+    /// another prompt on a store of its own (`with_prompt`). The fork lets
+    /// go of its store when the chain ends.
     pub(super) ctx: ChainState,
     /// The chain's current model, shared with each section VM it enters:
     /// it starts on the chain's starting model; `models.use` rewrites it.
@@ -410,8 +417,9 @@ pub(super) struct Chain {
     pub(super) entered_name: String,
     /// The walk's `var` table: seeds each section's VM at entry; the
     /// section's final `var` is read back before teardown and replaces the
-    /// slot. A call chain's slot seeds from the caller's snapshot and
-    /// is discarded with the chain, so the caller never sees the chain's
+    /// slot. A call chain's slot seeds from the caller's snapshot, or
+    /// from an empty table when an `execute` started the chain, and is
+    /// discarded with the chain, so the caller never sees the chain's
     /// writes.
     pub(super) var: serde_json::Value,
     /// The chain's call nesting depth, which the recursion cap checks.

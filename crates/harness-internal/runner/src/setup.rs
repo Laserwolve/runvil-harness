@@ -23,9 +23,10 @@ pub struct RunSetup {
     pub recorder: Arc<dyn RunRecorder>,
     /// Lists the models and performs model rounds.
     pub broker: Arc<dyn InferenceBroker>,
-    /// The filesystem the run's tool calls work in. The run's store is no
+    /// The filesystem the run's tool calls work in. No store of the run is
     /// part of it: the Engine makes each run an empty store of its own,
-    /// which no setup fills and no report hands back.
+    /// and one more for each prompt the run executes, which no setup fills
+    /// and no report hands back.
     pub vfs: VfsRef,
     /// The model id the user selected, if any.
     pub selected_model: Option<String>,

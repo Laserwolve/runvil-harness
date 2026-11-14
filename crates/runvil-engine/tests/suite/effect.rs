@@ -106,7 +106,11 @@ fn each_effect_and_its_answer_log_as_one_json_line_that_parses_back() -> TestRes
         .ok_or("the greeter writes its note")?;
     assert_eq!(
         write["effect"],
-        json!({ "Vfs": { "op": { "Write": { "path": "note.md", "contents": "hello" } } } })
+        json!({ "Vfs": {
+            "store": "0",
+            "op": { "Write": { "path": "note.md", "contents": "hello" } },
+        } }),
+        "the record names the store the run starts with by the root chain's id"
     );
     assert_eq!(write["answer"], json!({ "Vfs": { "Ok": "Unit" } }));
     Ok(())

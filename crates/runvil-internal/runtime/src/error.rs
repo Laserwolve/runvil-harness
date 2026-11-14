@@ -81,9 +81,9 @@ pub(crate) fn make_model_required_error(section: &str) -> Error {
     )
 }
 
-/// A `call`, `tasks.spawn`, or `tasks.fanout` arm that would run deeper
-/// than `cap`. The dispatch's answer, so an author `pcall` catches it, and
-/// a quota when it ends the run.
+/// A `call`, `execute`, `tasks.spawn`, or `tasks.fanout` arm that would
+/// run deeper than `cap`. The dispatch's answer, so an author `pcall`
+/// catches it, and a quota when it ends the run.
 pub(crate) fn make_call_depth_exceeded_error(cap: usize) -> Error {
     with_fact(
         make_failure_error(
@@ -93,6 +93,35 @@ pub(crate) fn make_call_depth_exceeded_error(cap: usize) -> Error {
         ErrorFact::Limit,
         cap,
     )
+}
+
+/// An `execute` of the prompt `name`, which the calling chain's prompt
+/// does not list: `file` is that prompt's name and `listed` the names its
+/// `prompts:` key holds. The dispatch's answer, so an author `pcall`
+/// catches it.
+pub(crate) fn make_prompt_not_listed_error(name: &str, file: &str, listed: &[String]) -> Error {
+    let lists = if listed.is_empty() {
+        "no prompt".to_owned()
+    } else {
+        let names: Vec<String> = listed.iter().map(|name| format!("`{name}`")).collect();
+        names.join(", ")
+    };
+    make_lua_runtime_error(format!(
+        "prompt `{name}` is not listed: `{file}` lists {lists} under `prompts:`"
+    ))
+}
+
+/// An `execute` of the prompt `name`, which the calling chain's prompt
+/// `file` lists and the run does not hold. A parse links every prompt its
+/// lists reach to the prompt it returns, so only a run built over another
+/// prompt, such as one read from [`Prompt::linked`](crate::prompt::Prompt::linked),
+/// lacks one: the caller's mistake, reported as an internal failure.
+#[track_caller]
+pub(crate) fn make_prompt_not_held_error(name: &str, file: &str) -> Error {
+    make_internal_error(format!(
+        "the run holds no prompt `{name}`, which `{file}` lists: a run is built over the \
+         prompt a parse returned, which holds every prompt it links"
+    ))
 }
 
 /// A chain that ended while the tasks it owned were still live, which it

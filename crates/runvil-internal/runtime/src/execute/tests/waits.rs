@@ -331,7 +331,7 @@ fn cancel_ends_a_parked_task_idempotently_and_reports_task_canceled_once() {
     assert!(
         effects.iter().any(|(effect, answer)| matches!(
             effect,
-            EffectRecord::Vfs { op: VfsOp::Write { path, .. } } if path == "child-park"
+            EffectRecord::Vfs { op: VfsOp::Write { path, .. }, .. } if path == "child-park"
         ) && *answer == AnswerRecord::Dropped),
         "the cancel withdrew the held write, which the caller dropped: {effects:?}"
     );

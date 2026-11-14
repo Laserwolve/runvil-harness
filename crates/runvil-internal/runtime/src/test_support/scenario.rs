@@ -182,7 +182,7 @@ impl Answers {
                     "the tool the call names has no implementation in the test driver's tool table",
                 ))),
             },
-            Effect::Vfs { access, op } => EffectAnswer::Vfs(run_store_op(access, op.clone())),
+            Effect::Vfs { access, op, .. } => EffectAnswer::Vfs(run_store_op(access, op.clone())),
             Effect::Timer { .. } => EffectAnswer::Timer,
         }
     }

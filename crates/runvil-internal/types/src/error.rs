@@ -308,8 +308,8 @@ pub enum ErrorCode {
     LuaCompile = 202,
     /// A Lua quota ran out, such as the `log()` event or byte budget.
     LuaQuota = 203,
-    /// A `call`, `tasks.spawn`, or `tasks.fanout` arm passed the call-depth
-    /// cap.
+    /// A `call`, `execute`, `tasks.spawn`, or `tasks.fanout` arm passed the
+    /// call-depth cap.
     CallDepthExceeded = 204,
     /// A `{{ }}` prose substitution failed.
     Substitution = 205,
@@ -429,7 +429,8 @@ pub enum ErrorCode {
     /// name `stalled`; names the tasks waiting on their
     /// inboxes. A run code, beside `Internal`.
     Stalled = 704,
-    /// The run's arguments are not a JSON object, or do not match the
+    /// The arguments a prompt was given, by the run's caller or by the
+    /// `execute` that runs it, are not a JSON object or do not match the
     /// prompt's `args:` declaration.
     ArgsInvalid = 705,
 
@@ -640,7 +641,7 @@ impl ErrorCode {
             }
             ErrorCode::LuaQuota => "The section logged more than its budget allows. Log less.",
             ErrorCode::CallDepthExceeded => {
-                "Calls nest deeper than the cap allows. Nest `call`, `tasks.spawn`, and \
+                "Calls nest deeper than the cap allows. Nest `call`, `execute`, `tasks.spawn`, and \
                  `tasks.fanout` less deeply."
             }
             ErrorCode::Substitution => {

@@ -159,10 +159,11 @@ impl RunParams {
     /// before the run and read after it through its own clone of `vfs`.
     /// The default is one empty memory mount at `/`.
     ///
-    /// The run's store is no part of it. Every section's `store` table
-    /// operates on a store the Engine makes empty for the run and keeps
-    /// to the run, so nothing the caller puts in `vfs` reaches `store`,
-    /// and what a prompt hands back is the text it returns.
+    /// No store of the run is part of it. Every section's `store` table
+    /// operates on a store the Engine makes empty and keeps to the run:
+    /// one for the run's own prompt, and one more for each prompt an
+    /// `execute` runs. So nothing the caller puts in `vfs` reaches
+    /// `store`, and what a prompt hands back is the text it returns.
     #[must_use]
     pub fn with_vfs(mut self, vfs: VfsRef) -> RunParams {
         self.vfs = vfs;

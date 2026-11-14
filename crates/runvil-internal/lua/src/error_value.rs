@@ -100,8 +100,9 @@ pub enum ErrorKind {
     Store,
     /// A Lua authoring or runtime failure: a compile error, a runtime error
     /// or memory refusal in author code, an Engine function's argument
-    /// error, a failed substitution, the call-depth cap, or an exhausted
-    /// Engine quota.
+    /// error, the arguments of an `execute` that the executed prompt's
+    /// `args` declaration refuses, a failed substitution, the call-depth
+    /// cap, or an exhausted Engine quota.
     Lua,
     /// An internal invariant was violated, or a failure outside the prompt the
     /// author cannot act on that has no kind of its own.
@@ -230,18 +231,21 @@ impl ErrorField {
 /// The kind a failure with `code` renders as. A model round's failure is
 /// `model_failure`, or `empty_model_reply` for an empty reply, and a round
 /// with no model is `make_model_required_error`; every Lua-phase failure, an exhausted
-/// quota and the call-depth cap included, is `lua`; a store operation's own
-/// failure is `store`; a canceled task's delivery is `canceled`, as any
-/// other cancel is; and a failure outside the prompt the author cannot act
-/// on (a parse failure, a failed tool freeze, a refused requirement, a
-/// make_determinism_error violation, a stalled run, which ends the run
-/// before any Lua could catch it, an internal fault) is `internal`.
+/// quota, the call-depth cap, and the arguments of an `execute` that the
+/// executed prompt's declaration refuses included, is `lua`; a store
+/// operation's own failure is `store`; a canceled task's delivery is
+/// `canceled`, as any other cancel is; and a failure outside the prompt
+/// the author cannot act on (a parse failure, a failed tool freeze, a
+/// refused requirement, a make_determinism_error violation, a stalled run,
+/// which ends the run before any Lua could catch it, an internal fault)
+/// is `internal`.
 fn kind_of(code: ErrorCode) -> ErrorKind {
     match code {
         ErrorCode::LuaRuntime
         | ErrorCode::LuaCompile
         | ErrorCode::LuaQuota
         | ErrorCode::CallDepthExceeded
+        | ErrorCode::ArgsInvalid
         | ErrorCode::Substitution => ErrorKind::Lua,
         ErrorCode::ContextExhausted => ErrorKind::ContextExhausted,
         ErrorCode::EmptyReply => ErrorKind::EmptyModelReply,
@@ -301,7 +305,6 @@ fn kind_of(code: ErrorCode) -> ErrorKind {
         | ErrorCode::RequirementsUnmet
         | ErrorCode::Internal
         | ErrorCode::Stalled
-        | ErrorCode::ArgsInvalid
         | ErrorCode::RecorderFailed
         | ErrorCode::PluginLoadFailed => ErrorKind::Internal,
     }

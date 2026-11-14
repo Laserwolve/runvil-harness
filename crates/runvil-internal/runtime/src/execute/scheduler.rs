@@ -17,9 +17,9 @@
 //! return, and `apply_answer` turns the caller's answer into the chain's
 //! protocol answer on the caller's thread, emitting the round's events
 //! there. A chain that
-//! yields a structural request (`call`) blocks while its child chain runs,
-//! and the child's finish delivers its final text as the parent's answer,
-//! or no text, which the `call` returns as nil.
+//! yields a structural request (`call` or `execute`) blocks while its
+//! child chain runs, and the child's finish delivers its final text as the
+//! parent's answer, or no text, which the request returns as nil.
 //! When no chain is ready the step returns and the caller performs the effects.
 //! Every `dispatch_*` arm with a fallible half resumes that half's error
 //! into the calling chain as the call's answer (`tool_calls` into the

@@ -2,8 +2,8 @@
 //! suspending Engine calls.
 //!
 //! Yield cannot cross the C boundary, so `models.infer`, `call`,
-//! `tools.call`, the `tasks` namespace, and `tasks.fanout` are Lua shims
-//! (source in the `__impl_*.lua` files beside this one) that
+//! `execute`, `tools.call`, the `tasks` namespace, and `tasks.fanout` are
+//! Lua shims (source in the `__impl_*.lua` files beside this one) that
 //! `coroutine.yield` a request table and interpret the resume values as the
 //! `(ok, result)` envelope; coroutine driving itself
 //! (`Thread::create`/`resume`) is pure Rust in the scheduler. Every shim
@@ -173,17 +173,17 @@ impl StashedFailure {
 /// [`recording_yield`] over it, so every yield records its call line. The
 /// `models` and `tools` tables are passed to the shim chunk as arguments, so
 /// the chunk never reads a global; the chunk shims `models.infer` and installs
-/// `tools.call`, and the `call` shim comes back for the Engine to install as
-/// a global. So does the chunk's `store` table, whose eight functions each
-/// yield one store request: it is installed as the `store` global here,
-/// ahead of the Pack preludes, so no store function ever runs outside a
-/// block coroutine. The `tasks` namespace is a second chunk, run over the same
-/// `yield` and `var_snapshot` captures plus the shim chunk's returned failure
-/// helpers, and installed as the `tasks` global; `fanout` is a third, run
-/// over the same captures plus the collection enumerator and the item
-/// renderer, and installed on the `tasks` table as `tasks.fanout`. The
-/// `models.loop` and `models.compact` shims are installed on the `models`
-/// table.
+/// `tools.call`, and the `call` and `execute` shims come back for the Engine
+/// to install as globals. So does the chunk's `store` table, whose eight
+/// functions each yield one store request: it is installed as the `store`
+/// global here, ahead of the Pack preludes, so no store function ever runs
+/// outside a block coroutine. The `tasks` namespace is a second chunk, run
+/// over the same `yield` and `var_snapshot` captures plus the shim chunk's
+/// returned failure helpers, and installed as the `tasks` global; `fanout`
+/// is a third, run over the same captures plus the collection enumerator
+/// and the item renderer, and installed on the `tasks` table as
+/// `tasks.fanout`. The `models.loop` and `models.compact` shims are
+/// installed on the `models` table.
 /// `selection`, the chain's current model, is what the `fanout` chunk's
 /// `get_selection` and `set_selection` captures read and write.
 /// `max_tool_iterations`, the run's resolved round cap, the `compactors`
@@ -281,8 +281,10 @@ pub(crate) fn install_shims(
         let protected: Function = shims.raw_get(name).map_err(map_lua)?;
         globals.raw_set(name, protected).map_err(map_lua)?;
     }
-    let call: Function = shims.raw_get("call").map_err(map_lua)?;
-    globals.raw_set("call", call).map_err(map_lua)?;
+    for name in ["call", "execute"] {
+        let shim: Function = shims.raw_get(name).map_err(map_lua)?;
+        globals.raw_set(name, shim).map_err(map_lua)?;
+    }
     let helpers: Table = shims.raw_get("helpers").map_err(map_lua)?;
     let (tasks, spawn_from): (Table, Function) = TASKS_PROGRAM
         .as_ref()

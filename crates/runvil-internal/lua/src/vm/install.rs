@@ -114,9 +114,10 @@ impl SectionVm {
     }
 
     /// Installs the coroutine yield shims (`models.infer`, `models.loop`,
-    /// `models.compact`, `call`, `tasks.fanout`, `tools.call`, the `tasks`
-    /// namespace, and the `store` table) through `install_shims`, which
-    /// also puts `models.loop` and `models.compact` on the `models` table.
+    /// `models.compact`, `call`, `execute`, `tasks.fanout`, `tools.call`,
+    /// the `tasks` namespace, and the `store` table) through
+    /// `install_shims`, which also puts `models.loop` and `models.compact`
+    /// on the `models` table.
     /// `max_tool_iterations` is the run's resolved round cap, which every
     /// `models.loop` call on this VM spends. The `tasks.fanout` shim reads
     /// and writes the chain's current model through captures over the

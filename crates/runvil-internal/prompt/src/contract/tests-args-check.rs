@@ -1,6 +1,7 @@
 //! Tests for the check of a caller's arguments against the `args`
 //! declaration: the object a run holds, with each default filled, and each
-//! refusal with its message, prose, facts, and no location.
+//! refusal with its message, prose, facts, and no location, for arguments
+//! given as text and as a JSON value.
 
 use std::collections::BTreeMap;
 
@@ -826,5 +827,33 @@ fn the_default_declaration_takes_an_empty_object_or_a_text() {
         "undeclared",
         "query",
         "argument `query` is not declared; the declared arguments are `text`",
+    );
+}
+
+#[test]
+fn arguments_given_as_a_json_value_are_checked_as_the_same_arguments_given_as_text() {
+    let prompt = declaring(SEARCH);
+    for text in [
+        r#"{"query":"papers"}"#,
+        r#"{"query":"papers","limit":7.0,"depth":null}"#,
+        r#"{"limit":7}"#,
+        r#"{"query":5}"#,
+        r#"{"query":"papers","depth":"deep"}"#,
+        r#"{"query":"papers","extra":true}"#,
+        "[1]",
+        r#""papers""#,
+    ] {
+        let value: Json = serde_json::from_str(text).expect("the text is JSON");
+        assert_eq!(
+            crate::detail::accept_args_value(&prompt, value),
+            accept_args(&prompt, text),
+            "{text}"
+        );
+    }
+    assert_eq!(
+        crate::detail::accept_args_value(&prompt, serde_json::json!({ "query": "papers" }))
+            .map(|held| held.to_string()),
+        Ok(r#"{"limit":3,"query":"papers"}"#.to_owned()),
+        "the value's missing field takes its default"
     );
 }

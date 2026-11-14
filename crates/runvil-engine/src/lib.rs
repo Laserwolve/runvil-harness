@@ -1,7 +1,9 @@
 //! Parses Runvil prompt files and runs them, leaving their outside work
 //! to the caller.
 //!
-//! A [`Prompt`] is a parsed prompt file. A [`Run`] executes one prompt.
+//! A [`Prompt`] is a parsed prompt file, with every prompt its `prompts:`
+//! lists reach. A [`Run`] executes one prompt, whose Lua may run each
+//! prompt it lists with `execute`, inside the same run.
 //! [`Run::step`] returns [`Step::Pending`] with the effects the run waits on.
 //! The caller performs each effect and hands its answer to [`Run::resume`].
 //! The run ends at [`Step::Done`] with its result: the final text, or the
@@ -124,7 +126,8 @@ pub mod packs {
 
 pub mod prompt {
     //! What a prompt's frontmatter declares: its Packs, arguments, model
-    //! roles, and the prompts it lists.
+    //! roles, and the prompts it lists, which its Lua may run with
+    //! `execute`.
 
     pub use runvil_prompt::ArgsSchema;
     pub use runvil_prompt::Frontmatter;
@@ -134,7 +137,8 @@ pub mod prompt {
 pub mod vfs {
     //! A run's files: the virtual filesystem the caller gives a run for
     //! its tool calls, the policy that decides what they may change, and
-    //! the operations of the run's own store, which sits outside that
+    //! the operations of the run's own stores, the one a run starts with
+    //! and one for each prompt it executes, which sit outside that
     //! filesystem and which the caller reaches only through the view of
     //! a store effect.
 

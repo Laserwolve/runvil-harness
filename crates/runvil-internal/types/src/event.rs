@@ -216,7 +216,7 @@ events! {
         ToolScopeValidationSucceeded {},
         /// A model-visible tool scope failed semantic validation.
         ToolScopeValidationFailed {},
-        // Lifecycle: operations on the run's store view (the `store.*` calls).
+        // Lifecycle: operations on a store view of the run (the `store.*` calls).
         /// A `store.write` call succeeded.
         VfsWriteSucceeded {},
         /// A `store.write` call failed.

@@ -27,7 +27,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use runvil_types::event::ReplyOrigin;
-use runvil_types::ids::RoundId;
+use runvil_types::ids::{ChainId, RoundId};
 use runvil_types::packs::PackId;
 use runvil_types::tools::{OutputTrust, ToolId, ToolInfo, ToolOutput};
 pub use runvil_types::tools::{ToolCallOrigin, ToolCaller};
@@ -201,17 +201,19 @@ pub enum Effect {
         /// sees.
         survives_stop: bool,
     },
-    /// One operation on the run's store, issued for one of the eight
+    /// One operation on a store of the run, issued for one of the eight
     /// `store.*` calls a prompt can make.
     ///
-    /// The store is the run's own: the Engine makes it empty with the
-    /// run, in memory, and it is gone when the run ends. It is no part of
-    /// the filesystem the caller gave the run, so no path of that
-    /// filesystem reaches it, and a tool, which reaches files through the
-    /// access of its [`ToolCall`](Effect::ToolCall) effect, sees
-    /// none of it. `access` is a view of the store under the chain's
+    /// A store is the run's own: the Engine makes it empty, in memory.
+    /// The run starts with one, which is gone when the run ends, and each
+    /// `execute` makes one more for the prompt it runs, which is gone
+    /// when that prompt's chain ends. A store is no part of the
+    /// filesystem the caller gave the run, so no path of that filesystem
+    /// reaches it, and a tool, which reaches files through the access of
+    /// its [`ToolCall`](Effect::ToolCall) effect, sees none of it.
+    /// `access` is a view of the calling chain's store under the chain's
     /// identity, which the Engine makes at dispatch, and it is the
-    /// caller's one way to the store.
+    /// caller's one way to that store.
     ///
     /// The caller must use the access exactly as given, for this one
     /// operation. When the caller drops the access does not affect
@@ -219,8 +221,14 @@ pub enum Effect {
     /// within the run's scope. The run ends that scope at `Done` or when
     /// the run is dropped, and after that the view refuses every operation.
     Vfs {
+        /// Which store the operation is on: the id of the chain the store
+        /// was made for. That is the root chain's id, `0`, for the store
+        /// the run starts with, and for a store an `execute` made, the id
+        /// of the chain that runs the executed prompt. Two operations on
+        /// one path are on the same file only when this id is the same.
+        store: ChainId,
         /// The chain's store view: an access with the chain's identity
-        /// that reaches only the run's store.
+        /// that reaches only that store.
         access: Arc<Access>,
         /// The validated operation.
         op: VfsOp,
@@ -329,7 +337,10 @@ impl Effect {
                 args: args.clone(),
                 origin: origin.clone(),
             },
-            Effect::Vfs { op, .. } => EffectRecord::Vfs { op: op.clone() },
+            Effect::Vfs { store, op, .. } => EffectRecord::Vfs {
+                store: store.clone(),
+                op: op.clone(),
+            },
             Effect::Timer { duration } => EffectRecord::Timer {
                 seconds: duration.as_secs_f64(),
             },
@@ -402,8 +413,13 @@ pub(crate) enum EffectRecord {
         /// section's script or the model whose round asked for it.
         origin: ToolCallOrigin,
     },
-    /// One operation on the run's store view.
+    /// One operation on a store of the run.
     Vfs {
+        /// Which store the operation is on: the id of the chain the store
+        /// was made for, `0` for the store the run starts with. The
+        /// records that name one store, in order, are every operation on
+        /// that store.
+        store: ChainId,
         /// The validated operation.
         op: VfsOp,
     },
@@ -438,7 +454,7 @@ pub enum EffectAnswer {
     /// The tool's own output or its own failure, before the Engine applies
     /// its trust rule.
     ToolCall(std::result::Result<ToolOutput, runvil_types::error::Error>),
-    /// The outcome of the operation on the run's store view, or the
+    /// The outcome of the operation on the effect's store view, or the
     /// store's own structured failure.
     Vfs(std::result::Result<VfsOutcome, VfsError>),
     /// The timer fired.
@@ -507,7 +523,7 @@ pub(crate) enum AnswerRecord {
     Render(Vec<PackToolSets<ToolInfo>>),
     /// The tool call's outcome.
     ToolCall(std::result::Result<ToolAnswerRecord, FailureRecord>),
-    /// The outcome of the operation on the run's store view: the
+    /// The outcome of the operation on the effect's store view: the
     /// [`VfsOutcome`] itself on success, or the failure's record.
     Vfs(std::result::Result<VfsOutcome, FailureRecord>),
     /// The timer fired.

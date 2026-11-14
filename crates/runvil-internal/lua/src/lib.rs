@@ -5,7 +5,7 @@
 //! functions are available; `args`, the read-only table of the chain's
 //! arguments, and the runtime `sys` table are exposed; a writable `var`
 //! table is provided for the block to populate; an always-on `store` table
-//! gives the block the run's store; and an every-Nth-instruction
+//! gives the block its chain's store; and an every-Nth-instruction
 //! hook polls the run's cancel flag, so even an unbounded loop aborts
 //! promptly once the run is canceled.
 //! Direct `print` and `warn` are unavailable. A persistent `log(message)`
@@ -30,19 +30,20 @@
 //! The `store` table is a deterministic Engine global (like `var`), always
 //! present and independent of tool scoping. Each of its functions suspends
 //! the block and hands the executor one store request, so every section
-//! in a run shares one set of virtual files even though contexts clear on each
-//! transition, and no store operation runs outside a block. A failed store
-//! op raises a structured error value of kind
+//! of one prompt's execution shares one set of virtual files even though
+//! contexts clear on each transition, and no store operation runs outside
+//! a block. A failed store op raises a structured error value of kind
 //! `store` carrying its `reason` and fields, which surfaces from the
 //! block's coroutine (`SectionVm::start_block_coro` and its resumes) as
 //! that store failure, never as a Lua runtime error.
 //!
-//! The VM also holds `tasks`, the shims for spawning,
-//! waiting on, checking, noting, and canceling tasks, for reading the
-//! calling chain's inbox, and for sending to a task's. Each Pack the
-//! prompt declares can contribute a prelude, Lua that defines globals once
-//! per VM before `require` installs ([`install_preludes`] states the
-//! rules).
+//! The VM also holds `tasks`, the shims for spawning, waiting on,
+//! checking, noting, and canceling tasks, for reading the calling chain's
+//! inbox, and for sending to a task's, and the `call` and `execute` shims,
+//! which run a section, or another prompt the prompt lists, as a chain the
+//! caller waits for. Each Pack the prompt declares can contribute a
+//! prelude, Lua that defines globals once per VM before `require` installs
+//! ([`install_preludes`] states the rules).
 //!
 //! The `tools` table names every tool by its id: `tools.get` reads a tool
 //! object, `tools.packs` holds one object per Pack the run knows, the

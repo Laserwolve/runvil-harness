@@ -2,13 +2,14 @@
 //!
 //! [`accept`] reads the argument text as one JSON object, gives each
 //! missing field its declared default, and refuses the first value that
-//! does not match. The order is fixed: text that is not JSON, then JSON
-//! that is not an object, then each object's declared fields in name
-//! order, then its undeclared fields in name order. A declared field is
-//! checked for a missing required value, then its type, then its `enum`,
-//! then its own contents, and a list's items are checked in index order.
-//! A missing field takes its default before that check, so a required
-//! field that declares a default is never missing.
+//! does not match. [`accept_value`] is the same check of arguments that
+//! are a JSON value already. The order is fixed: text that is not JSON,
+//! then JSON that is not an object, then each object's declared fields in
+//! name order, then its undeclared fields in name order. A declared field
+//! is checked for a missing required value, then its type, then its
+//! `enum`, then its own contents, and a list's items are checked in index
+//! order. A missing field takes its default before that check, so a
+//! required field that declares a default is never missing.
 //!
 //! A `null` sent for a field that is not required counts as the field
 //! left out, so the field takes its default or stays absent. A `null`
@@ -68,13 +69,25 @@ impl Mismatch {
 ///
 /// # Errors
 /// Returns an `ArgsInvalid` failure with no location, whose `Reason` fact
-/// is `not_json` for text that is not JSON, `not_an_object` for any JSON
-/// but an object, and `required`, `type`, `enum`, or `undeclared` for the
-/// first value that does not match, whose path is the `Name` fact.
+/// is `not_json` for text that is not JSON, and otherwise the failure of
+/// [`accept_value`].
 pub(crate) fn accept(schema: &ArgsSchema, text: &str) -> Result<Json, Error> {
-    let mut args: Json = serde_json::from_str(text).map_err(|cause| {
+    let args: Json = serde_json::from_str(text).map_err(|cause| {
         make_args_error("not_json", None, "the arguments are not valid JSON").with_cause(&cause)
     })?;
+    accept_value(schema, args)
+}
+
+/// Checks `args` as the arguments `schema` declares and returns the
+/// object a chain holds: the given fields, with each missing field's
+/// default.
+///
+/// # Errors
+/// Returns an `ArgsInvalid` failure with no location, whose `Reason` fact
+/// is `not_an_object` for any JSON but an object, and `required`, `type`,
+/// `enum`, or `undeclared` for the first value that does not match, whose
+/// path is the `Name` fact.
+pub(crate) fn accept_value(schema: &ArgsSchema, mut args: Json) -> Result<Json, Error> {
     if !args.is_object() {
         return Err(make_args_error(
             "not_an_object",

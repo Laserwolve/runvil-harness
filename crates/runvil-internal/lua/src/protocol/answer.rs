@@ -9,8 +9,8 @@ use crate::bindings::ToolOutputKind;
 use crate::compactors::OverflowReason;
 use crate::error::{Error, Result, tool};
 
-/// The result of one [`VfsOp`](super::VfsOp) run against the run's store
-/// view.
+/// The result of one [`VfsOp`](super::VfsOp) run against a store view of
+/// the run.
 ///
 /// The Lua program receives it as the return value of its `store.*` call.
 /// Operations that change the store, such as writes and deletes, produce
@@ -199,7 +199,7 @@ pub enum Blocked {
     Store,
     /// A task wait.
     Tasks,
-    /// A `call` chain.
+    /// A chain it waits for: a `call` chain, or the chain of an `execute`.
     Call,
     /// A concurrency slot, before admission.
     Queued,
@@ -264,10 +264,10 @@ pub struct TaskStatus {
 pub enum Answer {
     /// The completion text for an `infer` request.
     Infer(String),
-    /// The contained chain's final text for a `call` request, or `None`
-    /// for a chain that ended with no text, by running past its last
-    /// section or at a `return` that gave nil or no value. `None` resumes
-    /// the call with nil.
+    /// The contained chain's final text for a `call` or an `execute`
+    /// request, or `None` for a chain that ended with no text, by running
+    /// past its last section or at a `return` that gave nil or no value.
+    /// `None` resumes the call with nil.
     Call(Option<String>),
     /// The started task's id for a `spawn` request, resumed as its path
     /// text; the shim wraps it in the methodless `Task` table.

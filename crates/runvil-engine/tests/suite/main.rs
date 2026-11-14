@@ -4,6 +4,7 @@ mod args;
 mod cancel;
 mod effect;
 mod event;
+mod execute;
 mod greeter;
 mod ids;
 mod model;

@@ -10,13 +10,15 @@
 //! future: the loop starts no task, so a run is one future that any
 //! executor can drive. When an effect's future lands, the loop appends the
 //! answer's record and resumes the run with it, then steps again. A Vfs
-//! effect has no future: it is one operation on the run's store, which is
-//! memory, so the loop performs the operation inline through the effect's
-//! view, appends the answer's record, and resumes the run at once. It
-//! resumes every Vfs effect of a step this way and then
-//! steps once, so the loop awaits an answer only when it answered nothing
-//! inline. Vfs operations from different chains run one at a time in issue
-//! order.
+//! effect has no future: it is one operation on a store of the run, which
+//! is memory, so the loop performs the operation inline through the
+//! effect's view, appends the answer's record, and resumes the run at
+//! once. A run has the store it starts with and one more for each prompt
+//! an `execute` runs, and the effect's record names its store, so the
+//! loop reads the view and never which store it reaches. It resumes every
+//! Vfs effect of a step this way and then steps once, so the loop awaits
+//! an answer only when it answered nothing inline. Vfs operations from
+//! different chains run one at a time in issue order.
 //!
 //! An effect the step withdraws is answered `Dropped` without being
 //! performed, and a withdrawn effect an earlier step issued is aborted
@@ -493,7 +495,14 @@ impl Driver {
                     .queue(id, provenance.clone(), survives_stop, Box::pin(call));
                 return None;
             }
-            Effect::Vfs { access, op } => return Some((access, op)),
+            // The effect's record, written before this call, names the
+            // store, and the view reaches no other, so the store's id has
+            // no use here.
+            Effect::Vfs {
+                store: _,
+                access,
+                op,
+            } => return Some((access, op)),
             Effect::Timer { duration } => {
                 let timer = Arc::clone(&self.timer);
                 let sleep = async move {
@@ -854,12 +863,12 @@ impl Flights {
     }
 }
 
-/// Answers one Vfs effect inline: performs `op` on the run's store through
-/// the view the effect carries and returns the answer to record and resume
-/// the run with.
+/// Answers one Vfs effect inline: performs `op` on the effect's store
+/// through the view the effect carries and returns the answer to record
+/// and resume the run with.
 ///
 /// The view is this function's own parameter, so it drops when the
-/// function returns, and the Harness holds no way to the store between
+/// function returns, and the Harness holds no way to a store between
 /// effects. The drop is hygiene only: claims follow happens-before within
 /// the run's scope, and the run ends that scope at `Done` however long any
 /// access is held.

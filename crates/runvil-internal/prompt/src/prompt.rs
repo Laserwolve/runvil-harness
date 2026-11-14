@@ -180,7 +180,9 @@ impl Prompt {
     /// [`file`](Prompt::file) is the name a prompt was listed under.
     ///
     /// The prompt [`Prompt::parse`](crate::Prompt::parse) returns holds
-    /// them all, so each prompt this returns has none of its own.
+    /// them all, so each prompt this returns has none of its own. A run
+    /// of the returned prompt can execute each of them; a run of one of
+    /// these holds no other prompt to execute.
     pub fn linked(&self) -> impl Iterator<Item = &Arc<Prompt>> {
         self.linked.values()
     }

@@ -718,6 +718,7 @@ pub runvil_engine::effect::Effect::ToolCall::tool: runvil_engine::ToolId
 pub runvil_engine::effect::Effect::Vfs { .. }
 pub runvil_engine::effect::Effect::Vfs::access: alloc::sync::Arc<runvil_engine::vfs::Access>
 pub runvil_engine::effect::Effect::Vfs::op: runvil_engine::vfs::VfsOp
+pub runvil_engine::effect::Effect::Vfs::store: runvil_engine::ids::ChainId
 pub runvil_engine::effect::EffectAnswer::Chat(..)
 pub runvil_engine::effect::EffectAnswer::Chat::0: core::result::Result<alloc::boxed::Box<runvil_engine::model::Completion>, runvil_engine::Error>
 pub runvil_engine::effect::EffectAnswer::Dropped

@@ -57,20 +57,23 @@ pub(super) struct ChainStart {
     /// The chain's fork of the run state.
     pub(super) ctx: ChainState,
     /// The model the chain's current model starts on: the `default` binding
-    /// for the root walk, and a copy of the
-    /// parent's current model, taken when the call or spawn was dispatched,
-    /// for a `call` child or a task.
+    /// of its prompt for the root walk and for the chain an `execute`
+    /// starts, and a copy of the parent's current model, taken when the
+    /// call or spawn was dispatched, for a `call` child or a task.
     pub(super) model: Option<ModelBinding>,
     /// The chain's VFS access capability: the root identity for the root
-    /// walk, the caller's for a `call` child, a fork of the
-    /// spawner's for a task.
+    /// walk, the caller's for a `call` child and for the chain an
+    /// `execute` starts, a fork of the spawner's for a task.
     pub(super) access: Arc<Access>,
-    /// The section the chain starts at, which its walk continues from.
+    /// The section the chain starts at, which its walk continues from:
+    /// the first top-level section of its prompt for the root walk and
+    /// for the chain an `execute` starts.
     pub(super) start: SectionPos,
     /// What kind of chain it is.
     pub(super) kind: ChainKind,
     /// The `var` the chain's first section seeds from: a call or task
-    /// chain's caller snapshot, discarded with the chain.
+    /// chain's caller snapshot, discarded with the chain, and an empty
+    /// table for the root walk and for the chain an `execute` starts.
     pub(super) var: serde_json::Value,
     /// The chain's call nesting depth.
     pub(super) call_depth: CallDepth,
@@ -181,6 +184,10 @@ impl Scheduler {
             self.join_owned_tasks(id, access);
         }
         drop(access);
+        // The chain's hold on its store goes with it. Every chain that
+        // shared the store of an `execute` has ended by the time the
+        // executed chain does, so that store is freed here.
+        self.chains[id].ctx.release_store();
         // A task chain that was holding admission slots releases them at
         // its end, before its owner is woken: the owner's re-acquire and
         // any queued sibling need the freed capacity.
@@ -256,6 +263,7 @@ impl Scheduler {
             // wake a dead chain.
             chain.parked = None;
             chain.entered = None;
+            chain.ctx.release_store();
             chain.access.take()
         };
         // A queued chain aborted before admission leaves both queues, and

@@ -10,7 +10,7 @@
 
 use runvil_prompt::test_support::{one_section, prompt};
 use runvil_types::event::ReplyOrigin;
-use runvil_types::ids::RoundId;
+use runvil_types::ids::{ChainId, RoundId};
 use runvil_types::packs::PackId;
 use runvil_vfs::Store;
 
@@ -207,12 +207,14 @@ fn a_store_operation_issues_exactly_one_store_effect() {
         rig.issued(),
         vec![
             EffectRecord::Vfs {
+                store: ChainId::root(),
                 op: VfsOp::Write {
                     path: "notes.md".to_owned(),
                     contents: "kept".to_owned(),
                 },
             },
             EffectRecord::Vfs {
+                store: ChainId::root(),
                 op: VfsOp::Read {
                     path: "notes.md".to_owned(),
                     start: None,
@@ -220,7 +222,8 @@ fn a_store_operation_issues_exactly_one_store_effect() {
                 },
             },
         ],
-        "each store call is one store effect holding its validated op"
+        "each store call is one store effect holding its validated op and naming the store \
+         the run starts with"
     );
     assert_round_trips(rig.issued());
 }
@@ -285,7 +288,7 @@ fn a_runs_store_effect_records_rebuild_its_store() -> std::result::Result<(), Vf
     // refused left that store as it was, so it is left out.
     let rebuilt = fresh_store_view(&Store::new(), "the rebuilt store")?;
     for (effect, answer) in trace.effects() {
-        if let (EffectRecord::Vfs { op }, AnswerRecord::Vfs(Ok(outcome))) = (effect, answer) {
+        if let (EffectRecord::Vfs { op, .. }, AnswerRecord::Vfs(Ok(outcome))) = (effect, answer) {
             assert_eq!(
                 &run_store_op(&rebuilt, op.clone())?,
                 outcome,

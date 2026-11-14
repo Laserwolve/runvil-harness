@@ -1,36 +1,42 @@
-//! The `args` a `call` or a spawn hands the chain it starts: a table of
-//! named fields parses as the JSON object it holds, read through
-//! read-only views, a string parses as that string, and a list, a value
-//! of any other type, or a table with no JSON form is the call's error.
-//! The last tests run the shims: what `call`, `tasks.spawn`, and a
-//! `tasks.fanout` arm yield, and a refusal raised at the call site.
+//! The `args` a `call`, an `execute`, or a spawn hands the chain it
+//! starts: a table of named fields parses as the JSON object it holds,
+//! read through read-only views, a string parses as that string, and a
+//! list, a value of any other type, or a table with no JSON form is the
+//! call's error. The last tests run the shims: what `call`, `execute`,
+//! `tasks.spawn`, and a `tasks.fanout` arm yield, and a refusal raised at
+//! the call site.
 
 use super::*;
 use crate::test_vm::{BuiltVm, TestVm};
 use crate::{CoroStep, LuaBlockResult, LuaProgram};
 
 /// The requests that take `args`.
-const OPS: [&str; 2] = ["call", "spawn"];
+const OPS: [&str; 3] = ["call", "execute", "spawn"];
 
 /// The refusal of a list.
 const LIST_REFUSAL: &str = "args must be a table of named fields or a string, got a list";
 
 /// Parses the `op` request whose `args` field is what the Lua expression
-/// `args` gives on `vm`.
+/// `args` gives on `vm`. The request names a section as its `target` and
+/// a prompt as its `name`, of which each op reads its own.
 #[track_caller]
 fn parse_args(vm: &BuiltVm, op: &str, args: &str) -> YieldParse {
     let table: mlua::Table = vm.eval(&format!(
-        "return {{ op = '{op}', target = '../Child', args = {args}, var = {{}} }}"
+        "return {{ op = '{op}', target = '../Child', name = 'child.md', args = {args}, \
+         var = {{}} }}"
     ));
     Request::from_yield(vm.lua(), &Value::Table(table))
 }
 
-/// The `args` of the `call` or spawn request a yield parsed to.
+/// The `args` of the `call`, `execute`, or spawn request a yield parsed
+/// to.
 #[track_caller]
 fn parsed_args(parse: YieldParse) -> Option<serde_json::Value> {
     match expect_request(parse) {
-        Request::Call { args, .. } | Request::Spawn { args, .. } => args,
-        other => panic!("expected a call or a spawn request, got {other:?}"),
+        Request::Call { args, .. }
+        | Request::Execute { args, .. }
+        | Request::Spawn { args, .. } => args,
+        other => panic!("expected a call, an execute, or a spawn request, got {other:?}"),
     }
 }
 
@@ -228,7 +234,7 @@ fn first_yield(vm: &BuiltVm, source: &str) -> (LuaProgram, mlua::Thread, YieldPa
 }
 
 #[test]
-fn call_and_spawn_yield_the_args_their_author_wrote() {
+fn call_execute_and_spawn_yield_the_args_their_author_wrote() {
     let data = json!({ "query": "papers", "tags": ["a", "b"] });
     let fields = json!({ "query": "notes", "limit": 3 });
     for (source, args) in [
@@ -239,6 +245,13 @@ fn call_and_spawn_yield_the_args_their_author_wrote() {
         ("return call('../Child', 'notes')", Some(json!("notes"))),
         ("return call('../Child', args)", Some(data.clone())),
         ("return call('../Child')", None),
+        (
+            "return execute('child.md', { query = 'notes', limit = 3 })",
+            Some(fields.clone()),
+        ),
+        ("return execute('child.md', 'notes')", Some(json!("notes"))),
+        ("return execute('child.md', args)", Some(data.clone())),
+        ("return execute('child.md')", None),
         (
             "return tasks.spawn('../Child', { args = { query = 'notes', limit = 3 } })",
             Some(fields.clone()),
@@ -265,6 +278,7 @@ fn call_and_spawn_yield_the_args_their_author_wrote() {
 fn a_refused_args_value_raises_at_the_call_site_where_pcall_catches_it() {
     for call in [
         "call('../Child', { 1, 2 })",
+        "execute('child.md', { 1, 2 })",
         "tasks.spawn('../Child', { args = { 1, 2 } })",
     ] {
         let vm = TestVm::new().shims().build();

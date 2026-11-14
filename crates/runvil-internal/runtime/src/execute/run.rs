@@ -131,7 +131,11 @@ impl Run {
     /// holds whatever catalog and roster the params' builders set.
     ///
     /// A run holds `prompt` and every prompt it links, the ones
-    /// [`Prompt::linked`] gives, and the first step checks them all.
+    /// [`Prompt::linked`] gives, and the first step checks them all. An
+    /// `execute` runs one of them. So `prompt` is a prompt that
+    /// [`Prompt::parse`] returned: a prompt read from another's `linked`
+    /// links none, and in a run built over one, an `execute` of any
+    /// prompt but itself ends with an internal failure.
     ///
     /// Building a run never fails. The first `step` checks, in order,
     /// that each of those prompts declares a supported `runvil:` version,

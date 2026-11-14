@@ -9,24 +9,25 @@
 //! [`perform_vfs_op`] is defined here; the rest lives in focused private
 //! children:
 //!
-//! - `context` - the ambient run state: the run-wide `SharedState` and
-//!   each chain's `ChainState`.
-//! - `fill` - the fill function, which builds the model set from the
-//!   caller's role map when the run is built.
+//! - `context` - the ambient run state: the run-wide `SharedState`, the
+//!   `PromptState` of each prompt the run holds, and each chain's
+//!   `ChainState`.
+//! - `fill` - the fill function, which builds each prompt's model set
+//!   from the caller's role map when the run is built.
 //! - `infer` - the nested-inference round's answer.
 //! - `params` - the public [`RunParams`], which carries the caller's
 //!   role map for the five model roles, and [`RunLimits`]; installing
 //!   Packs and taking each run's catalog from them is the Harness's job.
-//! - `requirements` - what a run's params lack for its prompt, which the
+//! - `requirements` - what a run's params lack for its prompts, which the
 //!   run's first step reports as its refusal notice.
 //! - `run` - the boundary with the caller: the `Run` state machine with its
 //!   `step` and `resume`, the `Step` it returns, and the effect
 //!   vocabulary (the `Effect` a leaf arm issues, its JSON record, and the
 //!   `EffectAnswer` the caller returns).
 //! - `scheduler` - the chain scheduler driving the coroutine protocol:
-//!   the root walk, call chains, fanout, and the `chat` and
-//!   `tool_call` rounds that `models.loop`
-//!   yields over the section's `messages`.
+//!   the root walk, call chains, executed prompts, fanout, and the `chat`
+//!   and `tool_call` rounds that `models.loop` yields over the section's
+//!   `messages`.
 //! - `scope` - the merge that builds and checks a section entry's frozen
 //!   sets, and the schemas a round projects from its Static Set.
 //! - `section_context` - the per-section `SectionContext` frame the
@@ -64,8 +65,9 @@ use crate::lua::{VfsOp, VfsOutcome};
 
 /// Performs the store operation of an [`Effect::Vfs`] and returns its answer.
 ///
-/// `access` is the store view the effect carries: a view of the run's
-/// store under the chain's identity, made when the effect is dispatched.
+/// `access` is the store view the effect carries: a view of the calling
+/// chain's store under the chain's identity, made when the effect is
+/// dispatched.
 /// Each [`VfsOp`] maps onto one `Access` call on that view, so the caller
 /// answers a `Vfs` effect exactly as the Engine's own test drivers do.
 /// Line bounds arrive as `i64` and convert to `usize`. A read that gives

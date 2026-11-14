@@ -47,7 +47,8 @@ pub struct Frontmatter {
     /// The requirements declared per model role.
     #[serde(default)]
     models: RoleMap,
-    /// The prompts the prompt lists, each by the name a
+    /// The prompts the prompt lists, which are the ones its Lua may run
+    /// with `execute`, each by the name a
     /// [`PromptFinder`](crate::PromptFinder) finds it under, in
     /// declaration order.
     #[serde(default)]
@@ -144,7 +145,8 @@ impl Frontmatter {
 
     /// Returns the `prompts:` entries, in declaration order: the name of
     /// each prompt this one lists, as a
-    /// [`PromptFinder`](crate::PromptFinder) finds it.
+    /// [`PromptFinder`](crate::PromptFinder) finds it. The prompt's Lua
+    /// may run each of them with `execute`, and no other prompt.
     ///
     /// No entry is empty, and no two entries are the same name.
     #[must_use]

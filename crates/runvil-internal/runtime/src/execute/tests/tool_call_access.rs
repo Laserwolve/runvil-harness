@@ -6,7 +6,9 @@
 //! the run, so a run that succeeds touched every file with no conflict.
 //! One call hands a file to a later call: the end joins the first call's
 //! work into the chain before the chain's next step, and the fork orders
-//! the chain's earlier work before the later call's. A task's calls fork
+//! the chain's earlier work before the later call's. An executed prompt's
+//! calls fork from its caller's identity, so a call of each hands a file
+//! to a call of the other. A task's calls fork
 //! from the task, a dropped answer and a canceled task's call are joined
 //! like any other, and an access used after its call has ended refuses
 //! every operation. A call's access reaches no store: a call sees no file
@@ -203,6 +205,62 @@ fn one_tool_call_hands_a_file_to_a_later_tool_call() -> std::result::Result<(), 
     assert_eq!(
         files_in(&vfs)?,
         one_file("/handoff.txt", "first call wrote this")
+    );
+    Ok(())
+}
+
+#[test]
+fn a_tool_call_of_an_executed_prompt_and_one_of_its_caller_hand_files_to_each_other()
+-> std::result::Result<(), VfsError> {
+    // The executed prompt's chain runs on its caller's access, as a
+    // `call` chain does, so its tool calls fork from the caller's
+    // identity: the caller's earlier call is ordered before the executed
+    // prompt's read, and the executed prompt's write before the caller's
+    // later read. The two prompts' stores are apart, but the run's files
+    // are one.
+    let md = "---\nname: t\ndescription: d\nrunvil: 0\nprompts: [child.md]\n---\n\n\
+        ## Only\n\n\
+        ```lua\n\
+        tools.call('test/tools/files', { write = 'down.txt', text = 'the caller wrote this' })\n\
+        local seen = execute('child.md')\n\
+        return seen .. ' | ' .. tools.call('test/tools/files', { read = '/up.txt' })\n\
+        ```\n";
+    let child = "---\nname: child\ndescription: d\nrunvil: 0\n---\n\n\
+        ## Only\n\n\
+        ```lua\n\
+        local seen = tools.call('test/tools/files', { read = '/down.txt' })\n\
+        tools.call('test/tools/files', { write = 'up.txt', text = 'the child wrote this' })\n\
+        return seen\n\
+        ```\n";
+    let vfs = VfsRef::default();
+    let run = Scenario::new(md)
+        .prompt("child.md", child)
+        .models(loop_models())
+        .offering(Vec::new())
+        .tool(files_tool())
+        .vfs(vfs.clone())
+        .into_run();
+    let mut seen = Identities::default();
+    let (result, _) = drive(run, files_answers(&mut seen));
+    assert_eq!(
+        text_of(result),
+        "the caller wrote this | the child wrote this"
+    );
+    assert_eq!(
+        seen.tools.len(),
+        4,
+        "two calls of each prompt, none refused"
+    );
+    assert!(
+        seen.each_call_is_its_own(),
+        "each call ran under an identity of its own"
+    );
+    assert_eq!(
+        files_in(&vfs)?,
+        vec![
+            ("/down.txt".to_owned(), "the caller wrote this".to_owned()),
+            ("/up.txt".to_owned(), "the child wrote this".to_owned()),
+        ]
     );
     Ok(())
 }

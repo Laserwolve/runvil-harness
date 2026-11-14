@@ -2,6 +2,12 @@
 //! [`FindFilePrompt`] serves one from a file, and [`PromptSet`] serves the
 //! prompts a Host inserts as text, as files, and as directories.
 //!
+//! A parse finds a prompt and then every prompt its `prompts:` lists
+//! reach, which are the prompts a run of it may execute, so a prompt that
+//! lists another needs a finder that serves each listed name too, such as
+//! a [`PromptSet`]. The two finders of one prompt serve a prompt that
+//! lists none, or only itself.
+//!
 //! A file is read with a blocking `std::fs` call at each find, and
 //! nothing is cached, so an edited prompt shows in the next find. The
 //! Harness calls a finder only from `Host::parse`, before the run
@@ -119,7 +125,7 @@ impl PromptFinder for FindFilePrompt {
 /// [`names`](PromptSet::names) to list what the set serves. The set
 /// watches no directory itself. A rescan changes what later finds
 /// return, and never a run that has started, which holds its parsed
-/// prompt.
+/// prompt and every prompt that one links, the ones it may execute.
 ///
 /// Reads and listings are blocking `std::fs` calls.
 #[derive(Debug, Default)]

@@ -18,7 +18,9 @@ pub struct Host {
     /// Every Pack the Host installed in its registry, whose factories
     /// make each run's instances.
     pub packs: Packs,
-    /// Finds each prompt's source by its name.
+    /// Finds each prompt's source by its name: the prompt a parse is
+    /// asked for, and each prompt the `prompts:` lists reach from it,
+    /// which a run of it may execute.
     pub prompts: Arc<dyn PromptFinder>,
     /// Performs every run's `Timer` effects.
     pub timer: Arc<dyn Timer>,

@@ -24,10 +24,10 @@ use crate::section::LibraryKey;
 /// A validated suspending Engine call, parsed from the yielded table.
 ///
 /// The parse happens at the resume boundary while the VM handle is live:
-/// the `args` table of a `call` or a spawn converts to JSON, a spawn's
-/// `item` seed converts through the serde bridge, and the handle
-/// userdata's [`ModelBinding`] is cloned out of its borrow, so nothing
-/// lifetime-bound enters the enum.
+/// the `args` table of a `call`, an `execute`, or a spawn converts to
+/// JSON, a spawn's `item` seed converts through the serde bridge, and the
+/// handle userdata's [`ModelBinding`] is cloned out of its borrow, so
+/// nothing lifetime-bound enters the enum.
 #[derive(Debug)]
 pub enum Request {
     /// `models.infer(prompt)` (`binding: None`: resolve the section's
@@ -56,6 +56,18 @@ pub enum Request {
         /// The target's path then starts at that library's section, and
         /// otherwise at the section that is running.
         from: Option<LibraryKey>,
+    },
+    /// `execute(name, args?)`: run another prompt as a contained chain the
+    /// caller waits for. The call returns the chain's final text, or nil
+    /// for a chain that ended with none.
+    Execute {
+        /// The name of the prompt to run, as the author wrote it: one of
+        /// the names the calling prompt lists under `prompts:`.
+        name: String,
+        /// The executed prompt's arguments: a JSON object for a table of
+        /// named fields, or a JSON string for a string. `None` gives it
+        /// the empty object.
+        args: Option<serde_json::Value>,
     },
     /// `tasks.spawn(target, opts?)`, and each arm of the `fanout` shim:
     /// start a task chain over the target's slice and return at once. The

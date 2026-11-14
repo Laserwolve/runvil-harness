@@ -139,7 +139,11 @@ async fn records_are_events_then_effects_then_answers_per_step() {
     let payload = |position: usize| records[position].payload.clone();
     assert_eq!(
         payload(effect_positions[0]),
-        json!({ "Vfs": { "op": { "Write": { "path": "notes.md", "contents": "kept" } } } })
+        json!({ "Vfs": {
+            "store": "0",
+            "op": { "Write": { "path": "notes.md", "contents": "kept" } },
+        } }),
+        "the record names the store the run starts with by the root chain's id"
     );
     assert_eq!(
         payload(effect_positions[0] + 1),

@@ -10,6 +10,7 @@
 //! called from a block, reach the yielding store and tool shims, through
 //! a store function the prelude captured too.
 
+use runvil_types::ids::ChainId;
 use runvil_types::packs::{PackId, Prelude};
 
 use super::fixtures::echo_tool;
@@ -141,6 +142,7 @@ fn a_prelude_that_catches_its_store_call_installs_and_leaves_the_store_untouched
     assert_eq!(
         records(&trace),
         vec![EffectRecord::Vfs {
+            store: ChainId::root(),
             op: VfsOp::Exists {
                 path: "seeded.txt".to_owned(),
             },
@@ -284,12 +286,14 @@ fn a_library_a_fanout_arm_and_a_spawned_task_all_see_a_prelude_global() {
 fn write_then_read(path: &str, text: &str) -> Vec<EffectRecord> {
     vec![
         EffectRecord::Vfs {
+            store: ChainId::root(),
             op: VfsOp::Write {
                 path: path.to_owned(),
                 contents: text.to_owned(),
             },
         },
         EffectRecord::Vfs {
+            store: ChainId::root(),
             op: VfsOp::Read {
                 path: path.to_owned(),
                 start: None,

@@ -56,9 +56,10 @@ async fn a_run_of_only_vfs_operations_completes_with_one_answer_per_effect() {
     }
 }
 
-/// The effect record for writing `contents` to `path`.
+/// The effect record for writing `contents` to `path` of the store the
+/// run starts with, which the record names `0`.
 fn write_effect(path: &str, contents: &str) -> serde_json::Value {
-    json!({ "Vfs": { "op": { "Write": { "path": path, "contents": contents } } } })
+    json!({ "Vfs": { "store": "0", "op": { "Write": { "path": path, "contents": contents } } } })
 }
 
 /// Whether `records` hold the answer to the write of `second.md`.
@@ -194,7 +195,7 @@ async fn a_vfs_effect_withdrawn_in_the_step_that_issued_it_is_dropped_unperforme
             (RecordKind::Answer, json!("Dropped")),
             (
                 RecordKind::Effect,
-                json!({ "Vfs": { "op": { "Exists": { "path": "slow.md" } } } })
+                json!({ "Vfs": { "store": "0", "op": { "Exists": { "path": "slow.md" } } } })
             ),
             (
                 RecordKind::Answer,

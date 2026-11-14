@@ -6,8 +6,8 @@
 //! with the parent position suspended on the chain's own walk stack
 //! until the child level exhausts. The root walk is the run's first chain:
 //! it starts at the prompt's first top-level section, the preamble when
-//! the prompt has one, and every other chain starts where a `call` or a
-//! spawn names.
+//! the prompt has one, as the chain an `execute` starts does in the prompt
+//! it runs, and every other chain starts where a `call` or a spawn names.
 
 use std::num::NonZeroU32;
 use std::sync::Arc;

@@ -341,7 +341,7 @@ impl Driver {
 
     fn answer(&mut self, effect: Effect) -> TestResult<EffectAnswer> {
         Ok(match effect {
-            Effect::Vfs { access, op } => EffectAnswer::Vfs(perform_vfs_op(&access, op)),
+            Effect::Vfs { access, op, .. } => EffectAnswer::Vfs(perform_vfs_op(&access, op)),
             Effect::Timer { .. } => EffectAnswer::Timer,
             Effect::Render { offered, .. } => EffectAnswer::Render(offered),
             Effect::Chat { binding, .. } => {

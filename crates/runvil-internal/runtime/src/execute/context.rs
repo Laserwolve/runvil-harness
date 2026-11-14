@@ -174,17 +174,37 @@ impl PromptState {
             preludes,
         }
     }
+
+    /// The resolved tool-loop cap per `models.loop` call in the prompt's
+    /// sections: its frontmatter's `max_tool_iterations` over the default
+    /// of `limits`, held to their ceiling.
+    fn max_tool_iterations(&self, limits: &RunLimits) -> usize {
+        let cap = self
+            .prompt
+            .frontmatter()
+            .max_tool_iterations()
+            .unwrap_or(limits.max_tool_iterations);
+        cap.min(limits.tool_iterations_ceiling).get() as usize
+    }
+
+    /// The prompt's top-level section count, the preamble included, which
+    /// its sections read as `sys.section_count`.
+    fn section_count(&self) -> usize {
+        crate::prompt::detail::sections(&self.prompt).len()
+    }
 }
 
 /// A store, with the id of the chain it was made for.
-struct ChainStore {
+pub(super) struct ChainStore {
     /// The store: a set of files in memory that sits outside the run's
     /// VFS handle and never leaves the run, so the caller reaches it only
     /// through the store view of a `Vfs` effect.
-    store: Store,
+    pub(super) store: Store,
     /// The id of the chain the store was made for: the root chain's for
-    /// the store the run starts with.
-    made_for: ChainId,
+    /// the store the run starts with, and the chain of an executed prompt
+    /// for a store an `execute` made. A `Vfs` effect names its store by
+    /// it.
+    pub(super) made_for: ChainId,
 }
 
 impl ChainStore {
@@ -207,8 +227,9 @@ impl ChainStore {
 /// spawned chain its own task emitter and turn counter,
 /// [`with_args`](Self::with_args) giving the chain of a `call` or a
 /// `tasks.spawn` the arguments it was passed, and
-/// [`with_prompt`](Self::with_prompt) giving a chain another of the run's
-/// prompts to run, with its arguments and a store of its own.
+/// [`with_prompt`](Self::with_prompt) giving the chain of an `execute`
+/// another of the run's prompts to run, with its arguments and a store of
+/// its own.
 #[derive(Clone)]
 pub(crate) struct ChainState {
     /// The run-wide state every chain of the run shares.
@@ -220,8 +241,10 @@ pub(crate) struct ChainState {
     /// The store this chain's `store` calls operate on: the one made with
     /// the run for the root chain, and the store of the chain it was
     /// forked from unless [`with_prompt`](Self::with_prompt) made it a new
-    /// one.
-    store: Arc<ChainStore>,
+    /// one. `None` once [`release_store`](Self::release_store) let go of
+    /// it at the chain's end, so a store is freed when the last chain that
+    /// shared it has ended.
+    store: Option<Arc<ChainStore>>,
     /// This context's reporting handles: the root task's at construction,
     /// a spawned chain's own after [`with_task`](Self::with_task). The Lua
     /// layer's seams (`require`'s library loads, `log`, teardown, the
@@ -314,7 +337,7 @@ impl ChainState {
                 raw_shims: false,
             }),
             prompt: own,
-            store: ChainStore::new(ChainId::root()),
+            store: Some(ChainStore::new(ChainId::root())),
             reporting: ReportingHandles {
                 emitter,
                 turns: Arc::new(AtomicU32::new(0)),
@@ -381,10 +404,35 @@ impl ChainState {
         &self.shared.vfs
     }
 
-    /// The store this chain's `store` calls operate on. Every store view
-    /// the Engine makes for the chain derives from it.
-    pub(super) fn store(&self) -> &Store {
-        &self.store.store
+    /// The store this chain's `store` calls operate on, with the id of the
+    /// chain it was made for. Every store view the Engine makes for the
+    /// chain derives from it.
+    ///
+    /// # Errors
+    /// Returns an `Internal` failure once the chain has ended and let go
+    /// of its store: a live chain always holds one.
+    pub(super) fn store(&self) -> crate::Result<&ChainStore> {
+        self.store
+            .as_deref()
+            .ok_or(crate::error::make_internal_error(
+                "a live chain holds its store",
+            ))
+    }
+
+    /// Lets go of the chain's store, at the chain's end. The store itself
+    /// goes once every chain that shared it has let go: the run's own
+    /// with the run, which keeps the root chain's state, and one an
+    /// `execute` made when the executed prompt's chain ends, since every
+    /// chain it started has ended by then.
+    pub(super) fn release_store(&mut self) {
+        self.store = None;
+    }
+
+    /// The prompt the run holds under `name`, the name [`Prompt::file`]
+    /// gives it: the run's own prompt or one it links. `None` when the
+    /// run holds no prompt under that name.
+    pub(super) fn prompt_named(&self, name: &str) -> Option<&Arc<Prompt>> {
+        self.shared.prompts.get(name).map(|state| &state.prompt)
     }
 
     /// The chain's arguments, a JSON object.
@@ -457,26 +505,6 @@ impl ChainState {
         self.shared.args_refusal.as_ref()
     }
 
-    /// The resolved tool-loop cap per `models.loop` call in the prompt
-    /// this chain runs: its frontmatter's `max_tool_iterations` over the
-    /// limits default, held to the limits ceiling.
-    fn max_tool_iterations(&self) -> usize {
-        let limits = &self.shared.limits;
-        let cap = self
-            .prompt
-            .prompt
-            .frontmatter()
-            .max_tool_iterations()
-            .unwrap_or(limits.max_tool_iterations);
-        cap.min(limits.tool_iterations_ceiling).get() as usize
-    }
-
-    /// The top-level section count of the prompt this chain runs, the
-    /// preamble included, reported as `sys.section_count`.
-    fn section_count(&self) -> usize {
-        crate::prompt::detail::sections(&self.prompt.prompt).len()
-    }
-
     /// The context a contained chain runs under when a `call` or a
     /// `tasks.spawn` passed it arguments: `args` in place of the caller's.
     /// An object is the chain's arguments as given, and a string is the
@@ -496,23 +524,16 @@ impl ChainState {
         ctx
     }
 
-    /// The context a chain runs another of the run's prompts under: the
-    /// prompt the run holds under `name`, with that prompt's own sets;
-    /// `args`, a JSON object, as the chain's arguments; and a new, empty
-    /// store made for the chain `made_for`, in place of this chain's. The
-    /// reporting handles stay, as does everything the run shares. `None`
-    /// when the run holds no prompt under `name`.
+    /// The context the chain of an `execute` runs under: the prompt the
+    /// run holds under `name`, with that prompt's own sets; `args`, a JSON
+    /// object, as the chain's arguments; and a new, empty store made for
+    /// the chain `made_for`, in place of this chain's. The reporting
+    /// handles stay, as does everything the run shares. `None` when the
+    /// run holds no prompt under `name`.
     ///
     /// Nothing here checks `args` against that prompt's `args`
     /// declaration, and nothing checks that this chain's prompt lists
-    /// `name`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "no request switches a chain to another prompt, so only tests call this fork"
-        )
-    )]
+    /// `name`: the `execute` dispatch does both first.
     #[must_use]
     pub(super) fn with_prompt(
         &self,
@@ -524,7 +545,7 @@ impl ChainState {
         let mut ctx = self.clone();
         ctx.prompt = prompt;
         ctx.args = Arc::new(args);
-        ctx.store = ChainStore::new(made_for);
+        ctx.store = Some(ChainStore::new(made_for));
         Some(ctx)
     }
 
@@ -561,7 +582,7 @@ impl ChainState {
             emitter: &self.reporting.emitter,
             section_name,
             file: self.prompt.prompt.file(),
-            max_tool_iterations: self.max_tool_iterations(),
+            max_tool_iterations: self.prompt.max_tool_iterations(&self.shared.limits),
             ui: self.shared.ui.as_ref(),
             preludes: &self.prompt.preludes,
             #[cfg(test)]
@@ -580,7 +601,7 @@ impl ChainState {
             id: id.to_owned(),
             taskid: task_id.clone(),
             section_name: section_name.to_owned(),
-            section_count: self.section_count(),
+            section_count: self.prompt.section_count(),
             index: None,
             model: None,
         }
@@ -592,7 +613,10 @@ impl fmt::Debug for ChainState {
         f.debug_struct("ChainState")
             .field("shared", &self.shared)
             .field("prompt", &self.prompt)
-            .field("store_made_for", &self.store.made_for)
+            .field(
+                "store_made_for",
+                &self.store.as_ref().map(|held| &held.made_for),
+            )
             .field("reporting", &self.reporting)
             .field("args", &self.args)
             .finish()
@@ -684,6 +708,13 @@ mod tests {
         PackId::parse(id).expect("a static valid Pack id")
     }
 
+    /// The store `ctx` holds, with the id of the chain it was made for.
+    #[track_caller]
+    fn held(ctx: &ChainState) -> &ChainStore {
+        ctx.store()
+            .expect("a state that has not ended holds a store")
+    }
+
     /// The Pack of each prelude a section VM of `ctx`'s prompt installs,
     /// in install order.
     fn prelude_packs(ctx: &ChainState) -> Vec<String> {
@@ -695,6 +726,20 @@ mod tests {
             .iter()
             .map(|prelude| prelude.pack().to_string())
             .collect()
+    }
+
+    /// The tool-loop cap a section VM of `ctx`'s prompt gets.
+    fn loop_cap(ctx: &ChainState) -> usize {
+        let sys = json!({});
+        let selection = Arc::new(Mutex::new(None));
+        ctx.vm_setup(&sys, VmSeed::default(), &selection, "Only")
+            .max_tool_iterations
+    }
+
+    /// The `sys.section_count` a section of `ctx`'s prompt reads.
+    fn section_count(ctx: &ChainState) -> usize {
+        ctx.section_sys("0.0", &TaskId::from(ChainId::root()), "Only")
+            .section_count
     }
 
     fn test_state(prompt: &Prompt) -> ChainState {
@@ -736,10 +781,10 @@ mod tests {
         let prompt = test_prompt();
         let ctx = test_state(&prompt);
         assert_eq!(
-            ctx.section_count(),
+            section_count(&ctx),
             runvil_prompt::detail::sections(&prompt).len()
         );
-        assert_eq!(ctx.max_tool_iterations(), 24);
+        assert_eq!(loop_cap(&ctx), 24);
     }
 
     #[test]
@@ -754,7 +799,7 @@ mod tests {
             RunParams::new(TEST_SEED, runvil_types::timestamp::Timestamp::UNIX_EPOCH)
                 .with_limits(limits),
         );
-        assert_eq!(ctx.max_tool_iterations(), 10);
+        assert_eq!(loop_cap(&ctx), 10);
     }
 
     #[test]
@@ -859,11 +904,8 @@ mod tests {
             ["kit", "web"],
             "each prompt's own Packs' preludes, in the order it declares them"
         );
-        assert_eq!((ctx.section_count(), review.section_count()), (1, 2));
-        assert_eq!(
-            (ctx.max_tool_iterations(), review.max_tool_iterations()),
-            (24, 3)
-        );
+        assert_eq!((section_count(&ctx), section_count(&review)), (1, 2));
+        assert_eq!((loop_cap(&ctx), loop_cap(&review)), (24, 3));
         assert_eq!(ctx.refusal(), None, "the params lack nothing");
     }
 
@@ -879,17 +921,17 @@ mod tests {
         assert!(Arc::ptr_eq(ctx.emitter(), child.emitter()));
         assert_eq!(**child.args(), json!({ "topic": "tea" }));
         assert_eq!(**ctx.args(), json!({}), "the fork leaves its source alone");
-        assert_eq!(ctx.store.made_for, ChainId::root());
-        assert_eq!(child.store.made_for, made_for);
+        assert_eq!(held(&ctx).made_for, ChainId::root());
+        assert_eq!(held(&child).made_for, made_for);
 
         // A file in one store is no file of the other.
         let write = |ctx: &ChainState, path: &str| {
-            fresh_store_view(ctx.store(), "the fork test's write")
+            fresh_store_view(&held(ctx).store, "the fork test's write")
                 .and_then(|view| view.write(path, b"x"))
                 .expect("a fresh view writes");
         };
         let exists = |ctx: &ChainState, path: &str| {
-            fresh_store_view(ctx.store(), "the fork test's read")
+            fresh_store_view(&held(ctx).store, "the fork test's read")
                 .and_then(|view| view.exists(path))
                 .expect("a fresh view reads")
         };
@@ -905,7 +947,7 @@ mod tests {
             child.with_task(task, Arc::new(AtomicU32::new(0))),
         ] {
             assert_eq!(fork.prompt().file(), "review.md");
-            assert!(Arc::ptr_eq(&fork.store, &child.store));
+            assert!(std::ptr::eq(held(&fork), held(&child)));
         }
 
         // A fork back onto the run's own prompt gets a store of its own
@@ -920,6 +962,45 @@ mod tests {
             ctx.with_prompt("absent.md", json!({}), made_for).is_none(),
             "the run holds no prompt under that name"
         );
+    }
+
+    #[test]
+    fn a_store_goes_when_the_last_state_that_shares_it_lets_go() {
+        let ctx = test_state(&linking_prompt("", ""));
+        let mut child = ctx
+            .with_prompt("review.md", json!({}), ChainId::root().child(0))
+            .expect("the run holds the prompt its prompt links");
+        let mut sharer = child.with_args(json!({ "n": 1 }));
+        let store = Arc::downgrade(child.store.as_ref().expect("the fork made a store"));
+
+        sharer.release_store();
+        assert!(
+            sharer.store().is_err(),
+            "a state that let go holds no store"
+        );
+        assert!(
+            store.upgrade().is_some(),
+            "the state the store was made for still holds it"
+        );
+        child.release_store();
+        assert!(store.upgrade().is_none(), "the last holder let go");
+        assert!(
+            ctx.store().is_ok(),
+            "the state the child forked from keeps its own store"
+        );
+    }
+
+    /// The file of the prompt `ctx`'s run holds under `name`.
+    fn prompt_named<'a>(ctx: &'a ChainState, name: &str) -> Option<&'a str> {
+        ctx.prompt_named(name).map(|prompt| prompt.file())
+    }
+
+    #[test]
+    fn a_run_holds_its_own_prompt_and_each_prompt_it_links_under_their_names() {
+        let ctx = test_state(&linking_prompt("", ""));
+        assert_eq!(prompt_named(&ctx, "prompt"), Some("prompt"));
+        assert_eq!(prompt_named(&ctx, "review.md"), Some("review.md"));
+        assert_eq!(prompt_named(&ctx, "absent.md"), None);
     }
 
     #[test]

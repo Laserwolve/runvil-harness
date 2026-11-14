@@ -3,9 +3,9 @@
 //! direct-yield message, and an author-argument failure becomes the call's
 //! answer so the shim raises it at the call site. Field reads are raw: the
 //! table comes from script space, so a metatable must not intercept or
-//! forge a field. `infer`, `call`, and the argument-free `pending`,
-//! `receive`, and `arrivals` parse here; the other per-op parsers sit in
-//! the child modules `chat`, `store`, `tasks`, and `tools`.
+//! forge a field. `infer`, `call`, `execute`, and the argument-free
+//! `pending`, `receive`, and `arrivals` parse here; the other per-op
+//! parsers sit in the child modules `chat`, `store`, `tasks`, and `tools`.
 
 mod chat;
 mod store;
@@ -81,18 +81,18 @@ fn call_string(table: &mlua::Table, name: &str) -> std::result::Result<String, F
     }
 }
 
-/// What the `args` of a `call` or a spawn must be, the text every refusal
-/// of another shape starts with.
+/// What the `args` of a `call`, an `execute`, or a spawn must be, the
+/// text every refusal of another shape starts with.
 const ARGS_SHAPE: &str = "args must be a table of named fields or a string";
 
-/// Reads the author-supplied `args` of a `call` or a spawn, the
-/// arguments the chain it starts reads: absent or nil is `None`, a string
-/// is that string, and a table of named fields is the JSON object it
-/// converts to under the `json.encode` rules. Those rules read a
-/// read-only view as the table it stands for, so the caller's own `args`
-/// passes on as its data. An unmarked empty table is the empty object. A
-/// list, a marked empty one included, a value of any other type, and a
-/// table with no JSON form are each the call's error.
+/// Reads the author-supplied `args` of a `call`, an `execute`, or a
+/// spawn, the arguments the chain it starts reads: absent or nil is
+/// `None`, a string is that string, and a table of named fields is the
+/// JSON object it converts to under the `json.encode` rules. Those rules
+/// read a read-only view as the table it stands for, so the caller's own
+/// `args` passes on as its data. An unmarked empty table is the empty
+/// object. A list, a marked empty one included, a value of any other
+/// type, and a table with no JSON form are each the call's error.
 fn call_args(
     lua: &Lua,
     table: &mlua::Table,
@@ -212,6 +212,7 @@ impl Request {
         match op.as_str() {
             "infer" => classify(parse_infer(table)),
             "call" => classify(parse_call(lua, table)),
+            "execute" => classify(parse_execute(lua, table)),
             "spawn" => classify(parse_spawn(lua, table)),
             "timer" => classify(parse_timer(table)),
             "join_any" => classify(parse_join_any(table)),
@@ -293,6 +294,13 @@ fn parse_call(lua: &Lua, table: &mlua::Table) -> std::result::Result<Request, Fi
         var,
         from,
     })
+}
+
+/// Parses an `execute` request: the author-supplied `name` and `args`.
+fn parse_execute(lua: &Lua, table: &mlua::Table) -> std::result::Result<Request, FieldFailure> {
+    let name = call_string(table, "name")?;
+    let args = call_args(lua, table)?;
+    Ok(Request::Execute { name, args })
 }
 
 /// Reads the shim-produced `from` of a `call` or `spawn`: the identity of

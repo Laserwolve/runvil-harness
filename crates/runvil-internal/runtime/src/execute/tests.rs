@@ -170,6 +170,7 @@ mod discovery;
 mod effects;
 mod event_vendors;
 mod exec_flow;
+mod execute;
 mod exit_rules;
 mod fanout_acceptance;
 mod full_id_calls;

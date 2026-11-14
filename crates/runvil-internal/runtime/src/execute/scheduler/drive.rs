@@ -290,6 +290,7 @@ impl Scheduler {
             chain.parked = None;
             chain.entered = None;
             chain.access = None;
+            chain.ctx.release_store();
         }
         self.effects.orphan_all();
     }

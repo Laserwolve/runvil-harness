@@ -118,7 +118,7 @@ pub fn perform_locally(
             ErrorCode::ToolOther,
             format!("no tool is bound as {alias} in this test"),
         ))),
-        Effect::Vfs { access, op } => EffectAnswer::Vfs(run_store_op(access, op.clone())),
+        Effect::Vfs { access, op, .. } => EffectAnswer::Vfs(run_store_op(access, op.clone())),
         Effect::Timer { .. } => EffectAnswer::Timer,
     }
 }

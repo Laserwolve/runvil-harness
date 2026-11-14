@@ -14,10 +14,11 @@
 //! [`harness::PromptSet`], and its [`harness::Timer`], which also stamps
 //! each run's start as a [`Timestamp`], and shares it behind an `Arc`.
 //! [`Host::parse`] finds a prompt by its name and parses it, with every
-//! prompt its `prompts:` lists reach. For each run the launcher
-//! builds a [`RunSetup`] with the run's recorder, inference
-//! broker, filesystem, model selection, workspace roots, [`RunLimits`],
-//! tool-call cap, arguments, and whether a user answers it, and
+//! prompt its `prompts:` lists reach, which are the prompts a run of it
+//! may execute. For each run the launcher builds a [`RunSetup`] with the
+//! run's recorder, inference broker, filesystem, model selection,
+//! workspace roots, [`RunLimits`], tool-call cap, arguments, and whether a
+//! user answers it, and
 //! [`Harness::new`] takes the Host, the parsed prompt, and that setup.
 //! [`Harness::run`] runs the prompt to its end and returns its
 //! [`RunReport`]. The run makes its own instance of each Pack it holds
@@ -190,7 +191,8 @@ pub mod packs {
 
 pub mod prompt {
     //! What a prompt's frontmatter declares: its Packs, arguments, model
-    //! roles, and the prompts it lists.
+    //! roles, and the prompts it lists, which its Lua may run with
+    //! `execute`.
 
     pub use runvil_engine::prompt::ArgsSchema;
     pub use runvil_engine::prompt::Frontmatter;
@@ -202,9 +204,10 @@ pub mod vfs {
     //! each run for its tool calls, real directories among its mounts,
     //! the policy that decides what those calls may change, the access
     //! each tool call receives through its context, and the origin each
-    //! file operation carries to say who asked for it. A run's store is
-    //! no part of that filesystem: each run has an empty store of its
-    //! own, which a Host neither fills nor reads.
+    //! file operation carries to say who asked for it. No store of a run
+    //! is part of that filesystem: each run has an empty store of its
+    //! own, and one more for each prompt it executes, which a Host
+    //! neither fills nor reads.
 
     pub use runvil_engine::vfs::Access;
     pub use runvil_engine::vfs::AcquireContext;

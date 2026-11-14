@@ -36,10 +36,11 @@
 //!   (enforced by the Harness tokio ban in `cargo test -p build-xtask`).
 //! - The Harness reads each [`RunSetup`] field once per run: the run's
 //!   tool calls work in the one filesystem the setup holds.
-//! - The Harness reaches a run's store only to perform the one operation
-//!   of a Vfs effect, through that effect's view. It puts
-//!   nothing in the store before a run and reads nothing from it after:
-//!   a run takes its input as arguments and hands back its result.
+//! - The Harness reaches a store of a run, the one the run starts with or
+//!   one a prompt it executes works in, only to perform the one operation
+//!   of a Vfs effect, through that effect's view. It puts nothing in a
+//!   store before a run and reads nothing from one after: a run takes its
+//!   input as arguments and hands back its result.
 //! - The recorder is written in loop order: a step's events before the
 //!   step's effects are issued, each effect before its performer starts,
 //!   each answer before the run resumes with it, and each sent message's
@@ -73,7 +74,8 @@
 //! - A stock finder reads a file only inside a find, and the Harness calls
 //!   a finder only from [`Host::parse`], before the run exists, which
 //!   finds every prompt the run holds. So no file read happens inside a
-//!   run's future.
+//!   run's future: a prompt the run executes with `execute` is one that
+//!   parse linked.
 
 mod display_chain;
 pub mod effect_loop;

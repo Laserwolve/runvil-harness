@@ -438,6 +438,7 @@ fn every_kinds_public_record_is_json_that_round_trips_exactly() {
             survives_stop: false,
         },
         Effect::Vfs {
+            store: ChainId::root().child(3),
             access: access(),
             op: VfsOp::Write {
                 path: "note.md".to_owned(),

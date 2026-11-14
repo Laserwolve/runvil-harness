@@ -160,6 +160,22 @@ end
 
 local call_section = call_from(nil)
 
+-- `execute(name, args)` runs another prompt as a chain the caller waits
+-- for. `name` is one of the names the calling prompt lists under
+-- `prompts:`, and `args` is the executed prompt's arguments, a table of
+-- named fields or a string, checked against that prompt's `args`
+-- declaration before its chain starts; with none it gets the empty
+-- object. The request holds no `var` and no `from`: the executed prompt
+-- starts on a `var` of its own, and the name is looked up in the list of
+-- the prompt the calling chain runs, whichever code makes the call. The
+-- driver resumes the call with the executed chain's final text, or with
+-- nil for a chain that ended with no text, and that is the call's value.
+local function execute(name, args)
+  local ok, result = yield({ op = "execute", name = name, args = args })
+  if not ok then fail(result) end
+  return result
+end
+
 -- Runs an adhoc tool's handler inside this block coroutine, so every
 -- suspending call the handler makes is an ordinary yield of the chain.
 -- `jump` refuses while the handler runs; the raw pcall catches every
@@ -268,11 +284,11 @@ local function models_compact(...)
 end
 
 -- store.*: every store operation is a leaf yield, answered by the driver
--- against the run's store, with no inline fast path. The Engine installs
--- the table of them as the `store` global of
--- every section VM with the other shims, ahead of the Pack preludes, so a
--- store function only ever runs inside a block. `end` is a keyword, so
--- the read bounds travel under bracket keys.
+-- against the calling chain's store, with no inline fast path. The Engine
+-- installs the table of them as the `store` global of every section VM
+-- with the other shims, ahead of the Pack preludes, so a store function
+-- only ever runs inside a block. `end` is a keyword, so the read bounds
+-- travel under bracket keys.
 local function store_request(store_op, fields)
   fields.op = "store"
   fields.store_op = store_op
@@ -351,6 +367,7 @@ return {
   call = call_section,
   -- The factory `require` makes a library's own `call` with.
   call_from = call_from,
+  execute = execute,
   -- The failure helpers, handed to the `tasks` and `fanout` chunks
   -- (`__impl_tasks.lua`, `__impl_fanout.lua`) so their shims raise the one
   -- error shape this chunk defines.

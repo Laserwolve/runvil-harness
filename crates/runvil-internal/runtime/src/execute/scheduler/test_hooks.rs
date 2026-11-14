@@ -116,10 +116,26 @@ impl Scheduler {
         self.ctx.turns().load(Ordering::Relaxed)
     }
 
-    /// The root chain's store, which the `store` calls of every chain
-    /// with no store of its own operate on.
+    /// The root chain's store, which the `store` calls of the run's own
+    /// prompt operate on. The scheduler's own state keeps it after the
+    /// run ends.
     pub(crate) fn store_for_test(&self) -> runvil_vfs::Store {
-        self.ctx.store().clone()
+        self.ctx
+            .store()
+            .expect("the scheduler's own state keeps the root chain's store")
+            .store
+            .clone()
+    }
+
+    /// The id of the store each chain still holds, in the order the
+    /// chains started, so a test can prove a chain's end let go of its
+    /// store.
+    pub(crate) fn held_stores_for_test(&self) -> Vec<String> {
+        self.chains
+            .iter()
+            .filter_map(|(_, chain)| chain.ctx.store().ok())
+            .map(|held| held.made_for.to_string())
+            .collect()
     }
 
     /// Starts a chain over the top-level slice at `index`, as a `call` or

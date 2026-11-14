@@ -59,7 +59,7 @@ fn drive(vfs: &VfsRef, source: &str, tool: Perform) -> TestResult<Ran> {
         };
         for IssuedEffect { id, effect, .. } in effects {
             let answer = match effect {
-                Effect::Vfs { access, op } => {
+                Effect::Vfs { access, op, .. } => {
                     let outcome = perform_vfs_op(&access, op);
                     views.push(access);
                     EffectAnswer::Vfs(outcome)

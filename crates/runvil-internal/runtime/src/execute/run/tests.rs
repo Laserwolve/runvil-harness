@@ -11,7 +11,7 @@ use runvil_model_client::model::{ModelInvocation, Temperature};
 use runvil_types::cancel::CancelHandle;
 use runvil_types::error::ErrorCode;
 use runvil_types::event::{Event, ReplyOrigin};
-use runvil_types::ids::RoundId;
+use runvil_types::ids::{ChainId, RoundId};
 use runvil_types::tools::ToolId;
 use serde_json::json;
 
@@ -171,13 +171,14 @@ fn a_tool_call_record_serializes_its_origin_in_snake_case() {
 }
 
 #[test]
-fn a_store_effect_records_its_operation_and_drops_the_access_handle() {
+fn a_store_effect_records_its_store_and_operation_and_drops_the_access_handle() {
     let access = Arc::new(
         runvil_vfs::VfsRef::default()
             .acquire(runvil_vfs::Origin::new("run test fixture"))
             .expect("the stock backend acquires"),
     );
     let effect = Effect::Vfs {
+        store: ChainId::root().child(2),
         access,
         op: VfsOp::Read {
             path: "notes.md".to_owned(),
@@ -189,6 +190,7 @@ fn a_store_effect_records_its_operation_and_drops_the_access_handle() {
     assert_eq!(
         record,
         EffectRecord::Vfs {
+            store: ChainId::root().child(2),
             op: VfsOp::Read {
                 path: "notes.md".to_owned(),
                 start: Some(1),
@@ -196,11 +198,17 @@ fn a_store_effect_records_its_operation_and_drops_the_access_handle() {
             },
         }
     );
-    // The record is the operation alone: nothing of the handle survives.
-    let text = serde_json::to_string(&record).expect("a record serializes");
-    assert!(
-        !text.contains("access"),
-        "the store record is the operation alone: {text}"
+    // The record is the store's id and the operation: nothing of the
+    // handle survives.
+    assert_eq!(
+        effect.record(),
+        json!({
+            "Vfs": {
+                "store": "0.2",
+                "op": { "Read": { "path": "notes.md", "start": 1, "end": null } },
+            },
+        }),
+        "the store is named by the id of the chain it was made for, as text"
     );
     assert_eq!(round_trip(&record), record);
 }

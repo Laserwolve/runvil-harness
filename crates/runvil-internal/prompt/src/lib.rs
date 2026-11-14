@@ -22,15 +22,17 @@
 //! partway through a run.
 //!
 //! The frontmatter's `args` key declares the one JSON object a caller
-//! passes the prompt, as a subset of JSON Schema ([`ArgsSchema`]), and
-//! [`detail::accept_args`] checks a caller's arguments against it for the
-//! executor.
+//! passes the prompt, as a subset of JSON Schema ([`ArgsSchema`]). For the
+//! executor, [`detail::accept_args`] checks the arguments of a run against
+//! it, and [`detail::accept_args_value`] the arguments a chain passes when
+//! it executes the prompt.
 //!
-//! The frontmatter's `prompts` key lists prompts by the names a
-//! [`PromptFinder`] finds them under. [`Prompt::parse`] finds and parses
-//! every prompt those lists reach, so a parsed prompt holds each of them
-//! ready to run too ([`Prompt::linked`]), and no finder is asked again
-//! once a parse returns.
+//! The frontmatter's `prompts` key lists the prompts the prompt's Lua may
+//! run with `execute`, by the names a [`PromptFinder`] finds them under.
+//! [`Prompt::parse`] finds and parses every prompt those lists reach, so a
+//! parsed prompt holds each of them ready to run too
+//! ([`Prompt::linked`]), and no finder is asked again once a parse
+//! returns.
 //!
 //! ## Invariants
 //!

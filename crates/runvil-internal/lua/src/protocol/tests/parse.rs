@@ -1,9 +1,9 @@
 //! Yield-to-request parsing for the leaf and structural requests (`infer`,
-//! `call`, `tool_calls`, `adhoc_tool_done`), and the malformed-yield
-//! rejections shared by every op. The `tool_call` request is in
-//! `parse_tool_call`, the task-operation requests (`spawn`, `timer`,
-//! `concurrency`) are in `parse_tasks`, and the `args` a `call` or a
-//! spawn hands its chain are in `parse_args`.
+//! `call`, `execute`, `tool_calls`, `adhoc_tool_done`), and the
+//! malformed-yield rejections shared by every op. The `tool_call` request
+//! is in `parse_tool_call`, the task-operation requests (`spawn`, `timer`,
+//! `concurrency`) are in `parse_tasks`, and the `args` a `call`, an
+//! `execute`, or a spawn hands its chain are in `parse_args`.
 
 use super::*;
 
@@ -78,6 +78,61 @@ fn call_without_args_yields_none() {
     match request {
         Request::Call { args, .. } => assert_eq!(args, None),
         other => panic!("expected a call request, got {other:?}"),
+    }
+}
+
+#[test]
+fn execute_parses_its_name_and_args_and_reads_no_var_and_no_from() {
+    let lua = Lua::new();
+    // A `var` and a `from` no shim sets are not read, so no shape of them
+    // refuses the request.
+    let table = lua_table(
+        &lua,
+        "{ op = 'execute', name = 'review.md', args = { query = 'papers', limit = 3 }, \
+           var = 7, from = 7 }",
+    );
+    match expect_request(Request::from_yield(&lua, &Value::Table(table))) {
+        Request::Execute { name, args } => {
+            assert_eq!(name, "review.md");
+            assert_eq!(args, Some(json!({ "query": "papers", "limit": 3 })));
+        }
+        other => panic!("expected an execute request, got {other:?}"),
+    }
+    let table = lua_table(&lua, "{ op = 'execute', name = 'review.md' }");
+    match expect_request(Request::from_yield(&lua, &Value::Table(table))) {
+        Request::Execute { name, args } => {
+            assert_eq!(name, "review.md");
+            assert_eq!(args, None, "an execute with no `args` gives none");
+        }
+        other => panic!("expected an execute request, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_execute_with_a_missing_or_non_string_name_is_the_calls_error() {
+    let lua = Lua::new();
+    for (source, expected) in [
+        ("{ op = 'execute' }", "name must be a string, got nil"),
+        (
+            "{ op = 'execute', name = 42 }",
+            "name must be a string, got integer",
+        ),
+        (
+            "{ op = 'execute', name = { 'review.md' } }",
+            "name must be a string, got table",
+        ),
+    ] {
+        let table = lua_table(&lua, source);
+        match Request::from_yield(&lua, &Value::Table(table)) {
+            YieldParse::Refused(Error {
+                code: ErrorCode::LuaRuntime,
+                message,
+                ..
+            }) => {
+                assert_eq!(message, expected, "{source}");
+            }
+            other => panic!("expected the name call error for {source}, got {other:?}"),
+        }
     }
 }
 

@@ -28,6 +28,23 @@ pub fn accept_args(prompt: &Prompt, text: &str) -> Result<serde_json::Value, Err
     crate::contract::accept_args(prompt.frontmatter().args(), text)
 }
 
+/// Checks `args`, the arguments a chain passes when it executes `prompt`,
+/// against the prompt's `args` declaration, and returns the object the
+/// executed chain holds: the given fields, with the declared default of
+/// each field left out.
+///
+/// # Errors
+/// Returns an `ArgsInvalid` failure with no location when `args` is no
+/// object or holds a value the declaration refuses. Its `Reason` fact is
+/// `not_an_object`, `required`, `type`, `enum`, or `undeclared`, and for
+/// the last four its `Name` fact is the path of the refused argument.
+pub fn accept_args_value(
+    prompt: &Prompt,
+    args: serde_json::Value,
+) -> Result<serde_json::Value, Error> {
+    crate::contract::accept_args_value(prompt.frontmatter().args(), args)
+}
+
 /// Gives a parse failure the Engine raises about a parsed prompt the
 /// prompt's frontmatter `name` as its `Name` fact, its place in the
 /// prompt's `file`, and the prose a failure the parse returns has.

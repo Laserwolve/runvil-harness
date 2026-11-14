@@ -39,6 +39,7 @@ mod tests;
 pub use args::ArgsSchema;
 pub(crate) use args::TEXT_FIELD;
 pub(crate) use args_check::accept as accept_args;
+pub(crate) use args_check::accept_value as accept_args_value;
 pub(crate) use models::RoleMap;
 pub use models::RoleRequirements;
 

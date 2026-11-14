@@ -196,10 +196,11 @@ impl fmt::Display for Reserved {
 /// A global section setup installs must be listed here: the Engine's
 /// section setup tests compare this list against a set-up VM's globals in
 /// both directions.
-pub const RESERVED_NAMES: [(&str, Reserved); 62] = [
+pub const RESERVED_NAMES: [(&str, Reserved); 63] = [
     ("args", Reserved::EngineGlobal),
     ("call", Reserved::EngineGlobal),
     ("compactors", Reserved::EngineGlobal),
+    ("execute", Reserved::EngineGlobal),
     ("item", Reserved::EngineGlobal),
     ("json", Reserved::EngineGlobal),
     ("jump", Reserved::EngineGlobal),

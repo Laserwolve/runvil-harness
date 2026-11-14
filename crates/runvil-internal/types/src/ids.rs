@@ -1,13 +1,15 @@
 //! Hierarchical, deterministic identity for the Engine's chains and tasks.
 //!
-//! Every chain (the main walk, a `call` child, a spawned task) is named by
-//! a path: its parent chain's id extended by the parent's local child
-//! counter, which `call` children and spawned tasks share. The main walk
-//! is the root chain `0`. A task's id is its chain's id. A section entry's
-//! id (`sys.id` in Lua) is its chain's id extended by the chain's local
-//! entry counter. Two runs of the same prompt with the same inputs
-//! allocate the same ids regardless of how their chains interleave,
-//! because every counter is local to the chain that advances it.
+//! Every chain (the main walk, a `call` child, the chain of an `execute`,
+//! a spawned task) is named by a path: its parent chain's id extended by
+//! the parent's local child counter, which the three kinds of child chain
+//! share. The main walk is the root chain `0`. A task's id is its chain's
+//! id, and a store an `execute` makes is named by the id of the chain that
+//! `execute` starts. A section entry's id (`sys.id` in Lua) is its chain's
+//! id extended by the chain's local entry counter. Two runs of the same
+//! prompt with the same inputs allocate the same ids regardless of how
+//! their chains interleave, because every counter is local to the chain
+//! that advances it.
 //!
 //! The encoding is a dot-separated path of decimal components (`0`,
 //! `0.2`, `0.2.0`), chosen over a packed integer because the depth and the
@@ -48,9 +50,9 @@ impl ChainId {
         Self(vec![0])
     }
 
-    /// The id of this chain's child chain number `index`. A `call` child
-    /// and a spawned task are both child chains, and they share the
-    /// parent's counter.
+    /// The id of this chain's child chain number `index`. A `call` child,
+    /// the chain of an `execute`, and a spawned task are all child chains,
+    /// and they share the parent's counter.
     #[must_use]
     pub fn child(&self, index: u32) -> Self {
         let mut components = Vec::with_capacity(self.0.len() + 1);
