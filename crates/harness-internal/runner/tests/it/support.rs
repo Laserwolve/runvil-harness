@@ -70,10 +70,11 @@ pub(crate) fn host_over(packs: Packs, timer: impl Timer + 'static) -> Arc<Host> 
     })
 }
 
-/// `source` parsed as the prompt named `prompt`.
-pub(crate) fn parsed(source: &str) -> Prompt {
+/// `source` parsed as the prompt named `prompt`, behind the handle a
+/// Harness takes.
+pub(crate) fn parsed(source: &str) -> Arc<Prompt> {
     let prompt = Prompt::parse(&|_: &str| Ok(source.to_owned()), "prompt");
-    prompt.expect("the suite's prompt parses")
+    Arc::new(prompt.expect("the suite's prompt parses"))
 }
 
 /// A section body that calls the fixture wait tool by its full id and

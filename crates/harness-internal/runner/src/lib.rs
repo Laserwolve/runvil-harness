@@ -1,8 +1,9 @@
 //! harness-runner - the per-run Harness and the effect loop it drives. A
 //! Host builds one [`Host`] at startup, holding its installed [`Packs`],
 //! how it finds prompts, and its timer, and [`Host::parse`] finds a prompt
-//! by its name, parses it and every prompt it links, and checks the
-//! `uses:` list of each against those Packs. Three stock finders serve a
+//! by its name, parses it and every prompt it links, checks the `uses:`
+//! list of each against those Packs, and returns the parsed prompt behind
+//! an `Arc` that every run of it shares. Three stock finders serve a
 //! Host that writes none of its own: [`FindTextPrompt`] one prompt from
 //! text, [`FindFilePrompt`] one from a file, and [`PromptSet`] the prompts
 //! a Host inserts as text, as files, and as directories.

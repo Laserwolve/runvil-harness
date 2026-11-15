@@ -56,6 +56,12 @@ The two structs sort every input by lifetime: `Host` contains what every run of 
 
 Only a Rust `install` inserts a Pack as unavailable. The loader drops every Pack of a contract Plugin whose load fails, so `Host::parse` reports each of them with the text `is not installed`, and the reason is in the `PluginReport` that `insert_plugin_dir` returned.
 
+### `Host::parse` returns the prompt behind an `Arc`, and every run of the prompt shares it
+
+`Host::parse` returns an `Arc<Prompt>`, and `Harness::new` takes one. A Host that runs a prompt more than once parses it once and passes a clone of that `Arc` to each `Harness::new`. Runs that are in progress at the same time then hold the same parsed prompt, and a later run finds and parses nothing.
+
+A parsed prompt is shared because a run only reads it. One parse compiles every Lua block and reads every prompt that the `prompts:` lists reach, so a parse or a copy for each run would repeat that work and hold the same prompts in memory again. A Host that wants a changed prompt file to take effect calls `Host::parse` again, and the runs that hold the earlier parse are unaffected.
+
 ### A prompt that lists other prompts needs a finder that serves each listed name
 
 The Harness calls the Host's finder only inside `Host::parse`. One parse finds the named prompt and then each prompt that the `prompts:` lists reach, so the finder has to serve every one of those names. A listed name that the finder lacks fails the parse, and the failure is placed on the `prompts:` line of the prompt that lists the name.

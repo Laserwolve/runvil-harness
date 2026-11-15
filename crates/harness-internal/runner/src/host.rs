@@ -39,6 +39,10 @@ impl Host {
     /// Parsing makes no Pack, so a factory that would refuse a run is
     /// refused at that run's first step instead.
     ///
+    /// The parsed prompt comes back behind an `Arc`, which every run of
+    /// it shares: a Host parses a prompt once and hands a clone of the
+    /// handle to the `Harness` of each run.
+    ///
     /// The parse's outcome goes to `tracing` at debug level, as one line;
     /// no run exists yet to record it.
     ///
@@ -46,7 +50,7 @@ impl Host {
     /// Returns the finder's or the parser's failure unchanged, and
     /// `RequirementsUnmet` whose message and prose list each declared
     /// Pack this Host cannot serve with the reason.
-    pub fn parse(&self, name: &str) -> Result<Prompt, Error> {
+    pub fn parse(&self, name: &str) -> Result<Arc<Prompt>, Error> {
         let parsed = Prompt::parse(&*self.prompts, name);
         match &parsed {
             Ok(_) => tracing::debug!(prompt = name, "prompt parsed"),
@@ -55,7 +59,7 @@ impl Host {
         let prompt = parsed?;
         let refusals = self.packs.refusals(&prompt);
         if refusals.is_empty() {
-            return Ok(prompt);
+            return Ok(Arc::new(prompt));
         }
         let mut notice = String::from("the environment cannot satisfy this prompt:");
         for Refused { by, id, reason } in &refusals {

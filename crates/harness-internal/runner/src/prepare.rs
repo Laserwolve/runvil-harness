@@ -70,7 +70,7 @@ pub(crate) async fn begin(
 /// canceled when the run's cancel fired first.
 pub(crate) async fn prepare(
     host: &Host,
-    prompt: Prompt,
+    prompt: Arc<Prompt>,
     setup: &RunSetup,
     params: RunParams,
     model: Option<ModelInfo>,
@@ -100,7 +100,7 @@ pub(crate) async fn prepare(
                 .collect(),
         );
 
-    let run = Run::new(Arc::new(prompt), &setup.args, params);
+    let run = Run::new(prompt, &setup.args, params);
     (run, packs)
 }
 

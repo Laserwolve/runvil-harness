@@ -2,7 +2,8 @@
 //! drives that one run as a single future.
 //!
 //! A launcher builds a [`Harness`] from the Host it shares behind an
-//! `Arc`, the prompt `Host::parse` returned, and the run's own
+//! `Arc`, the prompt `Host::parse` returned, which every run of that
+//! prompt shares behind an `Arc` too, and the run's own
 //! [`RunSetup`], takes the run's [`RunControl`], and awaits
 //! [`Harness::run`] on whatever executor it likes. The run begins its
 //! record, resolves the run's model through the setup's broker, prepares
@@ -37,11 +38,11 @@ use crate::setup::RunSetup;
 /// Drives one run of a prompt for a Host.
 ///
 /// It holds what the run needs: the Host it shares with every other run,
-/// the parsed prompt, and the run's own setup. [`Harness::run`] consumes
-/// it.
+/// the parsed prompt it shares with every other run of that prompt, and
+/// the run's own setup. [`Harness::run`] consumes it.
 pub struct Harness {
     host: Arc<Host>,
-    prompt: Prompt,
+    prompt: Arc<Prompt>,
     setup: RunSetup,
     control: RunControl,
     /// Ends the run's send queue when it drops: with the Harness, with the
@@ -101,6 +102,10 @@ impl Harness {
     /// A Harness for one run of `prompt` on `host`, with `setup` as the
     /// run's own inputs.
     ///
+    /// `prompt` is the handle `Host::parse` returned, or a clone of it:
+    /// every run of one parsed prompt shares that prompt, so a Host that
+    /// runs a prompt again clones the handle and parses nothing.
+    ///
     /// The run is recorded through `setup.recorder`. It resolves its model
     /// and gets the model's replies through `setup.broker`, and it reads
     /// its start from `host.timer` and sleeps through it. It runs under
@@ -112,7 +117,7 @@ impl Harness {
     /// flight; the rest wait and start oldest first. All of this work
     /// happens in [`Harness::run`].
     #[must_use]
-    pub fn new(host: Arc<Host>, prompt: Prompt, setup: RunSetup) -> Harness {
+    pub fn new(host: Arc<Host>, prompt: Arc<Prompt>, setup: RunSetup) -> Harness {
         let control = RunControl::new(CancelHandle::new());
         Harness {
             host,

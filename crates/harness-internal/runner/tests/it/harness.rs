@@ -4,7 +4,8 @@
 //! with the run's own start, numbered from zero; the `ui()` snapshot serves the
 //! setup's selection and first workspace root; a run that fails after it
 //! starts is a recorded failed run, never an error of `run`; a Vfs effect's
-//! answer record directly follows its effect record; and one run completes
+//! answer record directly follows its effect record; two runs in flight at
+//! once share the prompt one parse returned; and one run completes
 //! under a thread-parking executor with no runtime behind it. How a stop and a
 //! cancel reach the effects in flight sits in the `stop` child module, how
 //! a stop reaches the tool calls waiting for a slot and how a task's early
@@ -19,6 +20,7 @@
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll, Wake, Waker};
 use std::thread::{self, Thread};
@@ -26,7 +28,7 @@ use std::time::Duration;
 
 use harness_runner::performers::{InferenceBroker, Timer};
 use harness_runner::recorder::{MemoryRecorder, Record, RecordKind, RunId, RunMeta, RunRecorder};
-use harness_runner::{Harness, Packs, RunControl, RunReport, RunSetup};
+use harness_runner::{Harness, Host, Packs, RunControl, RunReport, RunSetup};
 use runvil_engine::{BoxFuture, Error, ErrorCode};
 use runvil_plugin::PackRegistry;
 use serde_json::{Value, json};
@@ -264,6 +266,10 @@ const READS_UI: &str = "---\nname: reads-ui\ndescription: d\nrunvil: 0\n---\n\n\
     ## Only\n\n```lua\n\
     return tostring(ui().selected_model) .. '|' .. tostring(ui().workspace_root)\n```\n";
 
+/// A prompt that waits for a message to its main chain and returns it.
+const RETURNS_A_MESSAGE: &str = "---\nname: returns-message\ndescription: d\nrunvil: 0\n---\n\n\
+    ## Only\n\n```lua\nreturn 'got ' .. tasks.receive()\n```\n";
+
 #[tokio::test]
 async fn a_file_the_prompt_stores_round_trips_into_the_recorded_result() {
     let recorder = Arc::new(MemoryRecorder::new());
@@ -412,6 +418,65 @@ async fn a_vfs_effects_answer_record_directly_follows_its_effect_record() {
         }
     }
     assert_eq!(effects, 4, "the two writes and the two reads");
+}
+
+#[tokio::test]
+async fn two_runs_in_flight_at_once_share_the_prompt_one_parse_returned() {
+    let finds = Arc::new(AtomicUsize::new(0));
+    let found = Arc::clone(&finds);
+    let host = Arc::new(Host {
+        packs: no_packs(),
+        prompts: Arc::new(move |_: &str| -> Result<String, Error> {
+            found.fetch_add(1, Ordering::SeqCst);
+            Ok(RETURNS_A_MESSAGE.to_owned())
+        }),
+        timer: Arc::new(PendingTimer::default()),
+    });
+    let prompt = host.parse("message.md").expect("the prompt parses");
+
+    // Each run gets a clone of the one handle and a recorder of its own.
+    let over = |recorder: &Arc<MemoryRecorder>| {
+        Harness::new(
+            Arc::clone(&host),
+            Arc::clone(&prompt),
+            setup(recorder.clone(), ScriptedBroker::replying()),
+        )
+    };
+    let (seen_first, seen_second) = (
+        Arc::new(MemoryRecorder::new()),
+        Arc::new(MemoryRecorder::new()),
+    );
+    let (first, second) = (over(&seen_first), over(&seen_second));
+    let (to_first, to_second) = (first.control(), second.control());
+
+    let steer = async {
+        until("both runs wait on their inboxes", || {
+            main_waits(&seen_first.records(FIRST_RUN)) == 1
+                && main_waits(&seen_second.records(FIRST_RUN)) == 1
+        })
+        .await;
+        assert!(to_first.send("one".to_owned()), "the first run is live");
+        assert!(to_second.send("two".to_owned()), "the second run is live");
+    };
+    let (first, second, ()) = tokio::time::timeout(PATIENCE, async {
+        tokio::join!(first.run(), second.run(), steer)
+    })
+    .await
+    .expect("both runs end in time");
+
+    assert_eq!(
+        first.expect("the first run is reported").result,
+        Ok("got one".to_owned())
+    );
+    assert_eq!(
+        second.expect("the second run is reported").result,
+        Ok("got two".to_owned())
+    );
+    assert_eq!(
+        finds.load(Ordering::SeqCst),
+        1,
+        "the one parse found the prompt, and neither run found it again"
+    );
 }
 
 /// Wakes the thread parked in [`block_on`].

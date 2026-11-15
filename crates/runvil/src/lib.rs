@@ -15,11 +15,13 @@
 //! each run's start as a [`Timestamp`], and shares it behind an `Arc`.
 //! [`Host::parse`] finds a prompt by its name and parses it, with every
 //! prompt its `prompts:` lists reach, which are the prompts a run of it
-//! may execute. For each run the launcher builds a [`RunSetup`] with the
+//! may execute, and returns it behind an `Arc` that every run of it
+//! shares. For each run the launcher builds a [`RunSetup`] with the
 //! run's recorder, inference broker, filesystem, model selection,
 //! workspace roots, [`RunLimits`], tool-call cap, arguments, and whether a
 //! user answers it, and
-//! [`Harness::new`] takes the Host, the parsed prompt, and that setup.
+//! [`Harness::new`] takes the Host, the parsed prompt or a clone of its
+//! `Arc`, and that setup.
 //! [`Harness::run`] runs the prompt to its end and returns its
 //! [`RunReport`]. The run makes its own instance of each Pack it holds
 //! and drops the instances when it ends. While the run goes on, the

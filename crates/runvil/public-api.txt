@@ -341,8 +341,8 @@ pub fn runvil::Error::new(code: runvil::ErrorCode, message: impl core::convert::
 pub fn runvil::Error::with_cause(self, cause: &dyn core::error::Error + 'static) -> runvil::Error
 pub fn runvil::ErrorCode::from_tag(tag: &str) -> core::option::Option<runvil::ErrorCode>
 pub fn runvil::Harness::control(&self) -> runvil::RunControl
-pub fn runvil::Harness::new(host: alloc::sync::Arc<runvil::Host>, prompt: runvil::Prompt, setup: runvil::RunSetup) -> runvil::Harness
-pub fn runvil::Host::parse(&self, name: &str) -> core::result::Result<runvil::Prompt, runvil::Error>
+pub fn runvil::Harness::new(host: alloc::sync::Arc<runvil::Host>, prompt: alloc::sync::Arc<runvil::Prompt>, setup: runvil::RunSetup) -> runvil::Harness
+pub fn runvil::Host::parse(&self, name: &str) -> core::result::Result<alloc::sync::Arc<runvil::Prompt>, runvil::Error>
 pub fn runvil::Prompt::file(&self) -> &str
 pub fn runvil::Prompt::frontmatter(&self) -> &runvil::prompt::Frontmatter
 pub fn runvil::Prompt::linked(&self) -> impl core::iter::traits::iterator::Iterator<Item = &alloc::sync::Arc<runvil::Prompt>>
