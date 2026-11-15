@@ -94,6 +94,8 @@ The form exists only in the Lua of `tasks.fanout`: both forms of the call yield 
 
 One limit covers the whole run. A limit inside each fanout would multiply when fanouts nest, since 8 arms that each run 8 arms are 64 live tasks, and it would leave tasks from `tasks.spawn` unbounded. The Harness has a separate limit of 10 Pack tool calls in flight ([Tools and Packs](tools-and-packs.md)), because one shared limit would couple the task limit and the call limit.
 
+The value 8 is arbitrary, here and for `max_idle_tasks` ([The Engine](engine.md)). No measurement chose it, and the owner did not pick it. The owner's rule is that each resource has a limit, and the value is secondary. The owner's view of the value: "8 sounds good". A value may change freely, because, in the owner's words, "this thing's not in production yet".
+
 ### A spawned task starts at admission, in spawn order, after the chains that resume
 
 A spawn forks the file identity, assigns the task id, and queues the chain. Admission is the moment the scheduler starts a queued chain. The chain gets its Lua VM then, and until then `tasks.status` reports `blocked` as `queued`. The scheduler runs an admission pass each time its queue of ready chains is empty. The pass admits chains that resume from a wait first, then spawned chains in spawn order.
@@ -117,6 +119,8 @@ The scheduler clamps a value above the limit, where it could raise an error, so 
 A `call` child, an `execute` child, and a spawned task each run one level deeper than the chain that started them, and the depth cap is 8. The start that would run at level 9 raises an error with the code `call_depth_exceeded` and the text "recursion exceeded cap of 8".
 
 A fanout arm counts as a level, so the depth of a recursion accumulates across a fanout, where it would otherwise start again in each arm. An `execute` counts as a level too, so the cap also ends a recursion between prompts that execute each other ([The prompt language](prompt-language.md)).
+
+The cap is 8 because that is more depth than the owner expects a prompt to need ([The Engine](engine.md)). The owner compares it with Cursor, which the owner recalls as allowing about five levels, a figure that nobody has checked, and says of nesting there: "I've only ever gone to three." The cap is a constant, where the other limits are fields of `RunLimits`, because no Host has needed to change it. The owner's reason: "I just don't see a need for it yet."
 
 ## 5. Determinism
 
@@ -162,7 +166,7 @@ A task can therefore return a result and remain open for follow-ups with its con
 
 `RunLimits::max_idle_tasks` is 8 by default. A reply that makes a ninth idle task closes another: the one idle longest among those whose own tasks have all ended, or the one idle longest of all. The closed task ends as `done` with its latest reply as its result.
 
-The cap bounds memory: an idle task still has its Lua VM, which the Engine is unable to rebuild from the task's conversation. The closed task ends as `done` because its owner is still alive and can still take that reply, while `abandoned` means that the owner ended.
+The cap bounds memory: an idle task still has its Lua VM, which the Engine is unable to rebuild from the task's conversation. The closed task ends as `done` because its owner is still alive and can still take that reply, while `abandoned` means that the owner ended. The value 8 is arbitrary, as it is for `max_concurrency`.
 
 ## 7. Planned work
 
@@ -184,4 +188,3 @@ Each question asks for the reason behind a part of the design.
 
 3. Why does every task have an inbox?
 4. Why is the model-first form limited to `tasks.fanout`?
-5. Why is 8 the value of `max_concurrency`, of `max_idle_tasks`, and of the depth cap?

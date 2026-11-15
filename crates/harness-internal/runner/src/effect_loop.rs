@@ -10,10 +10,10 @@
 //! future: the loop starts no task, so a run is one future that any
 //! executor can drive. When an effect's future lands, the loop appends the
 //! answer's record and resumes the run with it, then steps again. A Vfs
-//! effect has no future: it is one operation on a store of the run, which
-//! is memory, so the loop performs the operation inline through the
-//! effect's view, appends the answer's record, and resumes the run at
-//! once. A run has the store it starts with and one more for each prompt
+//! effect has no future: it is one operation on a store of the run, and
+//! file operations are synchronous by design, so the loop performs the
+//! operation inline through the effect's view, appends the answer's
+//! record, and resumes the run at once. A run has the store it starts with and one more for each prompt
 //! an `execute` runs, and the effect's record names its store, so the
 //! loop reads the view and never which store it reaches. It resumes every
 //! Vfs effect of a step this way and then steps once, so the loop awaits

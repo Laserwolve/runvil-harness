@@ -73,9 +73,10 @@ use crate::lua::{VfsOp, VfsOutcome};
 /// Line bounds arrive as `i64` and convert to `usize`. A read that gives
 /// an `end` and omits `start` is refused as an invalid range.
 ///
-/// The function is synchronous because the store is memory, with nothing
-/// to wait on. The caller can run it inline, on the thread that runs its
-/// effect loop.
+/// The function is synchronous because every file operation is: the
+/// storage underneath is synchronous by nature. The caller runs it
+/// inline, on the thread that runs its effect loop, and the run waits
+/// for it.
 ///
 /// # Errors
 /// Returns the store's own structured failure for the operation (path

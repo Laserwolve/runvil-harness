@@ -118,13 +118,13 @@ The run's first step checks the run's requirements. For a shortfall, such as a P
 
 The effect loop polls the future of every effect in flight inside the one future that `Harness::run` returned, on whichever thread polls that future.
 
-The design sets a rule for every performer, which is a broker, a Pack, or a timer: return to the poll quickly, and send blocking work to the Host's own runtime. A performer that blocks stalls every other effect of the run, and the run's stop and cancel with them.
+The design sets a rule for every performer, which is a broker, a Pack, or a timer: return to the poll quickly, and send blocking work to the Host's own runtime. A performer that blocks stalls every other effect of the run, and the run's stop and cancel with them. The rule covers a performer's own work, such as a network request or a long computation. A file operation is synchronous by design, and the run waits for each one ([Files and the VFS](files-and-the-vfs.md)).
 
 ### The Harness answers each `Vfs` effect inline, on the thread that polls the run
 
 A `Vfs` effect is one operation on a store of the run. A run has the store that it starts with, and one more for each `execute` ([Files and the VFS](files-and-the-vfs.md)). The loop performs the operation itself and resumes the run before it waits again. Store operations from different chains run one at a time, in the order the Engine issued them. The Harness reaches a run's store only to perform the one operation of a `Vfs` effect. It puts nothing in the store before a run and reads nothing from it after.
 
-The loop performs the operation itself because the store is memory, so the call touches no disk and has nothing to wait on. The owner's rule: "Every prompt starts with a, a memory store that's completely empty. And that's the only type of store there is. And it doesn't map to any file system path in the virtual file system." With no way in from outside, a run's result depends only on its prompt, its arguments, and its answers.
+The loop performs the operation itself because file operations are synchronous by design, so the call has nothing for the loop to wait on. The owner's reason: "all file I/O synchronizes the, the harness, and that's in line with our design. Our whole design of Runvil is a single-threaded. It's cooperative asynchrony." A store is memory. The owner's rule: "Every prompt starts with a, a memory store that's completely empty. And that's the only type of store there is. And it doesn't map to any file system path in the virtual file system." With no way in from outside, a run's result depends only on its prompt, its arguments, and its answers.
 
 ### The loop answers `Dropped` for a performer that panics
 

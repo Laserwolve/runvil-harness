@@ -66,6 +66,8 @@ The caller answers effects one at a time, in any order. Parallel work in a fanou
 
 The first `Run::step` makes the start checks, in this order. The prompt and every prompt it links declare `runvil: 0`. The arguments are one JSON object that matches the prompt's `args:` declaration ([The prompt language](prompt-language.md)): `Run::new` reads the text and keeps a mismatch for this check, which returns it with the code `args_invalid` and no location. The params meet what each of those prompts requires: each Pack under a `uses:` is `Usable` in the roster that the caller passed to `RunParams::with_packs`, and the model in each role that a prompt declares meets that prompt's requirements for the role. A requirements failure has the code `requirements_unmet`, and its message names every gap.
 
+`Run::new` returns a `Run` and never an error, so every failure of a run, a failed start check included, reaches the caller in one place: the `result` of `Step::Done`. The caller handles a failed run there already, and a failure out of `Run::new` would need a second path that records and reports the same thing. `Run::step` and `Run::resume` return no error either. The owner's reason: "having one place for the error is better than two".
+
 The checks cover the linked prompts because a run may execute any of them. The owner's reason: "we want to know up front if the prompt can run or not". Within each kind of gap, the message lists the gaps of the run's own prompt first and then those of each linked prompt in the order of their names. A line about a linked prompt's gap starts with that prompt's name, as in `- review.md: missing required Pack: web`, and a Pack that two prompts declare has one line. The failure's location is in the first prompt that caused a gap, on the `uses:` key for a Pack and on the `models:` key for a model.
 
 ### A step returns its effects and its events as values
@@ -103,6 +105,8 @@ The two polls follow one rule: the Engine honors a cancel while a block runs and
 The fields of `Step::Done` are `result`, `events`, and `unread`. `result` is a `Result<String, Error>`: `Ok` is the run's final text, a canceled run ends with the error whose code is `canceled`, and any other error is a failure. `unread` lists the messages still in the main chain's inbox.
 
 A prompt declines its task by returning its reason from Lua, so the run completes and `result` is `Ok` with that text. A prompt that fails a check of its own, such as an `assert` on the range of an argument, raises a Lua error, and the run ends with the code `lua_runtime`, whichever section raised it ([The prompt language](prompt-language.md)). The code `requirements_unmet` belongs to the start checks alone. The code `args_invalid` belongs to the start check of the run's arguments and to an `execute` whose arguments the executed prompt's declaration refuses.
+
+A prompt has the contract of a tool: it takes one JSON object and returns text. A tool reports a failure inside its result, as text with an error flag, and it has no way to say that it declined, so a decline is ordinary result text. The run's `Ok` and `Err` are that flag, and the Engine sets `Err` only for a fault that it can identify itself, such as an unmet requirement. MCP states the rule for a tool in its [CallToolResult](https://modelcontextprotocol.io/specification/2026-07-28/schema#calltoolresult) schema: "Any errors that originate from the tool SHOULD be reported inside the result object, with `isError` set to true, not as an MCP protocol-level error response." The owner's reason: "I don't want to innovate here." The owner's goal for a prompt's input and output contracts: "as standard as possible, so they can fit into the existing LLM ecosystem".
 
 ### A run where every chain waits ends as `stalled` or as `internal`
 
@@ -165,6 +169,8 @@ The `store` functions are in place before the preludes on the owner's instructio
 
 The Engine starts every Lua block as a coroutine. A call that waits, such as `models.infer`, is a short Lua function that yields a table. The Engine parses the table into a typed request, and answers it at once, or issues an effect and records what the chain waits on. Later it resumes the coroutine with an `(ok, result)` pair. A yield from author code fails the block with the message "scripts may not yield directly". The functions that yield are written in Lua, because a yield across the C boundary fails.
 
+Each block is its own coroutine because the loop over a section's blocks is Rust. The scheduler starts a block, and when the block's coroutine ends, it decides what follows: the section's next block, the end of the chain, or a jump. A coroutine ends when its function returns, so a loop in Rust needs one coroutine for each block. A loop in Lua could run a whole section in one coroutine, and `require` runs a library's blocks that way, because it starts inside a running block, where a Rust function cannot call Lua that yields. The section loop stays in Rust. The owner's rule: "key rules we keep in Rust". The owner's view of the Lua loop: "I don't see the point of putting it in Lua". One coroutine for each block was not a choice between the two forms. The owner's words: "It just kind of happened that way."
+
 One thread runs a whole run. A run needs only one, because every Lua block executes fast.
 
 ### The Engine uses mlua's synchronous API on Lua 5.5
@@ -184,6 +190,8 @@ The Engine resumes a block with a success or a failure. Every answer variant is 
 `models.loop` is a short Lua function over a trampoline. The trampoline calls a Rust step function, performs the one action the step returns, and calls the step again with the outcome. The actions are: yield a request, call a tool handler, call the compactor, raise an error, and return. The Rust side is a state machine.
 
 The trampoline is Lua because a Rust function can yield only with mlua's `async` feature, and its call to a Lua function that yields fails. In the wider division, Lua in the prompt decides policy, such as compaction, and Rust runs the mechanics ([Model calls and conversations](models-and-conversations.md)).
+
+The loop's rules are in Rust because the loop works on the message list, and the list is a Rust object. A model's reply reaches the step function as a value that the trampoline passes along and cannot read, and the step appends the records itself, so the Engine can keep data in the list that Lua never reads. The owner's reason: "we need to be able to manipulate the messages object. The messages object is in Rust". The owner expects to need this for requests to OpenAI endpoints and to Anthropic endpoints, which is planned work, and says of what the Engine then does with the list: "Lua can't see it." The Rust state machine also meets the owner's request that "the rules are unit-testable without a VM". The other calls with rules of their own, `tasks.fanout`, the `tasks` waits, and `require`, are Lua, and they work on values that Lua holds: task handles, results, and section code.
 
 ### A chain reads everything about its prompt from the prompt it runs
 
@@ -214,6 +222,10 @@ A caller changes a limit by assigning a field of `RunLimits::default()` and pass
 
 The fields are public because `RunLimits` is a plain `Copy` value whose only invariant is in its `NonZero` types. The call depth cap is a constant of the Engine with the value 8, and a deeper `call`, `execute`, or task fails with the code `call_depth_exceeded`. Every prompt of a run counts against the run's one set of limits: a task that an executed prompt spawns takes a slot under `max_concurrency` and counts toward `max_idle_tasks`, as a task of the run's own prompt does.
 
+The cap is 8 because that is more depth than the owner expects a prompt to need. The owner compares it with Cursor, which the owner recalls as allowing about five levels, a figure that nobody has checked, and says of nesting there: "I've only ever gone to three." The cap is a constant, where the other limits are fields of `RunLimits`, because no Host has needed to change it. The owner's reason: "I just don't see a need for it yet." A field for it is a small change, in the owner's words: "it's trivial to make it configurable".
+
+The default values of the limits are arbitrary, and so is the interval of the cancel hook, 10,000 instructions. No measurement chose a number, and the owner did not pick them. The owner's rule is that each resource has a limit, and the value is secondary. The owner's view of the values: "8 sounds good", "64 meg sounds about right", and "10,000 seems alright". A value may change freely, because, in the owner's words, "this thing's not in production yet".
+
 ### A Lua block may run any number of instructions, and a hook polls the cancel flag
 
 Each Lua VM has a hook that fires every 10,000 instructions and reads the run's cancel flag, and a set flag aborts the block. An endless loop in a prompt therefore runs until the caller cancels the run. The owner's reason: "If the user codes an infinite loop that's their problem".
@@ -226,7 +238,11 @@ The Engine's quotas are both on `log`: a count of events and a count of bytes. A
 
 `Error` is a struct in `runvil-types` with the public fields `code`, `message`, `prose`, `at`, and `facts`. `ErrorCode` is an enum of codes, each with a number and a tag such as `lua_runtime` (201). The hundreds digit names the family: 1xx parse, 2xx Lua, 3xx tasks, 4xx model, 5xx tools, 6xx store, 7xx run, and 8xx caller. The enum's docs add: "A number is never reused." The root `AGENTS.md` makes `Error` the one error type of the Engine and Harness crates, with `VfsError` as the main exception.
 
-`Error`, `ErrorCode`, and `ErrorFact` omit the `#[non_exhaustive]` attribute, so a code that the Engine adds breaks the build of a Host whose `match` on `ErrorCode` names every variant.
+The crates share one `Error` because they once had dozens of error types, and every one that a facade exported was another public item. One record made the code easier to read and to change, and it keeps the public surface small. The owner's reason: "There was a proliferation of error types and unifying them into one made the code much easier to understand and easier to work on". On the surface: "one is better than 52 in this case". The 52 is the owner's count of the error types before the change and is unchecked: a search of the code as it was on 2026-11-01 finds about 40 by their derives and impls. The `runvil` facade lists 61 types today. The owner limits the rule to this API: "for unified public harness and engine API, it's better to just have one error", and of the rule elsewhere, "that might not be generally true".
+
+The owner has made no decision about how the codes are grouped. `call_depth_exceeded` is 204, in the Lua family. Before the codes had numbers, a depth failure was reported under the same kind as the Lua log quotas, which is the likely reason it has the number after `lua_quota`. The grouping and the numbers may change while Runvil has no users. The owner's reason: "there's no users that are comparing error codes yet, so it's easy to change". A code that moves to another family takes a new number, so a move keeps the rule that a number is never reused.
+
+`Error`, `ErrorCode`, and `ErrorFact` omit the `#[non_exhaustive]` attribute, so a code that the Engine adds breaks the build of a Host whose `match` on `ErrorCode` names every variant. No decision closed the three types. The owner's rule of 2026-10-15 keeps `Step`, `Effect`, and `EffectAnswer` closed and marks every other facade type `#[non_exhaustive]`, and the error types arrived after it without the attribute. The owner's words: "it just happened", and "we should probably mark the type as non-exhaustive". Adding the attribute is planned work.
 
 ### An error's `message` includes each cause once, and its `prose` is the text a model reads
 
@@ -289,9 +305,10 @@ The owner's goal: "I want as many internal crates as possible and I want maximum
 
 - **An `execute` that returns at once.** A Lua `execute_async` call that starts another prompt as a task and returns its handle. Today `execute` runs a listed prompt as a blocking child chain, and its caller waits for the result.
 - **Replay.** Harness code that runs a recorded run a second time and compares the records of the two runs. Today the Engine attaches a `Provenance` to each effect and event, and `Effect::record` and `EffectAnswer::record` return the JSON that a run log stores.
-- **The store as a tool.** The `store` API as a tool, which would move the `Vfs` effect out of the Engine. Today the Engine issues a `Vfs` effect for each `store.*` call.
+- **A tool's file operations as `Vfs` effects.** A `Vfs` effect for each file operation of a tool, on the file system the caller gave the run, under the call's identity ([Files and the VFS](files-and-the-vfs.md)). Today a `Vfs` effect is one `store` operation, and a `ToolCall` effect holds the call's file access.
 - **The round id on `ModelTurnFailed`.** A round id in the `ModelTurnFailed` event, so that a Host can drop exactly the failed round's streamed pieces. Today the Engine writes the round id in a round's thinking, reply, and tool-call events.
 - **Bounds on JSON conversion.** A size budget at every site that converts a Lua table. Today `json.encode` and `var` writes have a size budget, other sites in the Lua crate convert a table of any size, and one encode runs as a single Rust callback between cancel polls.
+- **`#[non_exhaustive]` on the error types.** The attribute on `ErrorCode`, and on `Error` and `ErrorFact` if the owner extends it to them, so that a new code leaves a Host's build intact. Today the three types are closed, and at least one function outside `runvil-types`, `kind_of` in `runvil-lua`, names every code with no catch-all arm, so it would need one or a move into `runvil-types`.
 
 ## 10. Open questions
 
@@ -299,18 +316,12 @@ Each question asks for the reason behind a part of the design.
 
 **The run**
 
-1. Why does `Run::new` always succeed, while the first `step` makes the start checks?
-2. Why is the cancel a flag in `RunParams`, where `Run` could have a method for it?
-3. Why does a prompt that declines its task complete, while an unmet requirement ends the run with an error?
+1. Why is the cancel a flag in `RunParams`, where `Run` could have a method for it?
 
-**Lua and limits**
+   **Status: unconfirmed.** The owner does not remember the reason and did not design the cancel system. The commit that removed `Run::cancel` and `Run::cancel_handle` on 2026-10-31 (`b00e53bc`) says that the caller cancels through the flag, and it gives no reason for choosing the flag over a method. The text below is a reconstruction from the code, written on 2026-11-14. It explains the design, and it may differ from the reason the design was chosen.
 
-4. Why does each Lua block run as its own coroutine, when one coroutine could run a whole section?
-5. Why is `models.loop` the one suspending call whose rules run in Rust?
-6. Why is the call depth cap 8, and why is `call_depth_exceeded` in the Lua family of codes?
-7. Why are the defaults 8 concurrent tasks, 64 MiB of Lua memory, and 1024 log events, and why does the cancel hook fire every 10,000 instructions?
+   **What the code shows.** `Run::step` holds the run until it returns, so a method on `Run` cannot be called while a step runs Lua. The caller makes the flag before the run exists, and the Harness watches the same flag while it prepares the run. A chain inside the run stops one task with `tasks.cancel`, which is a request and not a flag.
 
-**Errors and the surface**
+   **The likely reason.** A cancel comes from outside the run, often from another thread and sometimes during a step, so only a shared flag can deliver it. The two methods were then second routes to the same flag.
 
-8. Why do all Engine and Harness crates report failures as one `Error` type?
-9. Why are `Error`, `ErrorCode`, and `ErrorFact` closed, when a new code then breaks the build of a Host whose `match` on `ErrorCode` names every variant?
+   **Still open.** Whether that is the reason, and whether `CancelHandle::child()` has a use now that a task is canceled with `tasks.cancel`.

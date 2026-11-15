@@ -10,6 +10,10 @@ The Engine installs a `store` table in the Lua VM of every section entry. The pr
 
 The owner's reason: "Store is always present, its a core feature of the Runvil language because its the way to move data between sections and handle fanout."
 
+The store holds files because a prompt is often a pipeline: a stage runs inference over the files of the stage before it and writes new files. The owner's description: "there's files created at every stage of the pipeline". The files stay for the whole run so that a person can follow the data from stage to stage. The owner's reason: "we want those files to persist during the run so that they can be inspected". The owner's convention for a prompt author is to write a new file at each stage and leave the earlier one as it is: "You want to create a new one from an old one, and this way you can inspect the data flow." The store leaves the convention to the author: `write` replaces a file, and `append` and `str_replace` change one. The files are text because, in the owner's words, "Markdown is the language of AI". State has to live outside Lua, because the Engine discards a section's VM when the section ends, and `var` passes values to the next section in a form that converts as JSON. The owner's reason for files beside `var`: "JSON's unsatisfying because it's not Markdown".
+
+The inspection that the owner means happens during the run, at a breakpoint or at any stage. With the evidence in file A and the inference over it in file B, "if we get a breakpoint now we can see A and B", where a B written as a series of edits to A would leave only the event log to show the earlier text. The owner's reason: "Having it in the store means there's a blob there." No debugger exists yet: one that rebuilds each store from the run's records is planned work, and today the record is the only view of a store from outside the run.
+
 ### The `store` table has a fixed set of functions, and a prompt composes the rest
 
 The functions are `write`, `append`, `read`, `read_numbered`, `str_replace`, `delete`, `glob`, and `exists`. `store.str_replace` replaces an anchor text that must occur exactly once, because an edit by anchor is the pattern that works for models. `store.delete` succeeds on an absent path.
@@ -60,7 +64,7 @@ A table fixed at construction makes routing immutable and a handle cheap to clon
 
 Every method of `Vfs` and `VfsAccess` is a blocking call, file content is bytes, and `Access` adds the text operations. A `VfsRef` locks its backend for each call, so a backend must be `Send` and may leave locking to the handle.
 
-The traits are synchronous because the backends are synchronous by nature: memory and the standard library's file system calls. Lua is synchronous as well, and that is beside the point. An async VFS is planned work.
+The traits are synchronous because the backends are synchronous by nature: memory and the standard library's file system calls. Lua is synchronous as well, and that is beside the point. The owner's reason: "at the end of the day, the operating system calls are synchronous. So we keep the storage operations synchronous." `Access` is synchronous for the same reason.
 
 ## 3. Real and virtual roots
 
@@ -76,6 +80,8 @@ The Engine makes a store for each run, and the store starts empty. Every chain t
 
 The owner's reason: "Every prompt starts with a, a memory store that's completely empty. And that's the only type of store there is. And it doesn't map to any file system path in the virtual file system." With no way in from outside, a run's result depends only on its prompt, its arguments, and the answers to its effects.
 
+The owner holds the two halves of this rule with different confidence. Data enters a run as its arguments and leaves as its result, and the owner is sure of that: "we don't want to use the store as a way of getting data in and out of the prompt from the host", and "Using the argument list and using the return value instead of the input and output files, that was definitely the right move." Keeping the store out of reach of a model's file tools is less certain. The owner made that choice for `execute`: "The problem with execute is that the prompt that we're calling needs to map itself into the virtual file system, and I couldn't think of a place to put it." The owner's view of the choice on 2026-11-15: "it was a big simplification that was useful for execute. I'm not sure that it was the right one." A prompt can give a model access to its store today with an adhoc tool whose handler calls a `store` function ([Tools and Packs](tools-and-packs.md)). That is no exception to the rule that a tool sees no file of the store: the handler is the prompt's own Lua and makes an ordinary `store` call on its chain's store, where the file access of a Pack tool reaches the handle alone. The owner does not want that to become the way a model reaches the store, and wants no second set of tools for it: "There's no reason to make a separate set of store tools. That just burdens the model." The owner's rule, stated on 2026-11-15, is that a model that reaches the store uses the file tools it already has, because "We want as few tools as possible" and "Models already know how to use Bash." That would put the store inside the file system that a tool sees, which the design in this section rules out, so it is a change that nobody has designed yet.
+
 ### Each `execute` gives the prompt it runs a new, empty store
 
 The Engine makes a store for the chain of each `execute` ([The prompt language](prompt-language.md)). The store is empty and has a claims table of its own. The executed prompt's `call` chains and tasks share it, and a prompt that the child executes in turn gets another. The caller and the child see none of each other's store files: one path in the two stores is two files, and the caller finds no file of the child after the `execute` returns. A second `execute` of the same prompt starts with an empty store again.
@@ -89,6 +95,12 @@ The rule is the owner's, quoted in the entry "A store call is one `Access` call 
 `RealBackend::rooted(dir)` maps the virtual root to one real directory and refuses a path that resolves outside it with `OutsideRoot`. `RealBackend::identity()` maps each virtual path to the same real path. `remove`, `exists`, `stat`, `mkdir`, and `rename` act on a link itself, and the content operations follow a link whose target is inside the root. `with_writability` makes a backend read-only. A failed write leaves the file as it was, because the backend writes a temporary sibling file and renames it.
 
 Those operations act on the link itself because a `remove` that followed the link would delete the link's target. `RealBackend` is part of `runvil-vfs` itself: the file system calls it uses belong to the standard library, so the backend fits the crate's zero-dependency rule ([Crates, build, and CI](https://github.com/cppalliance/runvil-design/blob/master/decisions/crates-build-and-ci.md)).
+
+### A mount is for storage that answers quickly, and a remote system is a tool's job
+
+A Host may mount any backend, a slow one included. Every file operation holds its run until the backend returns, so a run that works on a network drive, or in a folder that a cloud service syncs, waits for that storage, and its stop and its cancel wait with it. A feature that needs a timeout, a retry, a sign-in, or a rule for storage that goes away is a Pack's tool, which the Harness can drop while it waits ([Tools and Packs](tools-and-packs.md)).
+
+The owner's rule for slow storage: "we should allow it, but if the performance suffers, then it suffers." For a remote system: "If you want to access those remote systems, then you need to do it through MCP". The tool then decides, in the owner's words, "what do you do if the volume goes offline, like in the middle of it".
 
 ## 4. What a run may read and write
 
@@ -144,6 +156,12 @@ The Engine forks an identity for each Pack tool call and passes its `Access`, ro
 
 When an operation inside a tool call conflicts, the `Access` returns `VfsError::Conflict` to the Pack, which decides how to answer the call. For the `std` Pack, a library Plugin, the loader passes the conflict on as a file error of the C contract, and the Pack converts it into a sentence that tells the model to call the tool again. In the shell of the `bash` Pack the same file error fails the command that read the file, and the model reads the reason in the command's output. The Engine resumes the chain with the Pack's answer. The Engine ends the run only for a conflict in a `store` call: the fatal rule applies only to answers of `Effect::Vfs`.
 
+### A tool's file operations will be effects, and today a tool performs them itself
+
+Today a tool performs each file operation itself, through the `Access` of its call or through the file functions of the C contract, and the run's record holds none of them. The owner has decided that each one becomes an effect: the tool asks, the Engine issues a `Vfs` effect under the call's identity, the Harness performs and records it, and the tool goes on with the answer. The owner's rule: "every VFS operation that's performed by a tool has to turn into an effect in the engine."
+
+The reason is the record. The owner's questions about the present design: "how's replay gonna work? How are we gonna do replay? How are we gonna handle debugging?" One ordered record of a run exists only if the Harness sees every effect and every answer ([The Harness and the Host API](harness-and-host.md)), and a tool's file operations are the part of a run that it misses today. The change is still to be built (see Planned work). Until it is, the ways a tool reaches files stay as they are, and the next one arrives in the new form.
+
 ## 6. Errors
 
 ### `VfsError` is the one error type, and each variant has a stable tag
@@ -162,9 +180,11 @@ An error has three readers: Rust code matches the variant, Lua code branches on 
 
 A `store` function yields its operation, and the Engine issues one `Effect::Vfs` for it ([The Engine](engine.md)). The Harness performs the effect at once, before it waits for any other effect. The Engine reports an event for each call, such as `VfsWriteSucceeded`, which names the section and omits the path and the store. The run's record holds every store operation: each `Vfs` effect record with the id of its store and its operation, and each answer record with its outcome, in order. The record is the only view of a store outside its run, and the records of one store are enough to rebuild it.
 
-The Harness performs the call inline because the store is memory: a `Vfs` effect is one operation that touches no disk, so it has no future for the effect loop to wait on. The Harness performs the operation through the effect's view and holds no way to the store between effects. It answers every `Vfs` effect of a step this way and then steps the run once. VFS operations from different chains run one at a time, in the order the Engine issues them.
+The Harness performs the call inline because file operations are synchronous by design: the storage underneath is synchronous, so a `Vfs` effect has no future for the effect loop to wait on, and the run waits for the operation. The owner's reason: "all file I/O synchronizes the, the harness, and that's in line with our design." The Harness performs the operation through the effect's view and holds no way to the store between effects. It answers every `Vfs` effect of a step this way and then steps the run once. VFS operations from different chains run one at a time, in the order the Engine issues them.
 
 Store operations are effects for the owner's reason: "We want to be able to debug prompts and replay them and see how the contents of the store evolves". The record holds every store call with its arguments and its outcome, the Harness sees each call before it happens, and a replay, which is planned work, would issue the same effects again.
+
+The `store` functions stay in the Engine. A plan to serve them from a tool is dropped. It was a restructuring of the code to make the Engine smaller, and in the owner's words, "This has nothing to do with capabilities." The owner's verdict on the plan: "That turned out to be not a good idea". Turning the store into a tool was more work, in the owner's words "to turn it into a tool and to create all the rigmarole", and the store is part of the language: "It just needs to be a language feature." The owner's rule is that a feature that is deeply part of the language stays in the Engine.
 
 ### A `Vfs` effect and its record name the store by a chain id
 
@@ -180,10 +200,8 @@ A run has one way in, its arguments, and one way out, its result. The owner's re
 
 ## 8. Planned work
 
-- **The store as a tool.** The `store` functions would become calls of a tool, which would remove the `Vfs` effect. Today each `store` call is one `Vfs` effect.
-- **An async VFS.** The backend traits would become async, which would work well with Turso and with Bashkit, and the step follows the store tool. Today every method of `Vfs` and `VfsAccess` is a blocking call, and the shell of the `bash` Pack ships on the blocking calls.
-- **File changes for a Plugin's tools.** Functions of the C contract with which a tool writes, deletes, and renames a run's files. Contract 0.4 has file functions that stat, list, and read, so the Write, StrReplace, and Delete tools of `std` are stubs and the shell of `bash` refuses each change, while `Access` has the operations and a Rust Pack can call them ([Tools and Packs](tools-and-packs.md)).
-- **A database mount.** A mount would show an agent's run database as files, once the VFS is async. The backends that ship are `MemoryBackend` and `RealBackend`.
+- **A tool's file operations as effects.** Each file operation of a tool, a read as well as a change, as a `Vfs` effect that the Engine issues under the call's identity and the Harness performs and records. A tool call becomes an async function whose file methods return futures: the tool asks, its call waits, and a later step of the call receives the answer. The Write, StrReplace, and Delete tools of `std` and the writes of the `bash` shell arrive with it. Today contract 0.4 has file functions that stat, list, and read, each of which returns when its operation is done, a Rust Pack calls the `Access` of its call, and the record holds none of these operations ([Tools and Packs](tools-and-packs.md)).
+- **A database mount.** A mount would show an agent's run database as files. Its backend is synchronous like every other, so a backend over a database client with an async interface drives that client on a thread of its own. The backends that ship are `MemoryBackend` and `RealBackend`.
 - **Replay.** Replay would read a run's records back into a run, and a debugger would rebuild each store of a run from the same records, at any step. Today the Harness records each `Vfs` effect and its answer.
 - **Glob across mounts.** A glob would also search the backends mounted below the mount that matches its pattern. Today a glob runs inside that one mount and skips a backend mounted below it.
 
@@ -193,7 +211,6 @@ Each question asks for the reason behind a part of the design.
 
 **The store API**
 
-1. Why does a run store its bulk state as files?
 2. Why does `store.delete` succeed on an absent path?
 3. Why do store calls report one pair of event kinds for each operation?
 

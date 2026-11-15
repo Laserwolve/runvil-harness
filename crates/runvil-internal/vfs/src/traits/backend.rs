@@ -8,11 +8,13 @@ use crate::stat::{Entry, FileType, Stat};
 
 /// A storage backend behind the virtual filesystem.
 ///
-/// Operations are synchronous because the Lua VM and the single thread
-/// that drives a run are both synchronous. They work on raw bytes. A
-/// backend must be `Send`, and `Sync` is optional, because `VfsRef`
-/// serializes access to it. Storage is reachable only through an access
-/// object that `acquire` binds to one identity.
+/// Operations are synchronous because storage is synchronous by nature:
+/// memory, and the standard library's file calls. Each one holds its
+/// caller until it returns, so a backend over slow storage slows every
+/// caller. Operations work on raw bytes. A backend must be `Send`, and
+/// `Sync` is optional, because `VfsRef` serializes access to it. Storage
+/// is reachable only through an access object that `acquire` binds to one
+/// identity.
 pub trait Vfs: Send {
     /// Acquires an access object bound to the identity in `cx`.
     ///

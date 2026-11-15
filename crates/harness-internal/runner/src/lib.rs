@@ -32,7 +32,9 @@
 //!   no task, so any executor can drive a run. Performers must not block
 //!   while polled: one that blocks stalls every other effect of the run,
 //!   and a performer with blocking or CPU-heavy work hands it to the
-//!   Host's own runtime. The crate's async needs come from `futures-util`,
+//!   Host's own runtime. A file operation is the exception: it is
+//!   synchronous by design and holds the run until it returns. The
+//!   crate's async needs come from `futures-util`,
 //!   and `tokio` and `tokio-util` appear only under `[dev-dependencies]`
 //!   (enforced by the Harness tokio ban in `cargo test -p build-xtask`).
 //! - The Harness reads each [`RunSetup`] field once per run: the run's

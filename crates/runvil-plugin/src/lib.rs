@@ -90,7 +90,9 @@
 //!   resolution it answers at once unless the Pack's state has changed.
 //! - [`Pack::call`] must not block while polled. Every effect of a run
 //!   is polled on the same task, so blocking or CPU-heavy work goes to the
-//!   Host's runtime.
+//!   Host's runtime. A file operation through the call's access is the
+//!   exception: it is synchronous by design and holds the run until it
+//!   returns.
 //! - [`Pack::call`] must not panic. A panicking call's effect is
 //!   answered `Dropped`, and the panic is logged.
 //! - [`Pack::call`] marks the trust of every output correctly: output
