@@ -40,9 +40,9 @@ A chain is the scheduler's record of one sequence of section entries ([The Engin
 
 The chain owns the selection so that one model choice applies across sections and in fanout arms. The lasting switch can raise a run's cost by accident, so an author who wants one expensive step saves `models.current()` first and passes that handle back to `models.use`.
 
-### A child chain starts on a copy of its parent's current model, taken at dispatch
+### A `call` child, a task, and a fanout arm start on a copy of the parent's current model, and an executed prompt starts on `default`
 
-A `call` child, a `tasks.spawn` task, and each fanout arm copy the parent chain's current model when the Engine dispatches the call or the spawn. A later `models.use` in the child changes only the child. The main walk starts on the `default` role. The preamble, the Lua before a prompt's first heading, is the first section of that walk ([The prompt language](prompt-language.md)), so a `models.use` there is still in effect in the sections after it.
+A `call` child, a `tasks.spawn` task, and each fanout arm copy the parent chain's current model when the Engine dispatches the call or the spawn. A later `models.use` in the child changes only the child. A prompt that an `execute` runs copies nothing: it starts on the `default` role of its own model set, whatever model its caller is on, and a `models.use` in it never reaches the caller ([The prompt language](prompt-language.md)). The main walk starts on the `default` role. The preamble, the Lua before a prompt's first heading, is the first section of that walk ([The prompt language](prompt-language.md)), so a `models.use` there is still in effect in the sections after it.
 
 The Engine copies at dispatch because a spawned task can wait in a queue before it starts, and a copy taken at the task's start would include a later switch in the parent. [Tasks and fanout](tasks-and-fanout.md) describes the model-first form of `tasks.fanout`.
 

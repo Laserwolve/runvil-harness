@@ -48,7 +48,7 @@ The support code exists to reduce the number of lines of code in the suite.
 
 ### The Engine facade's suite contains the tests that add coverage, each a function named with a sentence
 
-The facade re-exports items of the internal crates, so those crates test behavior. The facade's suite contains a test only when it checks something beyond what an internal test or the API listing `public-api.txt` covers. The owner's rule: "If it's not doing us any good, we should remove it, because all that does is create a tax on the vibe coding."
+The facade re-exports items of the internal crates, so those crates test behavior. The facade's suite contains a test only when it checks something beyond what an internal test or the facade's checked-in API listing covers. The owner's rule: "If it's not doing us any good, we should remove it, because all that does is create a tax on the vibe coding."
 
 Each test is a separate function with a sentence for its name, so that one failure names one test.
 

@@ -102,7 +102,7 @@ The two polls follow one rule: the Engine honors a cancel while a block runs and
 
 The fields of `Step::Done` are `result`, `events`, and `unread`. `result` is a `Result<String, Error>`: `Ok` is the run's final text, a canceled run ends with the error whose code is `canceled`, and any other error is a failure. `unread` lists the messages still in the main chain's inbox.
 
-A prompt declines its task by returning its reason from Lua, so the run completes and `result` is `Ok` with that text. A prompt that fails a check of its own, such as an `assert` on the range of an argument, raises a Lua error, and the run ends with the code `lua_runtime`, whichever section raised it ([The prompt language](prompt-language.md)). The codes `requirements_unmet` and `args_invalid` belong to the start checks alone.
+A prompt declines its task by returning its reason from Lua, so the run completes and `result` is `Ok` with that text. A prompt that fails a check of its own, such as an `assert` on the range of an argument, raises a Lua error, and the run ends with the code `lua_runtime`, whichever section raised it ([The prompt language](prompt-language.md)). The code `requirements_unmet` belongs to the start checks alone. The code `args_invalid` belongs to the start check of the run's arguments and to an `execute` whose arguments the executed prompt's declaration refuses.
 
 ### A run where every chain waits ends as `stalled` or as `internal`
 
@@ -256,7 +256,7 @@ A caller finds every item in this one crate. The owner's reason: "I dont want ty
 
 ### The facade re-exports an item that non-test code outside the Engine uses
 
-The facade re-exports an item when production code of a crate outside the Engine uses it. A use in a test, a bench, or a doc example is outside the rule, and the author rewrites the test. Every change to the surface appears as a difference in the crate's `public-api.txt`. So the Engine builds every `ToolSchema`: a public constructor would widen the facade only for tests.
+The facade re-exports an item when production code of a crate outside the Engine uses it. A use in a test, a bench, or a doc example is outside the rule, and the author rewrites the test. Every change to the surface appears as a difference in the facade's checked-in API listing. So the Engine builds every `ToolSchema`: a public constructor would widen the facade only for tests.
 
 The goal is a minimal surface in which every item is necessary. The owner's rule: "I want ZERO public API surface growth just for tests."
 
@@ -268,7 +268,7 @@ The limit applies to the surface only: the internal crates may use many external
 
 ### An operation reserved for Engine crates is a free function in a module outside the facade
 
-Some operations on a public type are reserved for Engine crates, such as building a `ToolSchema` or reading a prompt's sections. Each is a free function in a module of the crate that defines the type, and the facade omits that module. `runvil-model-client` and `runvil-prompt` each have one such module.
+Some operations on a public type are reserved for Engine crates, such as building a `ToolSchema` or reading a prompt's sections. Each is a free function in a module of the crate that defines the type, and the facade omits that module.
 
 The operations are free functions because a free function in a module outside the facade is invisible on the type's docs page. A hidden trait implemented on a public type can render there as an impl that links into an internal crate.
 

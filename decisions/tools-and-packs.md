@@ -16,7 +16,7 @@ A Pack's fully qualified name has two segments, a vendor and a name, as in `runv
 
 ### A registry holds one Pack for each Pack id
 
-`PackRegistry` refuses a Pack whose id it already holds, whatever the vendor of either Pack. The first Pack that a Plugin inserts keeps the id, and the second insert fails with the reason `pack_id_taken` and a message that names the holder, as in ``Pack `acme/web` cannot take the Pack id web, which `runvil/web` holds``. A Pack that a Plugin inserted as unavailable holds its id too. The two built-in Packs are in every registry from the start, so the same rule keeps `subagents` and `user` for them. The owner's rule: "runvil/web and acme/web cannot both be in the host's PackRegistry".
+`PackRegistry` refuses a Pack whose id it already holds, whatever the vendor of either Pack. The first Pack that a Plugin inserts keeps the id, and the second insert fails with the reason `pack_id_taken` and a message that names the holder, as in ``Pack `acme/web` cannot take the Pack id web, which `runvil/web` holds``. A Pack that a Plugin inserted as unavailable holds its id too. The built-in Packs, `subagents` and `user`, are in every registry from the start, so the same rule keeps those ids for them. The owner's rule: "runvil/web and acme/web cannot both be in the host's PackRegistry".
 
 The rule follows from the tool id. A tool id starts with the Pack id and has no vendor, and the Harness finds the Pack for a tool call from that first segment. With one Pack for each id, `web/fetch` names one tool on a Host, and a prompt reaches every Pack of a run by its bare Pack id.
 
@@ -34,7 +34,7 @@ Under this rule each name has one meaning. If a bare name could mean a third-par
 
 An entry must name the vendor that the Host installed the Pack from. On a Host that has `acme/poop`, the entry `poop` is refused with `poop means runvil/poop, which is not installed; write acme/poop to use that Pack`, and on a Host that has `runvil/web`, the entry `acme/web` is refused with `acme/web is not installed`. The Harness leaves the installed Pack of that id out of such a run, because the run's roster lists the id as unavailable, and the run's first step refuses the run.
 
-The Engine reserves two Pack ids for its own tools. A tool that a prompt defines in Lua gets an id under `adhoc`, and the two discovery tools get ids under `dynamic`.
+The Engine reserves the Pack ids `adhoc` and `dynamic` for its own tools. A tool that a prompt defines in Lua gets an id under `adhoc`, and the two discovery tools get ids under `dynamic`.
 
 ### A Pack is for a feature that works on something outside the run
 
@@ -150,13 +150,23 @@ When a handler raises an error, the Engine raises the same value at the place th
 
 The Engine raises because a handler is the author's own Lua, so its failure is a bug in the prompt. A prompt that wants the model to read a handler's failure calls `pcall` inside the handler and returns the text.
 
-### An adhoc handler returns one scalar, leaves `jump` to the block, and uses `models.infer` for a model call
+### An adhoc handler's first return value is the tool's result, and a table fails the call
 
-1. Return one scalar. The Engine uses the first return value as the tool's result: `nil` becomes the empty string, and a string, a number, or a boolean becomes its text. A table fails the call with the error "cannot return a table as a result".
-2. Call `jump` from the block, after the tool call returns. Inside a handler `jump` raises an error, because with a jump there `models.loop` would need rules for reporting a batch that the jump abandons partway.
-3. Use `models.infer` for a model call. A `models.loop` that a handler starts while the section's loop runs raises an error, because its records would precede the outer batch's.
+The Engine uses the handler's first return value as the tool's result: `nil` becomes the empty string, and a string, a number, or a boolean becomes its text. A table fails the call with the error "cannot return a table as a result".
 
 A block's `return` turns its value into text the same way and refuses a table with the same error. The two differ for `nil`: a handler's `nil` is the empty string, and a block's `return` of `nil` ends its chain with no text ([The prompt language](prompt-language.md)).
+
+### `jump` raises inside an adhoc handler
+
+A prompt calls `jump` from the block, after the tool call returns. Inside a handler `jump` raises an error.
+
+With a jump inside a handler, `models.loop` would need rules for reporting a batch that the jump abandons partway.
+
+### An adhoc handler makes a model call with `models.infer`, and a `models.loop` there raises
+
+A handler uses `models.infer` for a model call. A `models.loop` that a handler starts while the section's loop runs raises an error.
+
+The records of a loop started there would precede the outer batch's.
 
 ## 5. Tool calls
 
@@ -326,7 +336,7 @@ A tool call is a series of steps. The Host sends `RV_TOOL_CALL` once for each st
 
 ### A library Plugin and a C entry point compiled into the Host receive the same calls
 
-The loader has two functions: `insert_plugin_dir` loads every dynamic library in a directory, and `insert_plugin` loads a C entry point that is compiled into the Host. The loader names the two kinds `PluginSource::Library` and `PluginSource::Linked`. Each entry point gets the same calls, so one path loads both kinds. The owner's rule: "those have to be treated exactly the same. In other words ... the entry point has the same shape". For each Pack that a Plugin inserted, the loader puts a factory in the registry. The factory sends `RV_PACK_NEW` for each run, the instance sends one `RV_TOOL_CALL` each time a call's future is polled, and its drop sends `RV_PACK_DELETE`.
+In the loader, `insert_plugin_dir` loads every dynamic library in a directory, and `insert_plugin` loads a C entry point that is compiled into the Host. The loader names the two kinds `PluginSource::Library` and `PluginSource::Linked`. Each entry point gets the same calls, so one path loads both kinds. The owner's rule: "those have to be treated exactly the same. In other words ... the entry point has the same shape". For each Pack that a Plugin inserted, the loader puts a factory in the registry. The factory sends `RV_PACK_NEW` for each run, the instance sends one `RV_TOOL_CALL` each time a call's future is polled, and its drop sends `RV_PACK_DELETE`.
 
 `std` and `bashkit` are library Plugins. The shipped Plugins that are compiled into the Host, `plugin-web` and `plugin-mcp`, are a third kind. Each is a Rust `install` function written against `runvil-plugin`, which the Host calls itself, so the contract's calls go to `std` and `bashkit` alone. The docs of `runvil-plugin` call that third kind a linked Plugin as well. The move of the two Plugins onto the contract is planned work.
 
