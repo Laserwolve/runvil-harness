@@ -29,6 +29,16 @@ Seven terms have exactly one meaning each, everywhere in this repository: code c
 - Error and status messages assume a model reads them: concise, factual, and self-contained, naming what is missing or unmet with required versus actual.
 - There are no users and no recorded runs, logs, or stored data to preserve, so backward compatibility does not matter: change formats, schemas, and APIs freely, and never bump a format, schema, or crate version number.
 
+## Design decisions
+
+`decisions/` holds the design decisions for the code in this repository, with the reason for each. Read the page for a part before changing how that part behaves.
+
+- Pages: `prompt-language.md` (the prompt file, sections, Lua globals, `jump`, `call`, `execute`), `models-and-conversations.md` (the `models` API, the model loop, messages, compaction), `tasks-and-fanout.md` (tasks, fanout, the scheduler's order, inboxes), `files-and-the-vfs.md` (the `store` API, the VFS, conflicts), `engine.md` (parsing, the run state machine, effects, limits, `Error`, the facades), `harness-and-host.md` (the `runvil` crate, `Host`, `RunSetup`, the effect loop, the recorder, stop and cancel), `tools-and-packs.md` (tools, Packs, Plugins, the C contract), and `testing-and-debugging.md` (test support, fixtures, the rules for test code, logs).
+- An entry states one decision: the rule as a prompt author, a Host, or a caller of the Engine sees it, then the reason, with the owner's words quoted exactly where the page has them. Never write, shorten, or reword a quote of the owner.
+- A change that makes, changes, or removes a decision edits its entry in the same change. A change to how the code works inside leaves the pages alone.
+- An entry holds no file path, internal name, count of things in the code, test name, date, or history. The code has those, and they go out of date in a page. Names of the prompt language, error codes, and items a facade re-exports are fine.
+- When the code and an entry disagree, say so and ask which is right. Neither wins by default.
+
 ## Engineering
 
 - Prefer types and compiler checks, then behavior tests and deterministic fault injection. Gate on yes/no properties, never on a score threshold that ordinary work edits.
