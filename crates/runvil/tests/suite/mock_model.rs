@@ -32,10 +32,7 @@ use serde_json::Value;
 /// The model a golden run selects.
 pub(crate) const MODEL: &str = "mock-model";
 
-/// A second model, for a prompt that switches models.
-const SECOND_MODEL: &str = "mock-model-2";
-
-/// The context window both models list: 131,072 tokens.
+/// The context window the model lists: 131,072 tokens.
 const WINDOW: NonZeroU32 = NonZeroU32::MIN.saturating_add(131_071);
 
 /// What separates an instruction's steps.
@@ -50,26 +47,18 @@ enum Step {
     Call { tool: String, args: Value },
 }
 
-/// Lists two models and answers each round by its request's instruction.
+/// Lists one model and answers each round by its request's instruction.
 pub(crate) struct MockModel {
     catalog: ModelCatalog,
 }
 
 impl MockModel {
-    /// A mock model listing [`MODEL`] and a second model.
+    /// A mock model listing [`MODEL`].
     pub(crate) fn new() -> Result<MockModel, Error> {
-        let mut models = Vec::new();
-        for name in [MODEL, SECOND_MODEL] {
-            let id = ModelId::gateway(name)?;
-            models.push(ModelInfo::new(
-                id,
-                "a mock model",
-                WINDOW,
-                ThinkingMode::Never,
-            ));
-        }
+        let id = ModelId::gateway(MODEL)?;
+        let model = ModelInfo::new(id, "the mock model", WINDOW, ThinkingMode::Never);
         Ok(MockModel {
-            catalog: ModelCatalog::new(models)?,
+            catalog: ModelCatalog::new([model])?,
         })
     }
 }

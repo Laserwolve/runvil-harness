@@ -1,0 +1,117 @@
+0 0 event - {"kind":"run_started","provenance":{"seq":0,"task":"0"},"section":"default-limit-of-eight"}
+0 1 event - {"kind":"section_started","provenance":{"seq":1,"task":"0"},"section":"Main"}
+0 2 event - {"kind":"lua_chunk_started","provenance":{"seq":2,"task":"0"},"section":"Main"}
+0 3 event - {"args":null,"index":1,"item":null,"kind":"task_started","provenance":{"seq":3,"task":"0"},"section":"Main","target":"Worker","task":"0.0","var":{}}
+0 4 event - {"args":null,"index":2,"item":null,"kind":"task_started","provenance":{"seq":4,"task":"0"},"section":"Main","target":"Worker","task":"0.1","var":{}}
+0 5 event - {"args":null,"index":3,"item":null,"kind":"task_started","provenance":{"seq":5,"task":"0"},"section":"Main","target":"Worker","task":"0.2","var":{}}
+0 6 event - {"args":null,"index":4,"item":null,"kind":"task_started","provenance":{"seq":6,"task":"0"},"section":"Main","target":"Worker","task":"0.3","var":{}}
+0 7 event - {"args":null,"index":5,"item":null,"kind":"task_started","provenance":{"seq":7,"task":"0"},"section":"Main","target":"Worker","task":"0.4","var":{}}
+0 8 event - {"args":null,"index":6,"item":null,"kind":"task_started","provenance":{"seq":8,"task":"0"},"section":"Main","target":"Worker","task":"0.5","var":{}}
+0 9 event - {"args":null,"index":7,"item":null,"kind":"task_started","provenance":{"seq":9,"task":"0"},"section":"Main","target":"Worker","task":"0.6","var":{}}
+0 10 event - {"args":null,"index":8,"item":null,"kind":"task_started","provenance":{"seq":10,"task":"0"},"section":"Main","target":"Worker","task":"0.7","var":{}}
+0.0 0 event - {"kind":"section_started","provenance":{"seq":0,"task":"0.0"},"section":"Worker"}
+0.1 0 event - {"kind":"section_started","provenance":{"seq":0,"task":"0.1"},"section":"Worker"}
+0.2 0 event - {"kind":"section_started","provenance":{"seq":0,"task":"0.2"},"section":"Worker"}
+0.3 0 event - {"kind":"section_started","provenance":{"seq":0,"task":"0.3"},"section":"Worker"}
+0.4 0 event - {"kind":"section_started","provenance":{"seq":0,"task":"0.4"},"section":"Worker"}
+0.5 0 event - {"kind":"section_started","provenance":{"seq":0,"task":"0.5"},"section":"Worker"}
+0.6 0 event - {"kind":"section_started","provenance":{"seq":0,"task":"0.6"},"section":"Worker"}
+0.7 0 event - {"kind":"section_started","provenance":{"seq":0,"task":"0.7"},"section":"Worker"}
+0.0 1 event - {"kind":"lua_chunk_started","provenance":{"seq":1,"task":"0.0"},"section":"Worker"}
+0.1 1 event - {"kind":"lua_chunk_started","provenance":{"seq":1,"task":"0.1"},"section":"Worker"}
+0.2 1 event - {"kind":"lua_chunk_started","provenance":{"seq":1,"task":"0.2"},"section":"Worker"}
+0.3 1 event - {"kind":"lua_chunk_started","provenance":{"seq":1,"task":"0.3"},"section":"Worker"}
+0.4 1 event - {"kind":"lua_chunk_started","provenance":{"seq":1,"task":"0.4"},"section":"Worker"}
+0.5 1 event - {"kind":"lua_chunk_started","provenance":{"seq":1,"task":"0.5"},"section":"Worker"}
+0.6 1 event - {"kind":"lua_chunk_started","provenance":{"seq":1,"task":"0.6"},"section":"Worker"}
+0.7 1 event - {"kind":"lua_chunk_started","provenance":{"seq":1,"task":"0.7"},"section":"Worker"}
+0.0 2 effect 0 {"Chat":{"after":null,"alias":"default","keep":0,"max_tokens":null,"messages":[{"content":"after 1 reply 1","role":"user"}],"round":0,"temperature":null,"thinking":null,"tools":[]}}
+0.1 2 effect 1 {"Chat":{"after":null,"alias":"default","keep":0,"max_tokens":null,"messages":[{"content":"after 2 reply 2","role":"user"}],"round":1,"temperature":null,"thinking":null,"tools":[]}}
+0.2 2 effect 2 {"Chat":{"after":null,"alias":"default","keep":0,"max_tokens":null,"messages":[{"content":"after 3 reply 3","role":"user"}],"round":2,"temperature":null,"thinking":null,"tools":[]}}
+0.3 2 effect 3 {"Chat":{"after":null,"alias":"default","keep":0,"max_tokens":null,"messages":[{"content":"after 4 reply 4","role":"user"}],"round":3,"temperature":null,"thinking":null,"tools":[]}}
+0.4 2 effect 4 {"Chat":{"after":null,"alias":"default","keep":0,"max_tokens":null,"messages":[{"content":"after 5 reply 5","role":"user"}],"round":4,"temperature":null,"thinking":null,"tools":[]}}
+0.5 2 effect 5 {"Chat":{"after":null,"alias":"default","keep":0,"max_tokens":null,"messages":[{"content":"after 6 reply 6","role":"user"}],"round":5,"temperature":null,"thinking":null,"tools":[]}}
+0.6 2 effect 6 {"Chat":{"after":null,"alias":"default","keep":0,"max_tokens":null,"messages":[{"content":"after 7 reply 7","role":"user"}],"round":6,"temperature":null,"thinking":null,"tools":[]}}
+0.7 2 effect 7 {"Chat":{"after":null,"alias":"default","keep":0,"max_tokens":null,"messages":[{"content":"after 8 reply 8","role":"user"}],"round":7,"temperature":null,"thinking":null,"tools":[]}}
+0.0 2 answer 0 {"Chat":{"Ok":{"finish_reason":null,"model":"mock-model","reply":"1","tool_calls":[]}}}
+0.0 3 event - {"kind":"model_turn_completed","provenance":{"seq":3,"task":"0.0"},"section":"Worker"}
+0.0 4 event - {"finish_reason":null,"kind":"assistant_reply","metrics":null,"model":"mock-model","origin":"infer","provenance":{"seq":4,"task":"0.0"},"round":0,"section":"Worker","text":"1","turn":1}
+0.0 5 event - {"kind":"lua_chunk_succeeded","provenance":{"seq":5,"task":"0.0"},"section":"Worker"}
+0.0 6 event - {"kind":"lua_teardown_started","provenance":{"seq":6,"task":"0.0"},"section":"Worker"}
+0.0 7 event - {"kind":"lua_teardown_succeeded","provenance":{"seq":7,"task":"0.0"},"section":"Worker"}
+0.0 8 event - {"kind":"section_finished","provenance":{"seq":8,"task":"0.0"},"section":"Worker"}
+0.0 9 event - {"kind":"task_succeeded","provenance":{"seq":9,"task":"0.0"},"section":"Worker","task":"0.0"}
+0 11 event - {"args":null,"index":9,"item":null,"kind":"task_started","provenance":{"seq":11,"task":"0"},"section":"Main","target":"Worker","task":"0.8","var":{}}
+0.8 0 event - {"kind":"section_started","provenance":{"seq":0,"task":"0.8"},"section":"Worker"}
+0.8 1 event - {"kind":"lua_chunk_started","provenance":{"seq":1,"task":"0.8"},"section":"Worker"}
+0.8 2 effect 8 {"Chat":{"after":null,"alias":"default","keep":0,"max_tokens":null,"messages":[{"content":"after 9 reply 9","role":"user"}],"round":8,"temperature":null,"thinking":null,"tools":[]}}
+0.1 2 answer 1 {"Chat":{"Ok":{"finish_reason":null,"model":"mock-model","reply":"2","tool_calls":[]}}}
+0.1 3 event - {"kind":"model_turn_completed","provenance":{"seq":3,"task":"0.1"},"section":"Worker"}
+0.1 4 event - {"finish_reason":null,"kind":"assistant_reply","metrics":null,"model":"mock-model","origin":"infer","provenance":{"seq":4,"task":"0.1"},"round":1,"section":"Worker","text":"2","turn":1}
+0.1 5 event - {"kind":"lua_chunk_succeeded","provenance":{"seq":5,"task":"0.1"},"section":"Worker"}
+0.1 6 event - {"kind":"lua_teardown_started","provenance":{"seq":6,"task":"0.1"},"section":"Worker"}
+0.1 7 event - {"kind":"lua_teardown_succeeded","provenance":{"seq":7,"task":"0.1"},"section":"Worker"}
+0.1 8 event - {"kind":"section_finished","provenance":{"seq":8,"task":"0.1"},"section":"Worker"}
+0.1 9 event - {"kind":"task_succeeded","provenance":{"seq":9,"task":"0.1"},"section":"Worker","task":"0.1"}
+0.2 2 answer 2 {"Chat":{"Ok":{"finish_reason":null,"model":"mock-model","reply":"3","tool_calls":[]}}}
+0.2 3 event - {"kind":"model_turn_completed","provenance":{"seq":3,"task":"0.2"},"section":"Worker"}
+0.2 4 event - {"finish_reason":null,"kind":"assistant_reply","metrics":null,"model":"mock-model","origin":"infer","provenance":{"seq":4,"task":"0.2"},"round":2,"section":"Worker","text":"3","turn":1}
+0.2 5 event - {"kind":"lua_chunk_succeeded","provenance":{"seq":5,"task":"0.2"},"section":"Worker"}
+0.2 6 event - {"kind":"lua_teardown_started","provenance":{"seq":6,"task":"0.2"},"section":"Worker"}
+0.2 7 event - {"kind":"lua_teardown_succeeded","provenance":{"seq":7,"task":"0.2"},"section":"Worker"}
+0.2 8 event - {"kind":"section_finished","provenance":{"seq":8,"task":"0.2"},"section":"Worker"}
+0.2 9 event - {"kind":"task_succeeded","provenance":{"seq":9,"task":"0.2"},"section":"Worker","task":"0.2"}
+0.3 2 answer 3 {"Chat":{"Ok":{"finish_reason":null,"model":"mock-model","reply":"4","tool_calls":[]}}}
+0.3 3 event - {"kind":"model_turn_completed","provenance":{"seq":3,"task":"0.3"},"section":"Worker"}
+0.3 4 event - {"finish_reason":null,"kind":"assistant_reply","metrics":null,"model":"mock-model","origin":"infer","provenance":{"seq":4,"task":"0.3"},"round":3,"section":"Worker","text":"4","turn":1}
+0.3 5 event - {"kind":"lua_chunk_succeeded","provenance":{"seq":5,"task":"0.3"},"section":"Worker"}
+0.3 6 event - {"kind":"lua_teardown_started","provenance":{"seq":6,"task":"0.3"},"section":"Worker"}
+0.3 7 event - {"kind":"lua_teardown_succeeded","provenance":{"seq":7,"task":"0.3"},"section":"Worker"}
+0.3 8 event - {"kind":"section_finished","provenance":{"seq":8,"task":"0.3"},"section":"Worker"}
+0.3 9 event - {"kind":"task_succeeded","provenance":{"seq":9,"task":"0.3"},"section":"Worker","task":"0.3"}
+0.4 2 answer 4 {"Chat":{"Ok":{"finish_reason":null,"model":"mock-model","reply":"5","tool_calls":[]}}}
+0.4 3 event - {"kind":"model_turn_completed","provenance":{"seq":3,"task":"0.4"},"section":"Worker"}
+0.4 4 event - {"finish_reason":null,"kind":"assistant_reply","metrics":null,"model":"mock-model","origin":"infer","provenance":{"seq":4,"task":"0.4"},"round":4,"section":"Worker","text":"5","turn":1}
+0.4 5 event - {"kind":"lua_chunk_succeeded","provenance":{"seq":5,"task":"0.4"},"section":"Worker"}
+0.4 6 event - {"kind":"lua_teardown_started","provenance":{"seq":6,"task":"0.4"},"section":"Worker"}
+0.4 7 event - {"kind":"lua_teardown_succeeded","provenance":{"seq":7,"task":"0.4"},"section":"Worker"}
+0.4 8 event - {"kind":"section_finished","provenance":{"seq":8,"task":"0.4"},"section":"Worker"}
+0.4 9 event - {"kind":"task_succeeded","provenance":{"seq":9,"task":"0.4"},"section":"Worker","task":"0.4"}
+0.5 2 answer 5 {"Chat":{"Ok":{"finish_reason":null,"model":"mock-model","reply":"6","tool_calls":[]}}}
+0.5 3 event - {"kind":"model_turn_completed","provenance":{"seq":3,"task":"0.5"},"section":"Worker"}
+0.5 4 event - {"finish_reason":null,"kind":"assistant_reply","metrics":null,"model":"mock-model","origin":"infer","provenance":{"seq":4,"task":"0.5"},"round":5,"section":"Worker","text":"6","turn":1}
+0.5 5 event - {"kind":"lua_chunk_succeeded","provenance":{"seq":5,"task":"0.5"},"section":"Worker"}
+0.5 6 event - {"kind":"lua_teardown_started","provenance":{"seq":6,"task":"0.5"},"section":"Worker"}
+0.5 7 event - {"kind":"lua_teardown_succeeded","provenance":{"seq":7,"task":"0.5"},"section":"Worker"}
+0.5 8 event - {"kind":"section_finished","provenance":{"seq":8,"task":"0.5"},"section":"Worker"}
+0.5 9 event - {"kind":"task_succeeded","provenance":{"seq":9,"task":"0.5"},"section":"Worker","task":"0.5"}
+0.6 2 answer 6 {"Chat":{"Ok":{"finish_reason":null,"model":"mock-model","reply":"7","tool_calls":[]}}}
+0.6 3 event - {"kind":"model_turn_completed","provenance":{"seq":3,"task":"0.6"},"section":"Worker"}
+0.6 4 event - {"finish_reason":null,"kind":"assistant_reply","metrics":null,"model":"mock-model","origin":"infer","provenance":{"seq":4,"task":"0.6"},"round":6,"section":"Worker","text":"7","turn":1}
+0.6 5 event - {"kind":"lua_chunk_succeeded","provenance":{"seq":5,"task":"0.6"},"section":"Worker"}
+0.6 6 event - {"kind":"lua_teardown_started","provenance":{"seq":6,"task":"0.6"},"section":"Worker"}
+0.6 7 event - {"kind":"lua_teardown_succeeded","provenance":{"seq":7,"task":"0.6"},"section":"Worker"}
+0.6 8 event - {"kind":"section_finished","provenance":{"seq":8,"task":"0.6"},"section":"Worker"}
+0.6 9 event - {"kind":"task_succeeded","provenance":{"seq":9,"task":"0.6"},"section":"Worker","task":"0.6"}
+0.7 2 answer 7 {"Chat":{"Ok":{"finish_reason":null,"model":"mock-model","reply":"8","tool_calls":[]}}}
+0.7 3 event - {"kind":"model_turn_completed","provenance":{"seq":3,"task":"0.7"},"section":"Worker"}
+0.7 4 event - {"finish_reason":null,"kind":"assistant_reply","metrics":null,"model":"mock-model","origin":"infer","provenance":{"seq":4,"task":"0.7"},"round":7,"section":"Worker","text":"8","turn":1}
+0.7 5 event - {"kind":"lua_chunk_succeeded","provenance":{"seq":5,"task":"0.7"},"section":"Worker"}
+0.7 6 event - {"kind":"lua_teardown_started","provenance":{"seq":6,"task":"0.7"},"section":"Worker"}
+0.7 7 event - {"kind":"lua_teardown_succeeded","provenance":{"seq":7,"task":"0.7"},"section":"Worker"}
+0.7 8 event - {"kind":"section_finished","provenance":{"seq":8,"task":"0.7"},"section":"Worker"}
+0.7 9 event - {"kind":"task_succeeded","provenance":{"seq":9,"task":"0.7"},"section":"Worker","task":"0.7"}
+0.8 2 answer 8 {"Chat":{"Ok":{"finish_reason":null,"model":"mock-model","reply":"9","tool_calls":[]}}}
+0.8 3 event - {"kind":"model_turn_completed","provenance":{"seq":3,"task":"0.8"},"section":"Worker"}
+0.8 4 event - {"finish_reason":null,"kind":"assistant_reply","metrics":null,"model":"mock-model","origin":"infer","provenance":{"seq":4,"task":"0.8"},"round":8,"section":"Worker","text":"9","turn":1}
+0.8 5 event - {"kind":"lua_chunk_succeeded","provenance":{"seq":5,"task":"0.8"},"section":"Worker"}
+0.8 6 event - {"kind":"lua_teardown_started","provenance":{"seq":6,"task":"0.8"},"section":"Worker"}
+0.8 7 event - {"kind":"lua_teardown_succeeded","provenance":{"seq":7,"task":"0.8"},"section":"Worker"}
+0.8 8 event - {"kind":"section_finished","provenance":{"seq":8,"task":"0.8"},"section":"Worker"}
+0.8 9 event - {"kind":"task_succeeded","provenance":{"seq":9,"task":"0.8"},"section":"Worker","task":"0.8"}
+0 12 event - {"kind":"lua_chunk_succeeded","provenance":{"seq":12,"task":"0"},"section":"Main"}
+0 13 event - {"kind":"lua_teardown_started","provenance":{"seq":13,"task":"0"},"section":"Main"}
+0 14 event - {"kind":"lua_teardown_succeeded","provenance":{"seq":14,"task":"0"},"section":"Main"}
+0 15 event - {"kind":"section_finished","provenance":{"seq":15,"task":"0"},"section":"Main"}
+0 16 event - {"kind":"run_succeeded","provenance":{"seq":16,"task":"0"},"section":"default-limit-of-eight"}
+result ok "9 joined"
