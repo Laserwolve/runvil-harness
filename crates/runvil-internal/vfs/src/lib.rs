@@ -88,8 +88,9 @@ pub enum Mode {
 /// a rename get its verdict under their own kinds, on the source and on
 /// the destination alike. The two questions that follow, a read of the
 /// source and a write of the destination, never refuse what it allowed
-/// there: it allows every read, and a write of a path gets the answer
-/// that a copy or a rename of that path got.
+/// there while the mode does not change between the questions of one
+/// operation: it allows every read, and a write of a path gets the
+/// answer that a copy or a rename of that path got.
 ///
 /// The policy shares its current mode with every [`ModeHandle`] it
 /// returns. The caller keeps a handle and can change the mode mid-run.

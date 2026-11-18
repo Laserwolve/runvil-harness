@@ -1,9 +1,14 @@
 //! Tests for links under a rooted backend: escapes, dangling links,
-//! and path operations that act on a link itself.
+//! path operations that act on a link itself, and the path that a
+//! handle's policy is asked about for a read through a link.
 
 use std::fmt;
 
 use super::*;
+use crate::handle::VfsRef;
+use crate::observe::Origin;
+use crate::path::VfsPath;
+use crate::traits::{Op, Policy, Verdict};
 
 /// Creates a directory link. Windows uses a junction (no privilege
 /// required, unlike `symlink_dir`); Unix uses a plain symlink.
@@ -274,6 +279,46 @@ fn a_glob_through_an_in_root_directory_link_keeps_the_links_spelling() -> Result
     let access = rooted_access(root.path())?;
     assert_eq!(access.glob("/link/*")?, ["/link/a.txt".to_owned()]);
     assert_eq!(access.glob("/real/*")?, ["/real/a.txt".to_owned()]);
+    Ok(())
+}
+
+/// Refuses every read under `/secret` and allows everything else.
+struct NoSecretReads;
+
+impl Policy for NoSecretReads {
+    fn check(&self, op: Op, path: &VfsPath) -> Verdict {
+        if op == Op::Read && path.as_str().starts_with("/secret") {
+            Verdict::Deny("no read under /secret".to_owned())
+        } else {
+            Verdict::Allow
+        }
+    }
+}
+
+#[test]
+fn a_policy_is_asked_about_the_path_of_a_read_and_not_about_what_a_link_leads_to()
+-> Result<(), VfsError> {
+    let root = TempRoot::new("a_policy_is_asked_about_the_path_of_a_read");
+    let secret = root.path().join("secret");
+    fs::create_dir(&secret).map_err(|err| map_io("creating the guarded directory", &err))?;
+    fs::write(secret.join("key"), b"classified")
+        .map_err(|err| map_io("seeding the guarded file", &err))?;
+    make_dir_link(&root.path().join("open"), &secret)?;
+    let vfs = VfsRef::builder()
+        .mount("/", RealBackend::rooted(root.path())?)
+        .policy(NoSecretReads)
+        .build();
+    let access = vfs.acquire(Origin::new("link policy test"))?;
+    assert!(matches!(
+        access.read("/secret/key"),
+        Err(VfsError::PermissionDenied { .. })
+    ));
+    assert_eq!(
+        access.read("/open/key")?,
+        b"classified",
+        "the link's target is inside the root, so the backend follows it, and the policy \
+         was asked about /open/key alone"
+    );
     Ok(())
 }
 

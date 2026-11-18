@@ -126,7 +126,7 @@ Modes are one implementation of the `Policy` trait, separate from the machinery 
 
 ### An operation sink observes every admitted operation of its handle
 
-A Host installs a callback, the operation sink, with `VfsRefBuilder::on_op`. The handle calls it once for each path of an operation that was admitted: one that the policy allowed in every question, from a run and a tool call that have not ended. Each call has the operation kind, the canonical path, and the `Origin` of the access, a label with a file and line. A copy or a rename has two paths, so two calls under its own kind are one copy or one rename, and the sink is no list of what the policy allowed. A store has no sink, so the sink observes the file operations of tool calls and never a `store` call.
+A Host installs a callback, the operation sink, with `VfsRefBuilder::on_op`. The handle calls it once for each path of an operation that it admitted: one that its own policy allowed in every question, from a run and a tool call that have not ended. A handle that is mounted inside it can still refuse the operation afterward. Each call has the operation kind, the canonical path, and the `Origin` of the access, a label with a file and line. A copy or a rename has two paths, so two calls under its own kind are one copy or one rename, and the sink is no list of what the policy allowed. A store has no sink, so the sink observes the file operations of tool calls and never a `store` call.
 
 Each store operation is an effect instead: the Harness sees it before it runs, and the run's record holds it.
 

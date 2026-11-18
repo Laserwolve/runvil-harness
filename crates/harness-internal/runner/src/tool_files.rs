@@ -21,9 +21,10 @@
 //!
 //! The queue also counts the requests the loop takes, and tells the loop
 //! when it owes its executor a turn: once in every
-//! [`REQUESTS_PER_TURN`] requests. The loop performs a request and wakes
-//! its call without returning to the executor, so calls that keep asking
-//! would otherwise hold the executor's thread for as long as they ask.
+//! [`REQUESTS_PER_TURN`] requests. While the recorder answers at once,
+//! the loop performs a request and wakes its call without returning to
+//! the executor, so calls that keep asking would otherwise hold the
+//! executor's thread for as long as they ask.
 
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;

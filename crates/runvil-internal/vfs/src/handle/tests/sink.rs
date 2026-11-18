@@ -197,6 +197,39 @@ fn a_replacement_of_text_fires_the_sink_once_as_a_write_and_never_when_its_read_
 }
 
 #[test]
+fn a_sink_speaks_for_its_own_handle_and_a_handle_mounted_inside_it_can_still_refuse()
+-> Result<(), VfsError> {
+    let sealed = VfsRef::builder()
+        .mount("/", TestFs::default())
+        .policy(FlipPolicy {
+            verdict: Arc::new(Mutex::new(Verdict::Deny("writes are sealed".to_owned()))),
+        })
+        .build();
+    let events = Seen::default();
+    let recorded = Arc::clone(&events);
+    let outer = VfsRef::builder()
+        .mount("/", sealed)
+        .on_op(move |event: OpEvent<'_>| {
+            recorded
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push((event.op(), event.path().to_string()));
+        })
+        .build();
+    assert!(matches!(
+        access(&outer)?.write("/f.txt", b"x"),
+        Err(VfsError::PermissionDenied { .. })
+    ));
+    assert_eq!(
+        *events.lock().unwrap_or_else(PoisonError::into_inner),
+        [(Op::Write, "/f.txt".to_owned())],
+        "the outer handle admitted the write and called its sink, and the policy of the \
+         handle mounted inside it refused the write afterward"
+    );
+    Ok(())
+}
+
+#[test]
 fn an_operation_of_a_tool_call_that_has_ended_never_fires_the_sink() -> Result<(), VfsError> {
     let events: Arc<Mutex<Vec<Op>>> = Arc::new(Mutex::new(Vec::new()));
     let recorded = Arc::clone(&events);

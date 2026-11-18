@@ -99,8 +99,12 @@ pub enum Verdict {
 /// question that the policy refuses end the operation, so the policy is
 /// asked nothing that would come after either. A copy and a rename ask
 /// four questions, and a replacement of text asks two, as [`Op`] says.
-/// A policy can change its answers during a run through shared state:
-/// the application holds the same `Arc` and changes the state mid-run.
+/// A question names the path as the operation gave it and never what a
+/// link leads to, so where a backend follows a link, as `RealBackend`
+/// does inside its root, a read through a link under an allowed path
+/// reaches a file under a guarded one. A policy can change its answers
+/// during a run through shared state: the application holds the same
+/// `Arc` and changes the state mid-run.
 pub trait Policy: Send {
     /// Decides whether `op` on `path` may proceed.
     fn check(&self, op: Op, path: &VfsPath) -> Verdict;

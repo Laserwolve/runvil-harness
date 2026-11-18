@@ -463,6 +463,15 @@ impl Policy for Guard {
     }
 }
 
+/// A receipt of a failed operation as the kind of its failure, and any
+/// other receipt as the record holds it.
+fn kind_or_receipt(receipt: Value) -> Value {
+    match receipt.get("Err") {
+        Some(failure) => failure["kind"].clone(),
+        None => receipt,
+    }
+}
+
 #[tokio::test]
 async fn an_operation_the_policy_denies_or_panics_on_is_a_file_error_and_the_run_goes_on() {
     let dir = scratch("an_operation_the_policy_denies_or_panics_on");
@@ -528,16 +537,16 @@ async fn an_operation_the_policy_denies_or_panics_on_is_a_file_error_and_the_run
         [Ok(false), Ok(false), Ok(true)],
         "the denied copy and the denied rename made nothing and moved nothing"
     );
-    let denied: Vec<Value> = asked_by_each_call(&recorder.records(report_of_run.run_id))
+    let receipts: Vec<Value> = asked_by_each_call(&recorder.records(report_of_run.run_id))
         .into_iter()
         .flatten()
-        .map(|(_, receipt)| receipt["Err"]["kind"].clone())
+        .map(|(_, receipt)| kind_or_receipt(receipt))
         .collect();
-    let mut kinds = vec![json!("permission_denied"); 9];
-    kinds.extend([json!("backend"), Value::Null]);
+    let mut expected = vec![json!("permission_denied"); 9];
+    expected.extend([json!("backend"), json!({ "Ok": { "Bytes": 5 } })]);
     assert_eq!(
-        denied, kinds,
-        "the record holds each refused operation with the kind of its failure"
+        receipts, expected,
+        "each refused operation with the kind of its failure, and the read with its receipt"
     );
     assert_eq!(
         (counter(&library, "packs"), counter(&library, "calls")),

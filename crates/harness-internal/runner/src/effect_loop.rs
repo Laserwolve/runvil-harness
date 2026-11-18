@@ -39,12 +39,13 @@
 //! Vfs effect whose call has gone since it asked is answered `Dropped`
 //! unperformed.
 //!
-//! The loop performs a request and wakes its call without returning to
-//! its executor, so it makes that return itself. After a set number of
-//! requests, and before it reports the next one, the run's future wakes
-//! itself and returns pending once. Which task the executor polls next
-//! is the executor's choice, so the return is a chance for its other
-//! tasks, one that raises a cancel or a stop among them, and no promise.
+//! While the recorder answers at once, the loop performs a request and
+//! wakes its call without returning to its executor, so it makes that
+//! return itself. After a set number of requests, and before it reports
+//! the next one, the run's future wakes itself and returns pending once.
+//! Which task the executor polls next is the executor's choice, so the
+//! return is one more chance for its other tasks, one that raises a
+//! cancel or a stop among them, and no promise.
 //! An executor that takes its tasks in turn runs them then, however long
 //! a tool call keeps asking. No Vfs effect is outstanding at that point,
 //! and the request is still at its desk.
