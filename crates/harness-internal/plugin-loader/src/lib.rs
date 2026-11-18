@@ -8,7 +8,7 @@
 //! ## Invariants
 //!
 //! - May depend on: `runvil-plugin` among workspace crates, and
-//!   `runvil-plugin-sys`, the C contract at version 0.4, from its own
+//!   `runvil-plugin-sys`, the C contract at version 0.5, from its own
 //!   repository.
 //! - Every entry point gets the same calls, whether it came from a library
 //!   or was linked in. The only difference is that a library is opened
@@ -24,16 +24,22 @@
 //!   borrows its instance, so the delete comes after every call of the
 //!   instance has ended. An `RV_PACK_NEW` that fails gets no
 //!   `RV_PACK_DELETE`.
-//! - A tool call sends one `RV_TOOL_CALL` each time its future is polled,
-//!   and a step that returns `RV_PENDING` wakes the future's own task. A
-//!   call whose last step returned `RV_PENDING` gets one `RV_TOOL_CANCEL`
-//!   when it fails or its future is dropped, and no other call does.
+//! - Each poll of a tool call's future sends one `RV_TOOL_CALL` at most,
+//!   and a step that returns `RV_PENDING` with no file request wakes the
+//!   future's own task. A call whose last step returned `RV_PENDING`
+//!   gets one `RV_TOOL_CANCEL` when it fails or its future is dropped,
+//!   and no other call does.
 //! - The functions in a call's arguments struct answer only that call's
 //!   `ctx`, on its thread, while it runs.
-//! - A step's file functions read through the `Access` of the step's tool
-//!   call and nothing else, so the run's mode and policy apply to every
-//!   read. What a file function hands back is freed by the step's next
-//!   file function, or when the step returns.
+//! - A step's file function takes one request and fills nothing. The
+//!   loader asks the files of the call's `ToolContext` for the operation
+//!   and reaches the run's files in no other way, so the Harness performs
+//!   and records every file operation of a library Pack's tool, and the
+//!   run's mode and policy apply to each one.
+//! - A call whose request waits for its outcome gets no step and wakes
+//!   nothing. The step after the outcome is lent the answer, which stays
+//!   valid until that step returns, and no other step is lent one. The
+//!   request of a step that ends its call is not performed.
 //! - Each `RV_PLUGIN_LOAD` gets its own `ctx`, a loader-owned allocation
 //!   freed when a rejected load returns or after its Plugin's
 //!   `RV_PLUGIN_UNLOAD` returns. The `ctx` of every other call is freed

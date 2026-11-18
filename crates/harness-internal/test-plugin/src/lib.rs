@@ -2,15 +2,18 @@
 //! tests: a dynamic library that exports `runvil_plugin` and follows the C
 //! contract. It inserts one Pack, `fixture/test`. Three of its tools show
 //! a call that ends in one step, one that takes three, and one that never
-//! ends, and three more call the step's file functions: `stat`, `list`,
-//! and `read`.
+//! ends. Nine more make one file request each, one for each file function
+//! of the contract: `stat`, `list`, and `read` read, and `write`,
+//! `append`, `mkdir`, `remove`, `rename`, and `copy` change files. The
+//! last, `read_many`, reads many files in one call.
 //!
 //! ## Invariants
 //!
 //! - No `[dependencies]` at all, so a library Plugin needs nothing from
 //!   Runvil. Only the end-to-end tests in `tests/it` name other crates, as
 //!   `[dev-dependencies]`. The C types below are a private copy of the
-//!   contract's, not an import.
+//!   contract's, not an import. Each lays its fields out as the
+//!   contract's type does.
 //! - Only `runvil_plugin` and the five counters `harness_test_plugin_loads`,
 //!   `harness_test_plugin_unloads`, `harness_test_plugin_live`,
 //!   `harness_test_plugin_packs`, and `harness_test_plugin_calls` are
@@ -18,19 +21,24 @@
 //!   the same layout numbers as `runvil-plugin-sys`.
 //! - The counters are process-global, so each copy of the library that is
 //!   opened counts on its own, from zero.
-//! - The entry point never unwinds: it has no `unwrap`, `expect`, or
-//!   indexing that can panic.
+//! - The entry point never unwinds: it has no `unwrap`, `expect`,
+//!   indexing, or arithmetic that can panic.
 //! - `RV_PLUGIN_LOAD` loads only when the `RvHost` table reports exactly
-//!   version 0.4, and checks that before it reads `args`.
+//!   version 0.5, and checks that before it reads `args`.
 //! - `RV_PLUGIN_LOAD` describes the Plugin exactly once, as `test-plugin`
 //!   at `0.1.0`, inserts its one Pack, and sets the instance pointer only
 //!   when both succeed. A failing load frees what it made, and so does a
 //!   failing `RV_PACK_NEW`.
 //! - A tool call's state is freed by the step that ends the call or by
 //!   `RV_TOOL_CANCEL`, never by both.
-//! - A file tool copies what a file function hands back before it calls
-//!   anything else, and a file function that fails ends the call with a
-//!   text that says so, not as a failed call.
+//! - A step makes one file request at most and then returns
+//!   `RV_PENDING`. The step after it reads the answer it is lent before
+//!   it returns, and keeps no pointer into it.
+//! - A tool whose calls change files sets `RV_TOOL_CHANGES_FILES`, and no
+//!   other tool does.
+//! - A file operation that fails never fails its call: a tool that makes
+//!   one request ends its call with a text that says so, and `read_many`
+//!   counts the failure and goes on.
 #![expect(unsafe_code, reason = "exports a C entry point")]
 
 use std::ffi::{c_char, c_void};
@@ -56,7 +64,8 @@ const RV_ERR_REFUSED: RvStatus = 5;
 const RV_ERR_UNSUPPORTED: RvStatus = 6;
 /// The tool call needs another step.
 const RV_PENDING: RvStatus = 7;
-/// A file function failed, and its `error` says how.
+/// A file operation failed: the `status` of an `RvFileAnswer` whose
+/// `error` says how.
 const RV_ERR_FILE: RvStatus = 8;
 
 /// The operation an `RvCall` asks for.
@@ -90,13 +99,18 @@ const RV_FILE_TYPE_DIRECTORY: RvFileType = 2;
 /// A symbolic link.
 const RV_FILE_TYPE_SYMLINK: RvFileType = 3;
 
-/// Why a file function failed, in an `RvFileError`.
+/// Why a file operation failed, in an `RvFileError`.
 type RvFileErrorKind = u32;
+
+/// What a tool does beyond answering its calls, in an `RvToolInfo`.
+type RvToolFlags = u32;
+/// A call of the tool changes files of its run.
+const RV_TOOL_CHANGES_FILES: RvToolFlags = 1;
 
 /// The contract's major version, which the `RvHost` table must report.
 const RV_API_MAJOR: u32 = 0;
 /// The contract's minor version, which the `RvHost` table must report.
-const RV_API_MINOR: u32 = 4;
+const RV_API_MINOR: u32 = 5;
 
 /// The name this Plugin gives `describe_plugin`.
 const NAME: &str = "test-plugin";
@@ -108,9 +122,21 @@ const PACK: &str = "fixture/test";
 const PACK_DESCRIPTION: &str = "The loader's test fixture";
 /// The parameters of a tool that takes none: an object with no properties.
 const NO_PARAMETERS: &str = r#"{"type":"object","properties":{}}"#;
-/// The parameters of a file tool: an object with the one string `path`.
+/// The parameters of a tool that works on one path: an object with the
+/// one string `path`.
 const PATH_PARAMETERS: &str =
     r#"{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}"#;
+/// The parameters of a tool that writes: the strings `path` and `text`.
+const TEXT_PARAMETERS: &str = r#"{"type":"object","properties":{"path":{"type":"string"},"text":{"type":"string"}},"required":["path","text"]}"#;
+/// The parameters of a tool that makes or removes: the string `path` and
+/// the boolean `recursive`.
+const RECURSIVE_PARAMETERS: &str = r#"{"type":"object","properties":{"path":{"type":"string"},"recursive":{"type":"boolean"}},"required":["path"]}"#;
+/// The parameters of a tool that works on two paths: the strings `from`
+/// and `to`.
+const PAIR_PARAMETERS: &str = r#"{"type":"object","properties":{"from":{"type":"string"},"to":{"type":"string"}},"required":["from","to"]}"#;
+/// The parameters of the tool that reads many files: the string `path`
+/// and the integer `count`.
+const MANY_PARAMETERS: &str = r#"{"type":"object","properties":{"path":{"type":"string"},"count":{"type":"integer"}},"required":["path","count"]}"#;
 /// The tool that ends in one step, with `hello ` and its arguments.
 const HELLO: &str = "hello";
 /// The tool that ends in its third step, with `3 steps`.
@@ -123,6 +149,21 @@ const STAT: &str = "stat";
 const LIST: &str = "list";
 /// The tool that answers the text of the file at its `path`.
 const READ: &str = "read";
+/// The tool that writes its `text` as the whole file at its `path`.
+const WRITE: &str = "write";
+/// The tool that adds its `text` to the end of the file at its `path`.
+const APPEND: &str = "append";
+/// The tool that makes a directory at its `path`.
+const MKDIR: &str = "mkdir";
+/// The tool that removes the file or the directory at its `path`.
+const REMOVE: &str = "remove";
+/// The tool that moves what its `from` names to its `to`.
+const RENAME: &str = "rename";
+/// The tool that copies the file its `from` names to its `to`.
+const COPY: &str = "copy";
+/// The tool that reads `count` files of the directory at its `path`, the
+/// ones named `0`, `1`, and so on, one in each step.
+const READ_MANY: &str = "read_many";
 
 /// A UTF-8 string that is not NUL-terminated.
 #[repr(C)]
@@ -134,7 +175,8 @@ struct RvStr {
     len: usize,
 }
 
-/// A run of bytes, which `file_read` hands back.
+/// A run of bytes: what `file_write` and `file_append` take, and what the
+/// answer to `file_read` holds.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 struct RvBytes {
@@ -144,7 +186,8 @@ struct RvBytes {
     len: usize,
 }
 
-/// What a path names, which `file_stat` fills and each `RvDirEntry` holds.
+/// What a path names, which the answer to `file_stat` and each
+/// `RvDirEntry` hold.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 struct RvStat {
@@ -166,7 +209,7 @@ struct RvDirEntry {
     stat: RvStat,
 }
 
-/// The entries of a directory, which `file_list` hands back.
+/// The entries of a directory, which the answer to `file_list` holds.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 struct RvDirEntries {
@@ -176,7 +219,7 @@ struct RvDirEntries {
     len: usize,
 }
 
-/// Why a file function failed, which the function fills when it returns
+/// Why a file operation failed, in an `RvFileAnswer` whose `status` is
 /// `RV_ERR_FILE`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -187,6 +230,25 @@ struct RvFileError {
     reserved: u32,
     /// What went wrong.
     text: RvStr,
+}
+
+/// The answer to a file request, which the step after the request is
+/// lent through `answer` in its `RvToolCallArgs`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+struct RvFileAnswer {
+    /// `size_of::<RvFileAnswer>()`.
+    size: u32,
+    /// `RV_OK`, or `RV_ERR_FILE` with `error` filled.
+    status: RvStatus,
+    /// What the path names, in the answer to `file_stat`.
+    stat: RvStat,
+    /// The entries of the directory, in the answer to `file_list`.
+    entries: RvDirEntries,
+    /// The bytes read, in the answer to `file_read`.
+    bytes: RvBytes,
+    /// Why the operation failed, when `status` is `RV_ERR_FILE`.
+    error: RvFileError,
 }
 
 /// What a Plugin tells `describe_plugin` about itself.
@@ -223,8 +285,8 @@ struct RvPackInfo {
 struct RvToolInfo {
     /// `size_of::<RvToolInfo>()`.
     size: u32,
-    /// Zero.
-    reserved: u32,
+    /// Zero, or `RV_TOOL_CHANGES_FILES`.
+    flags: RvToolFlags,
     /// The tool's name within its Pack.
     name: RvStr,
     /// The name a model calls the tool by, or empty.
@@ -300,8 +362,57 @@ struct RvPackNewArgs {
     add_tool: unsafe extern "C" fn(ctx: *mut c_void, info: *const RvToolInfo) -> RvStatus,
 }
 
+/// The file functions of an `RvToolCallArgs` that read, in the
+/// contract's order. Each takes a request and fills nothing.
+#[repr(C)]
+#[derive(Debug)]
+struct RvFileReads {
+    /// The contract's `file_stat`: asks what `path` names.
+    stat: unsafe extern "C" fn(ctx: *mut c_void, path: RvStr) -> RvStatus,
+    /// The contract's `file_list`: asks for the entries of the directory
+    /// at `path`.
+    list: unsafe extern "C" fn(ctx: *mut c_void, path: RvStr) -> RvStatus,
+    /// The contract's `file_read`: asks for up to `len` bytes of the
+    /// file at `path` from `offset` on.
+    read: unsafe extern "C" fn(ctx: *mut c_void, path: RvStr, offset: u64, len: u64) -> RvStatus,
+}
+
+/// The file functions of an `RvToolCallArgs` that change files, in the
+/// contract's order. Each takes a request and fills nothing.
+#[repr(C)]
+#[derive(Debug)]
+struct RvFileChanges {
+    /// The contract's `file_write`: asks to write `bytes` as the whole
+    /// contents of the file at `path`.
+    write: unsafe extern "C" fn(ctx: *mut c_void, path: RvStr, bytes: RvBytes) -> RvStatus,
+    /// The contract's `file_append`: asks to add `bytes` to the end of
+    /// the file at `path`.
+    append: unsafe extern "C" fn(ctx: *mut c_void, path: RvStr, bytes: RvBytes) -> RvStatus,
+    /// The contract's `file_mkdir`: asks to make a directory at `path`,
+    /// with each absent directory on the way to it when `recursive` is 1.
+    mkdir: unsafe extern "C" fn(ctx: *mut c_void, path: RvStr, recursive: u32) -> RvStatus,
+    /// The contract's `file_remove`: asks to remove the file or the
+    /// directory at `path`, with everything in a directory when
+    /// `recursive` is 1.
+    remove: unsafe extern "C" fn(ctx: *mut c_void, path: RvStr, recursive: u32) -> RvStatus,
+    /// The contract's `file_rename`: asks to move the file or the
+    /// directory at `from` to `to`.
+    rename: unsafe extern "C" fn(ctx: *mut c_void, from: RvStr, to: RvStr) -> RvStatus,
+    /// The contract's `file_copy`: asks to copy the file at `from` to
+    /// `to`.
+    copy: unsafe extern "C" fn(ctx: *mut c_void, from: RvStr, to: RvStr) -> RvStatus,
+}
+
 /// The arguments of `RV_TOOL_CALL`: the tool, its arguments, the function
-/// that ends the call, and the file functions.
+/// that ends the call, the file functions, and the answer to the file
+/// request of the call's last step.
+///
+/// The contract's struct holds the nine file functions as fields of its
+/// own. This copy holds them as two structs, because the workspace's
+/// structural checks hold a struct to twelve named fields. A `repr(C)`
+/// struct of function pointers lies where its fields would lie one by
+/// one, so each function is at the contract's offset, which the unit
+/// tests pin.
 #[repr(C)]
 #[derive(Debug)]
 struct RvToolCallArgs {
@@ -317,29 +428,14 @@ struct RvToolCallArgs {
     arguments: RvStr,
     /// Ends the call with its result.
     finish: unsafe extern "C" fn(ctx: *mut c_void, result: *const RvToolResult) -> RvStatus,
-    /// Says what `path` names.
-    file_stat: unsafe extern "C" fn(
-        ctx: *mut c_void,
-        path: RvStr,
-        stat: *mut RvStat,
-        error: *mut RvFileError,
-    ) -> RvStatus,
-    /// Lists the directory at `path`.
-    file_list: unsafe extern "C" fn(
-        ctx: *mut c_void,
-        path: RvStr,
-        entries: *mut RvDirEntries,
-        error: *mut RvFileError,
-    ) -> RvStatus,
-    /// Reads up to `len` bytes of the file at `path` from `offset` on.
-    file_read: unsafe extern "C" fn(
-        ctx: *mut c_void,
-        path: RvStr,
-        offset: u64,
-        len: u64,
-        bytes: *mut RvBytes,
-        error: *mut RvFileError,
-    ) -> RvStatus,
+    /// The contract's `file_stat`, `file_list`, and `file_read`.
+    reads: RvFileReads,
+    /// The answer to the file request the call's last step made, or NULL
+    /// when that step made none.
+    answer: *const RvFileAnswer,
+    /// The contract's `file_write`, `file_append`, `file_mkdir`,
+    /// `file_remove`, `file_rename`, and `file_copy`.
+    changes: RvFileChanges,
 }
 
 /// One call into the Plugin's entry point.
@@ -381,7 +477,11 @@ struct PackRun {
 /// What a tool call that takes more than one step keeps between them.
 struct CallState {
     /// How many steps the call has run.
-    steps: u32,
+    steps: u64,
+    /// How many bytes the reads of a `read_many` call were answered with.
+    bytes: u64,
+    /// How many reads of a `read_many` call failed.
+    failed: u64,
 }
 
 #[cfg(test)]
@@ -441,7 +541,11 @@ impl CallState {
     /// Makes the state of one call and counts it as live.
     fn new() -> CallState {
         CALLS.fetch_add(1, Ordering::Relaxed);
-        CallState { steps: 0 }
+        CallState {
+            steps: 0,
+            bytes: 0,
+            failed: 0,
+        }
     }
 }
 
@@ -538,7 +642,7 @@ unsafe fn args<'a, T>(call: *mut RvCall) -> Result<&'a T, RvStatus> {
     Ok(unsafe { &*args })
 }
 
-/// The fixture's Plugin entry point, speaking contract 0.4.
+/// The fixture's Plugin entry point, speaking contract 0.5.
 ///
 /// # Safety
 /// `call` must point to a valid `RvCall` made as the C contract requires:
@@ -649,9 +753,67 @@ unsafe fn unload(call: *mut RvCall) -> RvStatus {
     RV_OK
 }
 
-/// Handles `RV_PACK_NEW`: makes the Pack instance, adds its six tools
-/// through the call's `ctx`, and only then hands the instance to the
-/// loader.
+/// The fixture's tools, in the order `RV_PACK_NEW` adds them: the name,
+/// the description, the parameters, and the flags of each.
+const TOOLS: [(&str, &str, &str, RvToolFlags); 13] = [
+    (
+        HELLO,
+        "Answers hello and its arguments in one step.",
+        NO_PARAMETERS,
+        0,
+    ),
+    (STEPS, "Answers in its third step.", NO_PARAMETERS, 0),
+    (NEVER, "Never answers.", NO_PARAMETERS, 0),
+    (STAT, "Says what a path names.", PATH_PARAMETERS, 0),
+    (LIST, "Lists a directory.", PATH_PARAMETERS, 0),
+    (READ, "Answers the text of a file.", PATH_PARAMETERS, 0),
+    (
+        WRITE,
+        "Writes a text as the whole of a file.",
+        TEXT_PARAMETERS,
+        RV_TOOL_CHANGES_FILES,
+    ),
+    (
+        APPEND,
+        "Adds a text to the end of a file.",
+        TEXT_PARAMETERS,
+        RV_TOOL_CHANGES_FILES,
+    ),
+    (
+        MKDIR,
+        "Makes a directory.",
+        RECURSIVE_PARAMETERS,
+        RV_TOOL_CHANGES_FILES,
+    ),
+    (
+        REMOVE,
+        "Removes a file or a directory.",
+        RECURSIVE_PARAMETERS,
+        RV_TOOL_CHANGES_FILES,
+    ),
+    (
+        RENAME,
+        "Moves a file or a directory.",
+        PAIR_PARAMETERS,
+        RV_TOOL_CHANGES_FILES,
+    ),
+    (
+        COPY,
+        "Copies a file.",
+        PAIR_PARAMETERS,
+        RV_TOOL_CHANGES_FILES,
+    ),
+    (
+        READ_MANY,
+        "Reads many files of a directory, one in each step.",
+        MANY_PARAMETERS,
+        0,
+    ),
+];
+
+/// Handles `RV_PACK_NEW`: makes the Pack instance, adds each of its
+/// [`TOOLS`] through the call's `ctx`, and only then hands the instance
+/// to the loader.
 ///
 /// # Safety
 /// `call` points to a valid `RvCall` whose `args` is NULL or an
@@ -667,21 +829,10 @@ unsafe fn pack_new(call: *mut RvCall) -> RvStatus {
         return RV_ERR_MISUSE;
     }
     let pack_run = Box::new(PackRun::new());
-    for (name, description, parameters) in [
-        (
-            HELLO,
-            "Answers hello and its arguments in one step.",
-            NO_PARAMETERS,
-        ),
-        (STEPS, "Answers in its third step.", NO_PARAMETERS),
-        (NEVER, "Never answers.", NO_PARAMETERS),
-        (STAT, "Says what a path names.", PATH_PARAMETERS),
-        (LIST, "Lists a directory.", PATH_PARAMETERS),
-        (READ, "Answers the text of a file.", PATH_PARAMETERS),
-    ] {
+    for (name, description, parameters, flags) in TOOLS {
         let info = RvToolInfo {
             size: size_of_u32::<RvToolInfo>(),
-            reserved: 0,
+            flags,
             name: rv_str(name),
             wire_name: rv_str(""),
             description: rv_str(description),
@@ -742,24 +893,34 @@ unsafe fn tool_call(call: *mut RvCall) -> RvStatus {
     // SAFETY: the loader keeps both strings valid for the step.
     let (tool, arguments) = unsafe { (text(args.tool), text(args.arguments)) };
     let mut state = state.unwrap_or_else(|| Box::new(CallState::new()));
-    state.steps += 1;
-    let (kind, answer) = match tool {
-        HELLO => (RV_RESULT_TRUSTED, format!("hello {arguments}")),
-        STEPS if state.steps == 3 => (RV_RESULT_TRUSTED, "3 steps".to_owned()),
-        STEPS | NEVER => {
-            // SAFETY: as above.
-            unsafe { (*call).tool_call = Box::into_raw(state).cast() };
-            return RV_PENDING;
+    state.steps = state.steps.saturating_add(1);
+    // The result the call ends with in this step, or `None` for a call
+    // that goes on.
+    let ended = match tool {
+        HELLO => Some((RV_RESULT_TRUSTED, format!("hello {arguments}"))),
+        STEPS if state.steps == 3 => Some((RV_RESULT_TRUSTED, "3 steps".to_owned())),
+        STEPS | NEVER => None,
+        STAT | LIST | READ | WRITE | APPEND | MKDIR | REMOVE | RENAME | COPY => {
+            // SAFETY: `args` is the arguments of this step, which is open
+            // on this thread.
+            let said = unsafe { file_step(args, tool, arguments, state.steps) };
+            said.map(|said| (RV_RESULT_TRUSTED, said))
         }
-        // SAFETY: `args` is the arguments of this step, which is open on
-        // this thread.
-        STAT | LIST | READ => (RV_RESULT_TRUSTED, unsafe {
-            file_answer(args, tool, path_of(arguments))
-        }),
-        other => (
+        READ_MANY => {
+            // SAFETY: as above.
+            let said = unsafe { read_many_step(args, arguments, &mut state) };
+            said.map(|said| (RV_RESULT_TRUSTED, said))
+        }
+        other => Some((
             RV_RESULT_OTHER,
             format!("test-plugin has no tool named {other}"),
-        ),
+        )),
+    };
+    let Some((kind, answer)) = ended else {
+        // SAFETY: the caller guarantees `call` is valid, and nothing else
+        // reads it meanwhile.
+        unsafe { (*call).tool_call = Box::into_raw(state).cast() };
+        return RV_PENDING;
     };
     // The call ends here, so its state is freed before the step returns.
     drop(state);
@@ -773,71 +934,162 @@ unsafe fn tool_call(call: *mut RvCall) -> RvStatus {
     unsafe { (args.finish)(args.ctx, &raw const result) }
 }
 
-/// The value of the string `path` in `arguments`, the JSON text of an
+/// The value of the string `key` in `arguments`, the JSON text of an
 /// object, or the empty string when it has none. It reads up to the next
-/// `"`, so it serves only a path with no `"` and no `\` in it, which is
+/// `"`, so it serves only a value with no `"` and no `\` in it, which is
 /// all the tests send.
-fn path_of(arguments: &str) -> &str {
+fn string_of<'a>(arguments: &'a str, key: &str) -> &'a str {
     arguments
-        .split_once(r#""path":""#)
+        .split_once(&format!(r#""{key}":""#))
         .and_then(|(_, rest)| rest.split_once('"'))
-        .map_or("", |(path, _)| path)
+        .map_or("", |(value, _)| value)
 }
 
-/// What the file tool `tool` answers for `path`: what the step's file
-/// function handed back, as text, or `failed (kind): text` when the
-/// function returned `RV_ERR_FILE`.
+/// The value of the whole number `key` in `arguments`, the JSON text of
+/// an object, or zero when it has none: the digits that follow the key.
+fn number_of(arguments: &str, key: &str) -> u64 {
+    arguments
+        .split_once(&format!(r#""{key}":"#))
+        .and_then(|(_, rest)| rest.split(|c: char| !c.is_ascii_digit()).next())
+        .and_then(|digits| digits.parse().ok())
+        .unwrap_or(0)
+}
+
+/// Whether `arguments`, the JSON text of an object, sets the boolean
+/// `key` to true.
+fn flag_of(arguments: &str, key: &str) -> bool {
+    arguments.contains(&format!(r#""{key}":true"#))
+}
+
+/// Runs one step of a call of the file tool `tool`, a call that is in
+/// its step numbered `step`, from 1. The first step makes the tool's one
+/// request and the call goes on. The second step ends the call with
+/// what its answer says. Returns the text the call ends with, or `None`
+/// for a call that goes on.
 ///
 /// # Safety
 /// `args` must be the arguments of the step open on this thread.
-unsafe fn file_answer(args: &RvToolCallArgs, tool: &str, path: &str) -> String {
-    let path = rv_str(path);
-    let mut error = RvFileError {
-        kind: 0,
-        reserved: 0,
-        text: rv_str(""),
+unsafe fn file_step(
+    args: &RvToolCallArgs,
+    tool: &str,
+    arguments: &str,
+    step: u64,
+) -> Option<String> {
+    if step > 1 {
+        // SAFETY: the caller guarantees `args`.
+        return Some(unsafe { answer_text(args, tool) });
+    }
+    // SAFETY: as above.
+    match unsafe { ask(args, tool, arguments) } {
+        RV_OK => None,
+        other => Some(format!("the file function returned status {other}")),
+    }
+}
+
+/// Makes the one request of the file tool `tool` from what `arguments`
+/// holds, and returns the status of its file function.
+///
+/// # Safety
+/// `args` must be the arguments of the step open on this thread.
+unsafe fn ask(args: &RvToolCallArgs, tool: &str, arguments: &str) -> RvStatus {
+    let path = rv_str(string_of(arguments, "path"));
+    let (from, to) = (
+        rv_str(string_of(arguments, "from")),
+        rv_str(string_of(arguments, "to")),
+    );
+    let written = string_of(arguments, "text");
+    let bytes = RvBytes {
+        ptr: written.as_ptr(),
+        len: written.len(),
     };
+    // The contract spells `recursive` as 1 for on and 0 for off.
+    let recursive = u32::from(flag_of(arguments, "recursive"));
+    let (reads, changes) = (&args.reads, &args.changes);
     // SAFETY: in each arm, the file function and `ctx` are the step's
-    // own, `path` outlives the call, and the result and `error` are live
-    // structs of this frame. What a function hands back is copied before
-    // any other file function is called.
-    let (status, answer) = unsafe {
+    // own, and each path and the bytes outlive the call.
+    unsafe {
         match tool {
-            STAT => {
-                let mut stat = RvStat {
-                    file_type: 0,
-                    reserved: 0,
-                    len: 0,
-                };
-                let status = (args.file_stat)(args.ctx, path, &raw mut stat, &raw mut error);
-                (status, stat_text(stat))
-            }
-            LIST => {
-                let mut entries = RvDirEntries {
-                    ptr: std::ptr::null(),
-                    len: 0,
-                };
-                let status = (args.file_list)(args.ctx, path, &raw mut entries, &raw mut error);
-                (status, list_text(lent(entries.ptr, entries.len)))
-            }
-            _ => {
-                let mut bytes = RvBytes {
-                    ptr: std::ptr::null(),
-                    len: 0,
-                };
-                let status =
-                    (args.file_read)(args.ctx, path, 0, u64::MAX, &raw mut bytes, &raw mut error);
-                let read = String::from_utf8_lossy(lent(bytes.ptr, bytes.len)).into_owned();
-                (status, read)
-            }
+            STAT => (reads.stat)(args.ctx, path),
+            LIST => (reads.list)(args.ctx, path),
+            READ => (reads.read)(args.ctx, path, 0, u64::MAX),
+            WRITE => (changes.write)(args.ctx, path, bytes),
+            APPEND => (changes.append)(args.ctx, path, bytes),
+            MKDIR => (changes.mkdir)(args.ctx, path, recursive),
+            REMOVE => (changes.remove)(args.ctx, path, recursive),
+            RENAME => (changes.rename)(args.ctx, from, to),
+            _ => (changes.copy)(args.ctx, from, to),
         }
+    }
+}
+
+/// What the file tool `tool` says of the answer its step is lent: what
+/// the answer holds, as text, `done` for a change, or `failed (kind):
+/// text` for an operation that failed.
+///
+/// # Safety
+/// `args` must be the arguments of the step open on this thread.
+unsafe fn answer_text(args: &RvToolCallArgs, tool: &str) -> String {
+    // SAFETY: the loader keeps the answer, and what it points to, valid
+    // for the step, and this function copies all of it it reads.
+    let Some(answer) = (unsafe { args.answer.as_ref() }) else {
+        return "the step was lent no answer".to_owned();
     };
-    match status {
-        RV_OK => answer,
-        // SAFETY: the loader filled `error`, and its text is valid until
-        // the step's next file function.
-        RV_ERR_FILE => format!("failed ({}): {}", error.kind, unsafe { text(error.text) }),
-        other => format!("the file function returned status {other}"),
+    match answer.status {
+        RV_OK => match tool {
+            STAT => stat_text(answer.stat),
+            // SAFETY: as above, for the entries and their names.
+            LIST => unsafe { list_text(lent(answer.entries.ptr, answer.entries.len)) },
+            // SAFETY: as above, for the bytes.
+            READ => String::from_utf8_lossy(unsafe { lent(answer.bytes.ptr, answer.bytes.len) })
+                .into_owned(),
+            _ => "done".to_owned(),
+        },
+        // SAFETY: as above, for the text of the error.
+        RV_ERR_FILE => format!("failed ({}): {}", answer.error.kind, unsafe {
+            text(answer.error.text)
+        }),
+        other => format!("the answer has status {other}"),
+    }
+}
+
+/// Runs one step of a `read_many` call. It counts the answer to the read
+/// of the step before, when there was one. Then it asks for the next
+/// file and the call goes on, or, once the call has read as many files
+/// as its `count` says, it ends the call with how many files it read,
+/// how many bytes they held, and how many reads failed. Returns the text
+/// the call ends with, or `None` for a call that goes on.
+///
+/// # Safety
+/// `args` must be the arguments of the step open on this thread.
+unsafe fn read_many_step(
+    args: &RvToolCallArgs,
+    arguments: &str,
+    state: &mut CallState,
+) -> Option<String> {
+    // SAFETY: the loader keeps the answer valid for the step.
+    if let Some(answer) = unsafe { args.answer.as_ref() } {
+        if answer.status == RV_OK {
+            let read = u64::try_from(answer.bytes.len).unwrap_or(u64::MAX);
+            state.bytes = state.bytes.saturating_add(read);
+        } else {
+            state.failed = state.failed.saturating_add(1);
+        }
+    }
+    let count = number_of(arguments, "count");
+    // The step numbered n, from 1, asks for the file named n - 1.
+    let next = state.steps.saturating_sub(1);
+    if next >= count {
+        return Some(format!(
+            "read {count} files, {} bytes, {} failed",
+            state.bytes, state.failed
+        ));
+    }
+    let path = format!("{}/{next}", string_of(arguments, "path"));
+    // SAFETY: `file_read` and `ctx` are the step's own, and `path`
+    // outlives the call.
+    match unsafe { (args.reads.read)(args.ctx, rv_str(&path), 0, u64::MAX) } {
+        RV_OK => None,
+        other => Some(format!("the file function returned status {other}")),
     }
 }
 
@@ -871,8 +1123,8 @@ unsafe fn list_text(entries: &[RvDirEntry]) -> String {
     listed
 }
 
-/// The `len` values a file function lent at `ptr`, or none when `ptr` is
-/// NULL, as it is in a result no file function filled.
+/// The `len` values an answer holds at `ptr`, or none when `ptr` is NULL,
+/// as it is in a field the answer does not fill.
 ///
 /// # Safety
 /// When `ptr` is not NULL and `len` is nonzero, `ptr` must be valid for

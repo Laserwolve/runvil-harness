@@ -914,6 +914,7 @@ dependencies = [
  "libloading",
  "runvil",
  "runvil-plugin",
+ "serde_json",
  "tokio",
 ]
 
@@ -2125,8 +2126,8 @@ dependencies = [
 
 [[package]]
 name = "runvil-plugin-sys"
-version = "0.4.0"
-source = "git+https://github.com/cppalliance/runvil-plugin-api?rev=03a9fa37d2fe690d42ee0aa5c7a8289173e8e0f2#03a9fa37d2fe690d42ee0aa5c7a8289173e8e0f2"
+version = "0.5.0"
+source = "git+https://github.com/cppalliance/runvil-plugin-api?rev=52a4905aca0a9c945a93dc4ee7ea815db85612e4#52a4905aca0a9c945a93dc4ee7ea815db85612e4"
 
 [[package]]
 name = "runvil-prompt"

@@ -120,8 +120,8 @@ Packages D, E, and F each start by confirming the merged hash: `git fetch upstre
 
 Whoever hands out the packages keeps this section current in the plan copy.
 
-- Merged contract commit on `cppalliance/runvil-plugin-api`: waiting for the owner
-- Packages finished: none yet
+- Merged contract commit on `cppalliance/runvil-plugin-api`: `52a4905aca0a9c945a93dc4ee7ea815db85612e4`
+- Packages finished: 0, A, B, C
 
 ## What this plan builds
 
@@ -453,3 +453,16 @@ The section "Work packages" maps this order onto packages.
 ## What the build found
 
 This section starts empty. Step 8 adds its numbers to it in the plan copy, and Package G completes it from the reports of the packages.
+
+### Step 8: the measurement of 100,000 reads
+
+One call of the test Plugin's `read_many` tool read 100,000 files of 15 bytes each under `Harness::run`, with `MemoryRecorder` and the files in memory. The tool asks for one file in each step, so the call made 100,000 file requests, and the Harness performed and recorded each one as a `Vfs` effect.
+
+- Release build: 0.73 seconds for the run, which is 7.3 microseconds for each read.
+- Debug build: 2.65 seconds for the run, which is 26.5 microseconds for each read.
+- Records: 200,012 in each build. Each read is two records, its effect and its answer, and the rest of the run is 12 records.
+- Spread: three runs of each build took 0.725 to 0.730 seconds and 2.64 to 2.68 seconds, on a Windows machine that was building other repositories at the same time.
+- Left out: what a Host adds for each record and each read, which is a recorder that writes to a database and a file system over a real directory.
+- The test: `measure_100_000_reads_of_one_library_tool_call_under_the_harness` in `crates/harness-internal/test-plugin/tests/it/run.rs`. It is ignored by default. `cargo nextest run -p harness-test-plugin --run-ignored ignored-only --no-capture` runs it in a debug build, and the same command with `--release` runs it in a release build.
+
+A Grep over 100,000 files therefore spends under one second of a release build on its file requests, and its run holds two records for each file it reads. Whether that count of records calls for a coarser operation is the owner's decision.

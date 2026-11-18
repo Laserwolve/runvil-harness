@@ -1,21 +1,19 @@
 //! Tests for the checks every function a Plugin calls back begins with:
-//! what a string field and a struct pointer are refused for, and which
-//! call a function answers.
+//! what a string field, a run of bytes, and a struct pointer are refused
+//! for, and which call a function answers.
 
 use std::ffi::c_void;
 use std::ptr;
 
-use runvil_plugin_sys::{RV_ERR_MISUSE, RV_ERR_REFUSED, RV_OK, RvPluginInfo, RvStat, RvStr};
+use runvil_plugin_sys::{RV_ERR_MISUSE, RV_ERR_REFUSED, RV_OK, RvPluginInfo, RvStr};
 
 use super::{
-    Field, LOAD, Out, PACK_NEW, Shape, TOOL_CALL, Verb, answer, answer_file, closed, field, open,
-    open_step, out, refuse, rv_str, shape,
+    Field, LOAD, PACK_NEW, Shape, TOOL_CALL, Verb, answer, closed, field, open, refuse, rv_str,
+    shape,
 };
-use crate::fakes::test_call;
 
 const WORD: Field = field!("the word", 4);
 const INFO: Shape = shape!("describe_plugin", "info", "RvPluginInfo");
-const STAT: Out = out!("file_stat", "stat");
 
 fn bytes(bytes: &[u8]) -> RvStr {
     RvStr {
@@ -59,6 +57,26 @@ fn a_field_names_each_way_a_string_breaks_its_rules() {
 }
 
 #[test]
+fn a_field_copies_a_run_of_bytes_within_its_bound_whatever_the_bytes_are() {
+    let held = [0xff_u8, 0x00, 0xfe];
+    // SAFETY: the pointer leads to a live array of that length.
+    let copied = unsafe { WORD.bytes(held.as_ptr(), held.len()) };
+    assert_eq!(copied, Ok(held.to_vec()));
+    // SAFETY: a zero length reads no byte.
+    let empty = unsafe { WORD.bytes(ptr::null(), 0) };
+    assert_eq!(empty, Ok(Vec::new()));
+    // SAFETY: the length is refused before any byte is read.
+    let too_long = unsafe { WORD.bytes(held.as_ptr(), 5) };
+    assert_eq!(too_long, Err("the word is longer than 4 bytes"));
+    // SAFETY: a NULL pointer is refused before any byte is read.
+    let null = unsafe { WORD.bytes(ptr::null(), 2) };
+    assert_eq!(
+        null,
+        Err("the word has a NULL pointer and a nonzero length")
+    );
+}
+
+#[test]
 fn a_shape_names_each_way_a_struct_is_handed_over_wrongly() {
     let whole = RvPluginInfo {
         size: 40,
@@ -85,45 +103,6 @@ fn a_shape_names_each_way_a_struct_is_handed_over_wrongly() {
         short.err(),
         Some("the info's size is shorter than RvPluginInfo")
     );
-}
-
-#[test]
-fn an_out_names_each_way_a_struct_to_fill_is_handed_over_wrongly() {
-    let mut stat = RvStat {
-        file_type: 0,
-        reserved: 0,
-        len: 0,
-    };
-    let at = &raw mut stat;
-    assert_eq!(STAT.check(at), Ok(at));
-    assert_eq!(
-        STAT.check(ptr::null_mut::<RvStat>()),
-        Err("file_stat was handed a NULL stat pointer")
-    );
-    assert_eq!(
-        STAT.check(at.wrapping_byte_add(1)),
-        Err("file_stat was handed a misaligned stat pointer")
-    );
-}
-
-#[test]
-fn a_file_function_gets_the_access_of_the_open_step_and_no_other_call_has_one() {
-    let call = test_call("tool");
-    let access = call.context().access();
-    let (status, session) = open_step(access, |ctx| {
-        answer_file(ctx, |files, _lent| {
-            assert!(ptr::eq(files, access), "the step's own access");
-            Ok(RV_OK)
-        })
-    });
-    assert_eq!(status, RV_OK);
-    assert_eq!(session.misuse, None);
-
-    for verb in [Verb::Load, Verb::PackNew, Verb::ToolCall] {
-        let (status, session) = open(verb, |ctx| answer_file(ctx, |_, _| Ok(RV_OK)));
-        assert_eq!(status, RV_ERR_MISUSE, "{verb:?}");
-        assert_eq!(session.misuse, Some(TOOL_CALL.wrong_call), "{verb:?}");
-    }
 }
 
 #[test]

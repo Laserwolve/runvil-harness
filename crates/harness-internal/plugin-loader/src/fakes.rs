@@ -4,24 +4,27 @@
 //! `fake!` or `pack_fake!`, so its statics belong to it alone.
 
 use std::ffi::c_void;
-use std::future::Future;
+use std::future::{Future, poll_fn};
 use std::pin::pin;
 use std::ptr;
 use std::slice;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll, Waker};
 
 use runvil_plugin::testing::TestCall;
-use runvil_plugin::{Error, Pack, PackRegistry, ToolId, ToolOutput};
+use runvil_plugin::{
+    BoxFuture, Error, Pack, PackRegistry, ToolContext, ToolFiles, ToolId, ToolOutput, VfsError,
+    VfsOp, VfsOutcome,
+};
 pub(crate) use runvil_plugin_sys::{
-    PluginEntry, RV_ERR_MISUSE, RV_ERR_REFUSED, RV_ERR_UNSUPPORTED, RV_FILE_ERROR_IS_A_DIRECTORY,
-    RV_FILE_ERROR_NOT_A_DIRECTORY, RV_FILE_ERROR_NOT_FOUND, RV_FILE_ERROR_OTHER,
-    RV_FILE_TYPE_DIRECTORY, RV_FILE_TYPE_FILE, RV_OK, RV_PACK_DELETE, RV_PACK_NEW, RV_PENDING,
-    RV_PLUGIN_LOAD, RV_PLUGIN_UNLOAD, RV_RESULT_BACKEND, RV_RESULT_INVALID_ARGUMENTS,
-    RV_RESULT_OTHER, RV_RESULT_TRANSPORT, RV_RESULT_TRUSTED, RV_RESULT_UNTRUSTED, RV_TOOL_CALL,
-    RV_TOOL_CANCEL, RvBytes, RvCall, RvDirEntries, RvFileError, RvHost, RvLoadArgs, RvPackInfo,
-    RvPackNewArgs, RvPluginInfo, RvResultKind, RvStat, RvStatus, RvStr, RvToolCallArgs, RvToolInfo,
-    RvToolResult, RvVerb,
+    PluginEntry, RV_ERR_FILE, RV_ERR_MISUSE, RV_ERR_REFUSED, RV_ERR_UNSUPPORTED,
+    RV_FILE_ERROR_IS_A_DIRECTORY, RV_FILE_ERROR_NOT_A_DIRECTORY, RV_FILE_ERROR_NOT_FOUND,
+    RV_FILE_ERROR_OTHER, RV_FILE_TYPE_DIRECTORY, RV_FILE_TYPE_FILE, RV_OK, RV_PACK_DELETE,
+    RV_PACK_NEW, RV_PENDING, RV_PLUGIN_LOAD, RV_PLUGIN_UNLOAD, RV_RESULT_BACKEND,
+    RV_RESULT_INVALID_ARGUMENTS, RV_RESULT_OTHER, RV_RESULT_TRANSPORT, RV_RESULT_TRUSTED,
+    RV_RESULT_UNTRUSTED, RV_TOOL_CALL, RV_TOOL_CANCEL, RV_TOOL_CHANGES_FILES, RvBytes, RvCall,
+    RvFileAnswer, RvHost, RvLoadArgs, RvPackInfo, RvPackNewArgs, RvPluginInfo, RvResultKind,
+    RvStatus, RvStr, RvToolCallArgs, RvToolInfo, RvToolResult, RvVerb,
 };
 use serde_json::Value;
 
@@ -260,7 +263,7 @@ pub(crate) fn size_u32<T>() -> u32 {
 }
 
 /// Whether `call` carries the fields the contract gives a call that sends
-/// `verb` in version 0.4, and its table says the contract's version. Each
+/// `verb` in version 0.5, and its table says the contract's version. Each
 /// verb carries the Plugin's pointers the contract names for it and no
 /// others, and its own arguments struct, with a `ctx`, or no arguments.
 pub(crate) fn contract_holds(call: *mut RvCall, verb: RvVerb) -> bool {
@@ -296,7 +299,7 @@ pub(crate) fn contract_holds(call: *mut RvCall, verb: RvVerb) -> bool {
         && args_hold
         && table.size == size_u32::<RvHost>()
         && table.api_major == 0
-        && table.api_minor == 4
+        && table.api_minor == 5
         && table.reserved == 0
 }
 
@@ -486,12 +489,12 @@ pub(crate) fn insert_pack(call: *mut RvCall, name: &str, description: &str) -> R
     insert_pack_info(call, &pack_info(rv_str(name), rv_str(description)))
 }
 
-/// A well-formed `RvToolInfo` for the tool `name`, with no wire name, a
-/// one-line description, and [`NO_PARAMETERS`].
+/// A well-formed `RvToolInfo` for the tool `name`, with no flag, no wire
+/// name, a one-line description, and [`NO_PARAMETERS`].
 pub(crate) fn tool_info(name: &str) -> RvToolInfo {
     RvToolInfo {
         size: size_u32::<RvToolInfo>(),
-        reserved: 0,
+        flags: 0,
         name: rv_str(name),
         wire_name: rv_str(""),
         description: rv_str("A fake tool."),
@@ -556,140 +559,154 @@ pub(crate) fn finish(call: *mut RvCall, kind: RvResultKind, text: &str) -> RvSta
     finish_result(call, &result(kind, rv_str(text)))
 }
 
-/// An `RvStat` whose every field is 9, so a test sees whether a file
-/// function wrote it.
-pub(crate) fn unset_stat() -> RvStat {
-    RvStat {
-        file_type: 9,
-        reserved: 9,
-        len: 9,
-    }
-}
-
-/// An `RvFileError` of kind 9 that says `untouched`, so a test sees
-/// whether a file function wrote it.
-pub(crate) fn unset_error() -> RvFileError {
-    RvFileError {
-        kind: 9,
-        reserved: 9,
-        text: rv_str("untouched"),
-    }
-}
-
-/// An `RvBytes` with no pointer and a length of 9, so a test sees whether
-/// a file function wrote it.
-pub(crate) fn unset_bytes() -> RvBytes {
+/// A run of bytes for the C side, borrowed from `bytes`.
+pub(crate) fn rv_bytes(bytes: &[u8]) -> RvBytes {
     RvBytes {
-        ptr: ptr::null(),
-        len: 9,
-    }
-}
-
-/// An `RvDirEntries` with no pointer and a length of 9, so a test sees
-/// whether a file function wrote it.
-pub(crate) fn unset_entries() -> RvDirEntries {
-    RvDirEntries {
-        ptr: ptr::null(),
-        len: 9,
+        ptr: bytes.as_ptr(),
+        len: bytes.len(),
     }
 }
 
 /// Calls the step's `file_stat` with `as_ctx`, as a Plugin would or as it
 /// must not.
-pub(crate) fn stat_as(
-    call: *mut RvCall,
-    as_ctx: *mut c_void,
-    path: RvStr,
-    stat: *mut RvStat,
-    error: *mut RvFileError,
-) -> RvStatus {
-    // SAFETY: the function refuses a `ctx` that is not the open step's, a
-    // path it cannot read, and a pointer that is NULL or misaligned,
-    // before it reads or writes through any of them. Every other pointer
-    // a test hands over is a live struct of its own.
-    unsafe { (step_args(call).file_stat)(as_ctx, path, stat, error) }
+pub(crate) fn ask_stat_as(call: *mut RvCall, as_ctx: *mut c_void, path: RvStr) -> RvStatus {
+    // SAFETY: the function refuses a `ctx` that is not the open step's
+    // and a path it cannot read before it reads through either.
+    unsafe { (step_args(call).file_stat)(as_ctx, path) }
 }
 
-/// Calls the step's `file_list` with `as_ctx`, as `stat_as` calls
-/// `file_stat`.
-pub(crate) fn list_as(
-    call: *mut RvCall,
-    as_ctx: *mut c_void,
-    path: RvStr,
-    entries: *mut RvDirEntries,
-    error: *mut RvFileError,
-) -> RvStatus {
-    // SAFETY: as in `stat_as`.
-    unsafe { (step_args(call).file_list)(as_ctx, path, entries, error) }
+/// Asks through the step's `file_stat` what `path` names.
+pub(crate) fn ask_stat(call: *mut RvCall, path: &str) -> RvStatus {
+    ask_stat_as(call, step_args(call).ctx, rv_str(path))
 }
 
-/// Calls the step's `file_read` with `as_ctx`, as `stat_as` calls
-/// `file_stat`.
-pub(crate) fn read_as(
-    call: *mut RvCall,
-    as_ctx: *mut c_void,
-    path: RvStr,
-    range: (u64, u64),
-    bytes: *mut RvBytes,
-    error: *mut RvFileError,
-) -> RvStatus {
-    // SAFETY: as in `stat_as`.
-    unsafe { (step_args(call).file_read)(as_ctx, path, range.0, range.1, bytes, error) }
+/// Asks through the step's `file_list` for the entries of `path`.
+pub(crate) fn ask_list(call: *mut RvCall, path: &str) -> RvStatus {
+    let args = step_args(call);
+    // SAFETY: the open step's own `ctx`, and a path that outlives the
+    // call.
+    unsafe { (args.file_list)(args.ctx, rv_str(path)) }
 }
 
-/// What a file function of a step answered: what it handed back, or the
-/// kind and the text of its failure.
-pub(crate) type Answer<T> = Result<T, (u32, String)>;
-
-/// What the step's `file_stat` says of `path`: the file type and the
-/// length, or the kind and the text of the failure.
-pub(crate) fn stat_of(call: *mut RvCall, path: &str) -> Answer<(u32, u64)> {
-    let (mut stat, mut error) = (unset_stat(), unset_error());
-    let ctx = step_args(call).ctx;
-    match stat_as(call, ctx, rv_str(path), &raw mut stat, &raw mut error) {
-        RV_OK => Ok((stat.file_type, stat.len)),
-        _ => Err((error.kind, text(error.text))),
-    }
+/// Asks through the step's `file_read` for the bytes of `path` in the
+/// range `offset` and `len`.
+pub(crate) fn ask_read(call: *mut RvCall, path: &str, range: (u64, u64)) -> RvStatus {
+    let args = step_args(call);
+    // SAFETY: as in `ask_list`.
+    unsafe { (args.file_read)(args.ctx, rv_str(path), range.0, range.1) }
 }
 
-/// What the step's `file_list` says of `path`: each entry's name, file
-/// type, and length, or the kind and the text of the failure.
-pub(crate) fn list_of(call: *mut RvCall, path: &str) -> Answer<Vec<(String, u32, u64)>> {
-    let (mut entries, mut error) = (unset_entries(), unset_error());
-    let ctx = step_args(call).ctx;
-    match list_as(call, ctx, rv_str(path), &raw mut entries, &raw mut error) {
-        RV_OK if entries.len == 0 => Ok(Vec::new()),
-        RV_OK => {
-            // SAFETY: the loader keeps the entries and their names valid
-            // until the step's next file function.
-            let listed = unsafe { slice::from_raw_parts(entries.ptr, entries.len) };
-            Ok(listed
-                .iter()
-                .map(|entry| (text(entry.name), entry.stat.file_type, entry.stat.len))
-                .collect())
+/// Asks through the step's `file_write` to write `bytes` to `path`.
+pub(crate) fn ask_write(call: *mut RvCall, path: &str, bytes: RvBytes) -> RvStatus {
+    let args = step_args(call);
+    // SAFETY: as in `ask_list`, and the function refuses bytes it cannot
+    // read before it reads through them.
+    unsafe { (args.file_write)(args.ctx, rv_str(path), bytes) }
+}
+
+/// Asks through the step's `file_append` to add `bytes` to `path`.
+pub(crate) fn ask_append(call: *mut RvCall, path: &str, bytes: RvBytes) -> RvStatus {
+    let args = step_args(call);
+    // SAFETY: as in `ask_write`.
+    unsafe { (args.file_append)(args.ctx, rv_str(path), bytes) }
+}
+
+/// Asks through the step's `file_mkdir` to make the directory `path`.
+pub(crate) fn ask_mkdir(call: *mut RvCall, path: &str, recursive: u32) -> RvStatus {
+    let args = step_args(call);
+    // SAFETY: as in `ask_list`.
+    unsafe { (args.file_mkdir)(args.ctx, rv_str(path), recursive) }
+}
+
+/// Asks through the step's `file_remove` to remove `path`.
+pub(crate) fn ask_remove(call: *mut RvCall, path: &str, recursive: u32) -> RvStatus {
+    let args = step_args(call);
+    // SAFETY: as in `ask_list`.
+    unsafe { (args.file_remove)(args.ctx, rv_str(path), recursive) }
+}
+
+/// Asks through the step's `file_rename` to move `from` to `to`.
+pub(crate) fn ask_rename(call: *mut RvCall, from: RvStr, to: RvStr) -> RvStatus {
+    let args = step_args(call);
+    // SAFETY: the open step's own `ctx`, and the function refuses a path
+    // it cannot read before it reads through it.
+    unsafe { (args.file_rename)(args.ctx, from, to) }
+}
+
+/// Asks through the step's `file_copy` to copy `from` to `to`.
+pub(crate) fn ask_copy(call: *mut RvCall, from: RvStr, to: RvStr) -> RvStatus {
+    let args = step_args(call);
+    // SAFETY: as in `ask_rename`.
+    unsafe { (args.file_copy)(args.ctx, from, to) }
+}
+
+/// What the answer a step is lent holds for the file function that
+/// asked: what the function asked for, or the kind and the text of the
+/// failure. `None` for a step that is lent no answer.
+pub(crate) type Answered<T> = Option<Result<T, (u32, String)>>;
+
+/// The answer the step is lent, or `None` when the step follows no
+/// request.
+pub(crate) fn lent<'call>(call: *mut RvCall) -> Option<&'call RvFileAnswer> {
+    // SAFETY: the loader keeps the answer of a step valid until the step
+    // returns, which is as long as a fake holds this reference.
+    unsafe { step_args(call).answer.as_ref() }
+}
+
+/// What `held` reads out of the answer the step is lent, or the answer's
+/// failure.
+fn answered<T>(call: *mut RvCall, held: impl FnOnce(&RvFileAnswer) -> T) -> Answered<T> {
+    let answer = lent(call)?;
+    Some(match answer.status {
+        RV_OK => Ok(held(answer)),
+        _ => Err((answer.error.kind, text(answer.error.text))),
+    })
+}
+
+/// The answer to a `file_stat`: the file type and the length.
+pub(crate) fn stat_answer(call: *mut RvCall) -> Answered<(u32, u64)> {
+    answered(call, |answer| (answer.stat.file_type, answer.stat.len))
+}
+
+/// The answer to a `file_list`: each entry's name, file type, and length.
+pub(crate) fn list_answer(call: *mut RvCall) -> Answered<Vec<(String, u32, u64)>> {
+    answered(call, |answer| {
+        if answer.entries.len == 0 {
+            return Vec::new();
         }
-        _ => Err((error.kind, text(error.text))),
-    }
+        // SAFETY: the loader keeps the entries and their names valid
+        // until the step returns.
+        let listed = unsafe { slice::from_raw_parts(answer.entries.ptr, answer.entries.len) };
+        listed
+            .iter()
+            .map(|entry| (text(entry.name), entry.stat.file_type, entry.stat.len))
+            .collect()
+    })
 }
 
-/// What the step's `file_read` hands back for `path` and the range
-/// `offset` and `len`, or the kind and the text of the failure.
-pub(crate) fn read_of(call: *mut RvCall, path: &str, range: (u64, u64)) -> Answer<Vec<u8>> {
-    let (mut bytes, mut error) = (unset_bytes(), unset_error());
-    let ctx = step_args(call).ctx;
-    match read_as(
-        call,
-        ctx,
-        rv_str(path),
-        range,
-        &raw mut bytes,
-        &raw mut error,
-    ) {
-        RV_OK if bytes.len == 0 => Ok(Vec::new()),
-        // SAFETY: the loader keeps the bytes valid until the step's next
-        // file function.
-        RV_OK => Ok(unsafe { slice::from_raw_parts(bytes.ptr, bytes.len) }.to_vec()),
-        _ => Err((error.kind, text(error.text))),
+/// The answer to a `file_read`: the bytes.
+pub(crate) fn read_answer(call: *mut RvCall) -> Answered<Vec<u8>> {
+    answered(call, |answer| {
+        if answer.bytes.len == 0 {
+            return Vec::new();
+        }
+        // SAFETY: the loader keeps the bytes valid until the step
+        // returns.
+        unsafe { slice::from_raw_parts(answer.bytes.ptr, answer.bytes.len) }.to_vec()
+    })
+}
+
+/// The answer to a file function that changes the files: nothing but
+/// whether the change was made.
+pub(crate) fn change_answer(call: *mut RvCall) -> Answered<()> {
+    answered(call, |_answer| ())
+}
+
+/// The operation that writes `text` to `path`.
+pub(crate) fn write_op(path: &str, text: &str) -> VfsOp {
+    VfsOp::Write {
+        path: path.to_owned(),
+        contents: text.as_bytes().to_vec(),
     }
 }
 
@@ -698,10 +715,94 @@ pub(crate) fn read_of(call: *mut RvCall, path: &str, range: (u64, u64)) -> Answe
 pub(crate) fn seeded_call(name: &str, files: &[(&str, &str)]) -> TestCall {
     let call = test_call(name);
     for (path, text) in files {
-        call.context()
-            .access()
-            .write(path, text.as_bytes())
+        block_on(call.context().files().request(write_op(path, text)))
             .expect("a seeded file is written");
     }
     call
+}
+
+/// The context `call` lends, with `files` in place of the call's own
+/// files.
+pub(crate) fn context_over<'a>(call: &'a TestCall, files: &'a dyn ToolFiles) -> ToolContext<'a> {
+    let lent = call.context();
+    ToolContext::new(lent.tool(), lent.access(), lent.origin(), files)
+}
+
+/// The whole text of the file at `path` in the filesystem of `call`.
+pub(crate) fn text_at(call: &TestCall, path: &str) -> Result<String, VfsError> {
+    let read = VfsOp::Read {
+        path: path.to_owned(),
+        start: None,
+        end: None,
+    };
+    match block_on(call.context().files().request(read))? {
+        VfsOutcome::Text(text) => Ok(text),
+        other => panic!("a read answered {other:?}"),
+    }
+}
+
+/// Files that take each request and hold it until a test answers it. A
+/// request goes out at the first poll of its future, as it does at the
+/// Harness.
+#[derive(Default)]
+pub(crate) struct HeldFiles {
+    held: Mutex<Held>,
+}
+
+/// The requests a [`HeldFiles`] took.
+#[derive(Default)]
+struct Held {
+    /// The operations asked for, in the order the requests went out.
+    asked: Vec<VfsOp>,
+    /// The outcome a test gave each request, until its future takes it.
+    outcomes: Vec<Option<Result<VfsOutcome, VfsError>>>,
+    /// The waker of the last poll of each request's future.
+    wakers: Vec<Option<Waker>>,
+}
+
+impl HeldFiles {
+    /// The requests, locked.
+    fn held(&self) -> MutexGuard<'_, Held> {
+        self.held.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The operations asked for so far, in the order the requests went
+    /// out.
+    pub(crate) fn asked(&self) -> Vec<VfsOp> {
+        self.held().asked.clone()
+    }
+
+    /// Answers the request numbered `index`, counted from 0 in the order
+    /// the requests went out, with `outcome`, and wakes its future.
+    pub(crate) fn answer(&self, index: usize, outcome: Result<VfsOutcome, VfsError>) {
+        let waker = {
+            let mut held = self.held();
+            held.outcomes[index] = Some(outcome);
+            held.wakers[index].take()
+        };
+        if let Some(waker) = waker {
+            waker.wake();
+        }
+    }
+}
+
+impl ToolFiles for HeldFiles {
+    fn request(&self, op: VfsOp) -> BoxFuture<'_, Result<VfsOutcome, VfsError>> {
+        let mut unsent = Some(op);
+        let mut index = 0;
+        Box::pin(poll_fn(move |cx| {
+            let mut held = self.held();
+            if let Some(op) = unsent.take() {
+                index = held.asked.len();
+                held.asked.push(op);
+                held.outcomes.push(None);
+                held.wakers.push(None);
+            }
+            if let Some(outcome) = held.outcomes[index].take() {
+                return Poll::Ready(outcome);
+            }
+            held.wakers[index] = Some(cx.waker().clone());
+            Poll::Pending
+        }))
+    }
 }

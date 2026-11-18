@@ -22,12 +22,12 @@ bytes = "1"
 runvil-engine = { path = "crates/runvil-engine" }
 runvil-runtime = { path = "crates/runvil-internal/runtime" }
 runvil-plugin = { path = "crates/runvil-plugin" }
-# The C Plugin contract, version 0.4, from its own repository, pinned by
+# The C Plugin contract, version 0.5, from its own repository, pinned by
 # commit. `version` beside `git` keeps cargo-deny's wildcard check quiet.
 # The crate sets `links`, so Cargo refuses two commits of the contract in
 # one build: a Host that also names `runvil-plugin-sdk`, or a Plugin built
 # on it, pins this same commit.
-runvil-plugin-sys = { version = "0.4.0", git = "https://github.com/cppalliance/runvil-plugin-api", rev = "03a9fa37d2fe690d42ee0aa5c7a8289173e8e0f2" }
+runvil-plugin-sys = { version = "0.5.0", git = "https://github.com/cppalliance/runvil-plugin-api", rev = "52a4905aca0a9c945a93dc4ee7ea815db85612e4" }
 runvil-types = { path = "crates/runvil-internal/types" }
 runvil = { path = "crates/runvil" }
 harness-runner = { path = "crates/harness-internal/runner" }

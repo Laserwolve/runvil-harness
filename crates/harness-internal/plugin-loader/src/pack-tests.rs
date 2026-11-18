@@ -94,7 +94,47 @@ fn an_instance_holds_the_tools_the_plugin_added_under_the_pack_id() {
             && !tool.describes_tools
             && !tool.model_only_call
             && !tool.changes_files),
-        "the contract carries no tool flags"
+        "a tool that sets no flag of the contract has every flag clear"
+    );
+}
+
+#[test]
+fn a_tool_whose_flags_say_so_changes_files_and_no_other_tool_of_the_instance_does() {
+    pack_fake!(
+        plug,
+        {},
+        new: |call| {
+            set_pack_run(call, instance(PACK_TAG));
+            add_tool(call, "read");
+            add_tool_info(
+                call,
+                &RvToolInfo {
+                    flags: RV_TOOL_CHANGES_FILES,
+                    ..tool_info("write")
+                },
+            )
+        },
+        step: |_call| RV_ERR_UNSUPPORTED
+    );
+    let pack = made(plug::entry);
+    let flagged: Vec<(String, bool)> = pack
+        .tools()
+        .iter()
+        .map(|tool| (tool.id.to_string(), tool.changes_files))
+        .collect();
+    assert_eq!(
+        flagged,
+        [
+            ("fake/read".to_owned(), false),
+            ("fake/write".to_owned(), true)
+        ]
+    );
+    assert!(
+        pack.tools().iter().all(|tool| !tool.structured_output
+            && !tool.survives_stop
+            && !tool.describes_tools
+            && !tool.model_only_call),
+        "the contract has no other tool flag"
     );
 }
 
@@ -391,13 +431,37 @@ misuse_test!(
 );
 
 misuse_test!(
-    a_nonzero_reserved_field_in_a_tool_info_is_misuse,
-    "the info's reserved field is not zero",
+    a_flag_bit_that_is_no_tool_constant_is_misuse,
+    "the tool's flags set a bit that is not one of the RV_TOOL constants",
     |call| add_tool_info(
         call,
         &RvToolInfo {
-            reserved: 1,
+            flags: 2,
             ..tool_info("fetch")
+        }
+    )
+);
+
+misuse_test!(
+    a_flag_bit_that_is_no_tool_constant_is_misuse_beside_one_that_is,
+    "the tool's flags set a bit that is not one of the RV_TOOL constants",
+    |call| add_tool_info(
+        call,
+        &RvToolInfo {
+            flags: RV_TOOL_CHANGES_FILES | 0x8000_0000,
+            ..tool_info("fetch")
+        }
+    )
+);
+
+misuse_test!(
+    the_flags_of_a_tool_are_checked_before_its_name,
+    "the tool's flags set a bit that is not one of the RV_TOOL constants",
+    |call| add_tool_info(
+        call,
+        &RvToolInfo {
+            flags: 2,
+            ..tool_info("web/fetch")
         }
     )
 );

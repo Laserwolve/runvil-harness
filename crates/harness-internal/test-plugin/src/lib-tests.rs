@@ -31,9 +31,10 @@ thread_local! {
     static INSERTED: RefCell<Vec<(String, String)>> = const { RefCell::new(Vec::new()) };
     /// The status `insert_pack` answers with.
     static INSERT_STATUS: Cell<RvStatus> = const { Cell::new(RV_OK) };
-    /// The name, wire name, and parameters of every tool this test's
-    /// thread added.
-    static ADDED: RefCell<Vec<(String, String, String)>> = const { RefCell::new(Vec::new()) };
+    /// The name, wire name, parameters, and flags of every tool this
+    /// test's thread added.
+    static ADDED: RefCell<Vec<(String, String, String, RvToolFlags)>> =
+        const { RefCell::new(Vec::new()) };
     /// How many `add_tool` calls answer `RV_OK` before one answers
     /// `RV_ERR_MISUSE`.
     static ADDS_ALLOWED: Cell<usize> = const { Cell::new(usize::MAX) };
@@ -41,6 +42,11 @@ thread_local! {
     static FINISHED: RefCell<Vec<(RvResultKind, String)>> = const { RefCell::new(Vec::new()) };
     /// How many times the Plugin called `refuse`, which it never should.
     static REFUSALS: Cell<usize> = const { Cell::new(0) };
+    /// Every file request this test's thread took: the name of the file
+    /// function and its arguments, as one line.
+    static ASKED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    /// The status every file function answers with.
+    static ASK_STATUS: Cell<RvStatus> = const { Cell::new(RV_OK) };
 }
 
 /// Copies the bytes of `text` into a `String`.
@@ -96,14 +102,18 @@ unsafe extern "C" fn add_tool(ctx: *mut c_void, info: *const RvToolInfo) -> RvSt
     // SAFETY: the entry point under test passes a live `RvToolInfo`.
     let info = unsafe { &*info };
     assert_eq!(info.size, size_of_u32::<RvToolInfo>());
-    assert_eq!(info.reserved, 0);
     assert!(info.description.len > 0, "each tool has a description");
     if ADDS_ALLOWED.get() == 0 {
         return RV_ERR_MISUSE;
     }
     ADDS_ALLOWED.set(ADDS_ALLOWED.get() - 1);
     ADDED.with_borrow_mut(|all| {
-        all.push((copy(info.name), copy(info.wire_name), copy(info.parameters)));
+        all.push((
+            copy(info.name),
+            copy(info.wire_name),
+            copy(info.parameters),
+            info.flags,
+        ));
     });
     RV_OK
 }
@@ -118,18 +128,82 @@ unsafe extern "C" fn finish(ctx: *mut c_void, result: *const RvToolResult) -> Rv
     RV_OK
 }
 
-/// The one file the test Host serves, and its text.
-const FILE: &str = "/notes/a.md";
-const FILE_TEXT: &str = "hello";
-/// The one directory the test Host serves, which holds `a.md`, the
-/// directory `sub`, and the link `link`.
-const DIRECTORY: &str = "/notes";
-/// A path the test Host answers with a status no file function returns.
-const BROKEN: &str = "/broken";
-/// The kind every failure of the test Host carries.
-const NOT_FOUND: RvFileErrorKind = 1;
+/// Records one file request as `line` and answers with `ASK_STATUS`, as
+/// every file function of the test Host does: it takes the request and
+/// fills nothing.
+fn take(ctx: *mut c_void, line: String) -> RvStatus {
+    assert_eq!(
+        ctx,
+        test_ctx(),
+        "a file function is handed the step's own ctx"
+    );
+    ASKED.with_borrow_mut(|all| all.push(line));
+    ASK_STATUS.get()
+}
 
-/// The entries the test Host lists for [`DIRECTORY`].
+/// Copies `bytes` into a `String`.
+fn copy_bytes(bytes: RvBytes) -> String {
+    copy(RvStr {
+        ptr: bytes.ptr.cast(),
+        len: bytes.len,
+    })
+}
+
+/// The step arguments' `file_stat`.
+unsafe extern "C" fn file_stat(ctx: *mut c_void, path: RvStr) -> RvStatus {
+    take(ctx, format!("stat {}", copy(path)))
+}
+
+/// The step arguments' `file_list`.
+unsafe extern "C" fn file_list(ctx: *mut c_void, path: RvStr) -> RvStatus {
+    take(ctx, format!("list {}", copy(path)))
+}
+
+/// The step arguments' `file_read`.
+unsafe extern "C" fn file_read(ctx: *mut c_void, path: RvStr, offset: u64, len: u64) -> RvStatus {
+    take(ctx, format!("read {} {offset} {len}", copy(path)))
+}
+
+/// The step arguments' `file_write`.
+unsafe extern "C" fn file_write(ctx: *mut c_void, path: RvStr, bytes: RvBytes) -> RvStatus {
+    take(ctx, format!("write {} {}", copy(path), copy_bytes(bytes)))
+}
+
+/// The step arguments' `file_append`.
+unsafe extern "C" fn file_append(ctx: *mut c_void, path: RvStr, bytes: RvBytes) -> RvStatus {
+    take(ctx, format!("append {} {}", copy(path), copy_bytes(bytes)))
+}
+
+/// The step arguments' `file_mkdir`.
+unsafe extern "C" fn file_mkdir(ctx: *mut c_void, path: RvStr, recursive: u32) -> RvStatus {
+    take(ctx, format!("mkdir {} {recursive}", copy(path)))
+}
+
+/// The step arguments' `file_remove`.
+unsafe extern "C" fn file_remove(ctx: *mut c_void, path: RvStr, recursive: u32) -> RvStatus {
+    take(ctx, format!("remove {} {recursive}", copy(path)))
+}
+
+/// The step arguments' `file_rename`.
+unsafe extern "C" fn file_rename(ctx: *mut c_void, from: RvStr, to: RvStr) -> RvStatus {
+    take(ctx, format!("rename {} {}", copy(from), copy(to)))
+}
+
+/// The step arguments' `file_copy`.
+unsafe extern "C" fn file_copy(ctx: *mut c_void, from: RvStr, to: RvStr) -> RvStatus {
+    take(ctx, format!("copy {} {}", copy(from), copy(to)))
+}
+
+/// The file requests this test's thread took, in order.
+fn asked() -> Vec<String> {
+    ASKED.with_borrow(Clone::clone)
+}
+
+/// The text of the one file the answers below hold.
+const FILE_TEXT: &str = "hello";
+
+/// The entries the answer to a listing below holds: the file `a.md`, the
+/// directory `sub`, and the link `link`.
 const ENTRIES: [RvDirEntry; 3] = [
     RvDirEntry {
         name: RvStr {
@@ -166,103 +240,74 @@ const ENTRIES: [RvDirEntry; 3] = [
     },
 ];
 
-/// Fills `error` with a failure that says `path` was not found, and
-/// answers `RV_ERR_FILE`, or the odd status 77 for [`BROKEN`].
-fn fail(path: &str, error: *mut RvFileError) -> RvStatus {
-    if path == BROKEN {
-        return 77;
-    }
-    let failure = RvFileError {
-        kind: NOT_FOUND,
-        reserved: 0,
-        text: rv_str("nothing is there"),
-    };
-    // SAFETY: the entry point under test passes a live `RvFileError`.
-    unsafe { error.write(failure) };
-    RV_ERR_FILE
-}
-
-/// The step arguments' `file_stat`: knows [`FILE`] and [`DIRECTORY`].
-unsafe extern "C" fn file_stat(
-    ctx: *mut c_void,
-    path: RvStr,
-    stat: *mut RvStat,
-    error: *mut RvFileError,
-) -> RvStatus {
-    assert_eq!(ctx, test_ctx(), "file_stat is handed the step's own ctx");
-    let path = copy(path);
-    let found = match path.as_str() {
-        FILE => ENTRIES[0].stat,
-        DIRECTORY => ENTRIES[1].stat,
-        "/link" => ENTRIES[2].stat,
-        "/pipe" => RvStat {
+/// An answer whose status is `RV_OK` and whose every other field is
+/// zero, as the answer to a change is.
+fn done() -> RvFileAnswer {
+    RvFileAnswer {
+        size: size_of_u32::<RvFileAnswer>(),
+        status: RV_OK,
+        stat: RvStat {
             file_type: 0,
             reserved: 0,
             len: 0,
         },
-        _ => return fail(&path, error),
-    };
-    // SAFETY: the entry point under test passes a live `RvStat`.
-    unsafe { stat.write(found) };
-    RV_OK
-}
-
-/// The step arguments' `file_list`: lists [`DIRECTORY`], and the root as
-/// an empty directory.
-unsafe extern "C" fn file_list(
-    ctx: *mut c_void,
-    path: RvStr,
-    entries: *mut RvDirEntries,
-    error: *mut RvFileError,
-) -> RvStatus {
-    assert_eq!(ctx, test_ctx(), "file_list is handed the step's own ctx");
-    let path = copy(path);
-    // A borrow of a constant is promoted to a static, so the entries
-    // outlive this function, as the contract requires.
-    let all: &'static [RvDirEntry] = &ENTRIES;
-    let listed = match path.as_str() {
-        DIRECTORY => RvDirEntries {
-            ptr: all.as_ptr(),
-            len: all.len(),
-        },
-        "/" => RvDirEntries {
+        entries: RvDirEntries {
             ptr: ptr::null(),
             len: 0,
         },
-        _ => return fail(&path, error),
-    };
-    // SAFETY: the entry point under test passes a live `RvDirEntries`.
-    unsafe { entries.write(listed) };
-    RV_OK
+        bytes: RvBytes {
+            ptr: ptr::null(),
+            len: 0,
+        },
+        error: RvFileError {
+            kind: 0,
+            reserved: 0,
+            text: RvStr {
+                ptr: ptr::null(),
+                len: 0,
+            },
+        },
+    }
 }
 
-/// The step arguments' `file_read`: reads [`FILE`], and records the range
-/// it was asked for.
-unsafe extern "C" fn file_read(
-    ctx: *mut c_void,
-    path: RvStr,
-    offset: u64,
-    len: u64,
-    bytes: *mut RvBytes,
-    error: *mut RvFileError,
-) -> RvStatus {
-    assert_eq!(ctx, test_ctx(), "file_read is handed the step's own ctx");
-    assert_eq!(
-        (offset, len),
-        (0, u64::MAX),
-        "the tool reads the whole file"
-    );
-    let path = copy(path);
-    if path != FILE {
-        return fail(&path, error);
+/// The answer to a `file_stat` that found `stat`.
+fn stat_answer(stat: RvStat) -> RvFileAnswer {
+    RvFileAnswer { stat, ..done() }
+}
+
+/// The answer to a `file_list` that found `entries`.
+fn list_answer(entries: &'static [RvDirEntry]) -> RvFileAnswer {
+    RvFileAnswer {
+        entries: RvDirEntries {
+            ptr: entries.as_ptr(),
+            len: entries.len(),
+        },
+        ..done()
     }
-    let read = RvBytes {
-        ptr: FILE_TEXT.as_ptr(),
-        len: FILE_TEXT.len(),
-    };
-    // SAFETY: the entry point under test passes a live `RvBytes`.
-    unsafe { bytes.write(read) };
-    RV_OK
+}
+
+/// The answer to a `file_read` that read `bytes`.
+fn read_answer(bytes: &'static str) -> RvFileAnswer {
+    RvFileAnswer {
+        bytes: RvBytes {
+            ptr: bytes.as_ptr(),
+            len: bytes.len(),
+        },
+        ..done()
+    }
+}
+
+/// The answer of an operation that found nothing at its path.
+fn failed_answer() -> RvFileAnswer {
+    RvFileAnswer {
+        status: RV_ERR_FILE,
+        error: RvFileError {
+            kind: 1,
+            reserved: 0,
+            text: rv_str("nothing is there"),
+        },
+        ..done()
+    }
 }
 
 /// A table that reports `size` and version `api_major`.`api_minor`.
@@ -277,7 +322,7 @@ fn host_with(size: u32, api_major: u32, api_minor: u32) -> RvHost {
 
 /// A table the way the loader builds it.
 fn host() -> RvHost {
-    host_with(size_of_u32::<RvHost>(), 0, 4)
+    host_with(size_of_u32::<RvHost>(), 0, 5)
 }
 
 /// The `ctx` the tests hand the Plugin. The Plugin never reads through it,
@@ -316,8 +361,13 @@ fn pack_args(size: u32, pack: &str) -> RvPackNewArgs {
 }
 
 /// Step arguments that report `size`, for the tool `tool` with
-/// `arguments`.
-fn step_args(size: u32, tool: &str, arguments: &str) -> RvToolCallArgs {
+/// `arguments`, which lend the step `answer`.
+fn step_args(
+    size: u32,
+    tool: &str,
+    arguments: &str,
+    answer: *const RvFileAnswer,
+) -> RvToolCallArgs {
     RvToolCallArgs {
         size,
         reserved: 0,
@@ -325,9 +375,20 @@ fn step_args(size: u32, tool: &str, arguments: &str) -> RvToolCallArgs {
         tool: rv_str(tool),
         arguments: rv_str(arguments),
         finish,
-        file_stat,
-        file_list,
-        file_read,
+        reads: RvFileReads {
+            stat: file_stat,
+            list: file_list,
+            read: file_read,
+        },
+        answer,
+        changes: RvFileChanges {
+            write: file_write,
+            append: file_append,
+            mkdir: file_mkdir,
+            remove: file_remove,
+            rename: file_rename,
+            copy: file_copy,
+        },
     }
 }
 
@@ -404,9 +465,28 @@ fn delete_pack(call: &mut RvCall) -> RvStatus {
 }
 
 /// Sends one `RV_TOOL_CALL` step of `tool` with `arguments` on the Pack
-/// instance `call` carries.
+/// instance `call` carries, a step that follows no file request.
 fn step(call: &mut RvCall, tool: &str, arguments: &str) -> RvStatus {
-    let args = step_args(size_of_u32::<RvToolCallArgs>(), tool, arguments);
+    let args = step_args(
+        size_of_u32::<RvToolCallArgs>(),
+        tool,
+        arguments,
+        ptr::null(),
+    );
+    call.verb = RV_TOOL_CALL;
+    call.args = (&raw const args).cast();
+    send(call)
+}
+
+/// Sends one `RV_TOOL_CALL` step of `tool` with `arguments` on the Pack
+/// instance `call` carries, a step that is lent `answer`.
+fn step_with(call: &mut RvCall, tool: &str, arguments: &str, answer: &RvFileAnswer) -> RvStatus {
+    let args = step_args(
+        size_of_u32::<RvToolCallArgs>(),
+        tool,
+        arguments,
+        ptr::from_ref(answer),
+    );
     call.verb = RV_TOOL_CALL;
     call.args = (&raw const args).cast();
     send(call)
@@ -461,7 +541,7 @@ fn the_infos_and_the_result_keep_the_layout_the_contract_pins() {
 
     assert_eq!(size_of::<RvToolInfo>(), 72);
     assert_eq!(offset_of!(RvToolInfo, size), 0);
-    assert_eq!(offset_of!(RvToolInfo, reserved), 4);
+    assert_eq!(offset_of!(RvToolInfo, flags), 4);
     assert_eq!(offset_of!(RvToolInfo, name), 8);
     assert_eq!(offset_of!(RvToolInfo, wire_name), 24);
     assert_eq!(offset_of!(RvToolInfo, description), 40);
@@ -475,7 +555,7 @@ fn the_infos_and_the_result_keep_the_layout_the_contract_pins() {
 
 #[test]
 #[cfg(target_pointer_width = "64")]
-fn what_a_file_function_hands_back_keeps_the_layout_the_contract_pins() {
+fn what_a_file_answer_holds_keeps_the_layout_the_contract_pins() {
     assert_eq!(size_of::<RvBytes>(), 16);
     assert_eq!(offset_of!(RvBytes, ptr), 0);
     assert_eq!(offset_of!(RvBytes, len), 8);
@@ -497,6 +577,18 @@ fn what_a_file_function_hands_back_keeps_the_layout_the_contract_pins() {
     assert_eq!(offset_of!(RvFileError, kind), 0);
     assert_eq!(offset_of!(RvFileError, reserved), 4);
     assert_eq!(offset_of!(RvFileError, text), 8);
+}
+
+#[test]
+#[cfg(target_pointer_width = "64")]
+fn the_file_answer_keeps_the_layout_the_contract_pins() {
+    assert_eq!(size_of::<RvFileAnswer>(), 80);
+    assert_eq!(offset_of!(RvFileAnswer, size), 0);
+    assert_eq!(offset_of!(RvFileAnswer, status), 4);
+    assert_eq!(offset_of!(RvFileAnswer, stat), 8);
+    assert_eq!(offset_of!(RvFileAnswer, entries), 24);
+    assert_eq!(offset_of!(RvFileAnswer, bytes), 40);
+    assert_eq!(offset_of!(RvFileAnswer, error), 56);
 }
 
 #[test]
@@ -528,16 +620,25 @@ fn the_arguments_structs_keep_the_layout_the_contract_pins() {
     assert_eq!(offset_of!(RvPackNewArgs, refuse), 32);
     assert_eq!(offset_of!(RvPackNewArgs, add_tool), 40);
 
-    assert_eq!(size_of::<RvToolCallArgs>(), 80);
+    assert_eq!(size_of::<RvToolCallArgs>(), 136);
     assert_eq!(offset_of!(RvToolCallArgs, size), 0);
     assert_eq!(offset_of!(RvToolCallArgs, reserved), 4);
     assert_eq!(offset_of!(RvToolCallArgs, ctx), 8);
     assert_eq!(offset_of!(RvToolCallArgs, tool), 16);
     assert_eq!(offset_of!(RvToolCallArgs, arguments), 32);
     assert_eq!(offset_of!(RvToolCallArgs, finish), 48);
-    assert_eq!(offset_of!(RvToolCallArgs, file_stat), 56);
-    assert_eq!(offset_of!(RvToolCallArgs, file_list), 64);
-    assert_eq!(offset_of!(RvToolCallArgs, file_read), 72);
+    // The two structs of file functions leave each function where the
+    // contract's one struct has it.
+    assert_eq!(offset_of!(RvToolCallArgs, reads.stat), 56);
+    assert_eq!(offset_of!(RvToolCallArgs, reads.list), 64);
+    assert_eq!(offset_of!(RvToolCallArgs, reads.read), 72);
+    assert_eq!(offset_of!(RvToolCallArgs, answer), 80);
+    assert_eq!(offset_of!(RvToolCallArgs, changes.write), 88);
+    assert_eq!(offset_of!(RvToolCallArgs, changes.append), 96);
+    assert_eq!(offset_of!(RvToolCallArgs, changes.mkdir), 104);
+    assert_eq!(offset_of!(RvToolCallArgs, changes.remove), 112);
+    assert_eq!(offset_of!(RvToolCallArgs, changes.rename), 120);
+    assert_eq!(offset_of!(RvToolCallArgs, changes.copy), 128);
 }
 
 #[test]
@@ -554,7 +655,7 @@ fn the_call_keeps_the_layout_the_contract_pins() {
 }
 
 #[test]
-fn the_status_codes_and_the_result_kinds_keep_their_numbers() {
+fn the_status_codes_the_result_kinds_and_the_tool_flag_keep_their_numbers() {
     assert_eq!(RV_OK, 0);
     assert_eq!(RV_ERR_MISUSE, 4);
     assert_eq!(RV_ERR_REFUSED, 5);
@@ -566,6 +667,7 @@ fn the_status_codes_and_the_result_kinds_keep_their_numbers() {
     assert_eq!(RV_FILE_TYPE_FILE, 1);
     assert_eq!(RV_FILE_TYPE_DIRECTORY, 2);
     assert_eq!(RV_FILE_TYPE_SYMLINK, 3);
+    assert_eq!(RV_TOOL_CHANGES_FILES, 1);
 }
 
 #[test]
@@ -577,7 +679,7 @@ fn the_verbs_and_the_version_keep_their_numbers() {
     assert_eq!(RV_TOOL_CALL, 5);
     assert_eq!(RV_TOOL_CANCEL, 6);
     assert_eq!(RV_API_MAJOR, 0);
-    assert_eq!(RV_API_MINOR, 4);
+    assert_eq!(RV_API_MINOR, 5);
 }
 
 #[test]
@@ -664,16 +766,16 @@ fn a_host_reporting_version_0_2_is_unsupported_and_leaves_no_instance() {
 }
 
 #[test]
-fn a_table_that_is_too_short_or_not_version_0_4_is_unsupported_and_leaves_no_instance() {
+fn a_table_that_is_too_short_or_not_version_0_5_is_unsupported_and_leaves_no_instance() {
     let full = size_of_u32::<RvHost>();
-    let short = [0, 4, 8, 12, full - 1].map(|size| (size, 0, 4));
+    let short = [0, 4, 8, 12, full - 1].map(|size| (size, 0, 5));
     let versions = [
-        (1, 4),
-        (2, 4),
-        (u32::MAX, 4),
+        (1, 5),
+        (2, 5),
+        (u32::MAX, 5),
         (0, 0),
-        (0, 3),
-        (0, 5),
+        (0, 4),
+        (0, 6),
         (0, u32::MAX),
     ]
     .map(|(major, minor)| (full, major, minor));
@@ -694,7 +796,7 @@ fn a_table_that_is_too_short_or_not_version_0_4_is_unsupported_and_leaves_no_ins
 
 #[test]
 fn a_table_longer_than_the_one_the_fixture_knows_still_loads() {
-    let host = host_with(size_of_u32::<RvHost>() + 32, 0, 4);
+    let host = host_with(size_of_u32::<RvHost>() + 32, 0, 5);
     let mut call = loaded(&host);
     assert!(!call.plugin.is_null());
     assert_eq!(unload(&mut call), RV_OK);
@@ -726,7 +828,7 @@ fn short_load_arguments_are_unsupported_and_leave_no_instance() {
 }
 
 #[test]
-fn a_host_that_is_not_0_4_is_rejected_before_null_args_are_noticed() {
+fn a_host_that_is_not_0_5_is_rejected_before_null_args_are_noticed() {
     let (status, _call) = send_verb(
         RV_PLUGIN_LOAD,
         &host_with(size_of_u32::<RvHost>(), 0, 2),
@@ -774,25 +876,34 @@ fn an_insert_pack_that_fails_fails_the_load_with_its_status_and_no_instance() {
 }
 
 #[test]
-fn a_pack_instance_adds_its_six_tools_and_is_deleted_once() {
+fn a_pack_instance_adds_its_tools_with_a_flag_on_each_that_changes_files_and_is_deleted_once() {
     let host = host();
     let mut call = loaded(&host);
     assert_eq!(new_pack(&mut call), RV_OK);
     assert!(!call.pack_run.is_null(), "a successful call sets pack_run");
     ADDED.with_borrow(|all| {
-        let tools: Vec<(&str, &str, &str)> = all
+        let tools: Vec<(&str, &str, &str, RvToolFlags)> = all
             .iter()
-            .map(|(name, wire, parameters)| (name.as_str(), wire.as_str(), parameters.as_str()))
+            .map(|(name, wire, parameters, flags)| {
+                (name.as_str(), wire.as_str(), parameters.as_str(), *flags)
+            })
             .collect();
         assert_eq!(
             tools,
             [
-                ("hello", "", NO_PARAMETERS),
-                ("steps", "", NO_PARAMETERS),
-                ("never", "", NO_PARAMETERS),
-                ("stat", "", PATH_PARAMETERS),
-                ("list", "", PATH_PARAMETERS),
-                ("read", "", PATH_PARAMETERS),
+                ("hello", "", NO_PARAMETERS, 0),
+                ("steps", "", NO_PARAMETERS, 0),
+                ("never", "", NO_PARAMETERS, 0),
+                ("stat", "", PATH_PARAMETERS, 0),
+                ("list", "", PATH_PARAMETERS, 0),
+                ("read", "", PATH_PARAMETERS, 0),
+                ("write", "", TEXT_PARAMETERS, RV_TOOL_CHANGES_FILES),
+                ("append", "", TEXT_PARAMETERS, RV_TOOL_CHANGES_FILES),
+                ("mkdir", "", RECURSIVE_PARAMETERS, RV_TOOL_CHANGES_FILES),
+                ("remove", "", RECURSIVE_PARAMETERS, RV_TOOL_CHANGES_FILES),
+                ("rename", "", PAIR_PARAMETERS, RV_TOOL_CHANGES_FILES),
+                ("copy", "", PAIR_PARAMETERS, RV_TOOL_CHANGES_FILES),
+                ("read_many", "", MANY_PARAMETERS, 0),
             ]
         );
     });
@@ -909,62 +1020,156 @@ fn a_tool_the_pack_does_not_have_fails_the_call() {
     assert_eq!(unload(&mut call), RV_OK);
 }
 
-/// Runs one step of the file tool `tool` on `path`, and returns the text
-/// it finished with, which must be a trusted result.
-fn file_tool(tool: &str, path: &str) -> String {
+/// The JSON text of the arguments that name `path`.
+fn path_arguments(path: &str) -> String {
+    format!(r#"{{"path":"{path}"}}"#)
+}
+
+/// Runs a call of the file tool `tool` with `arguments` to its end: the
+/// first step must make the one request `asked_for`, and the second is
+/// lent `answer`. Returns the text the call finished with, which must be
+/// a trusted result.
+fn file_tool(tool: &str, arguments: &str, asked_for: &str, answer: &RvFileAnswer) -> String {
     let host = host();
     let mut call = loaded(&host);
     assert_eq!(new_pack(&mut call), RV_OK);
-    let arguments = format!(r#"{{"path":"{path}"}}"#);
-    assert_eq!(step(&mut call, tool, &arguments), RV_OK, "{tool} {path}");
-    assert!(call.tool_call.is_null(), "a file tool keeps no state");
+    assert_eq!(step(&mut call, tool, arguments), RV_PENDING, "{tool}");
+    assert_eq!(asked(), [asked_for], "{tool} makes its one request");
+    assert_eq!(
+        finished(),
+        [],
+        "{tool}: the step that asks finishes nothing"
+    );
+    assert!(
+        !call.tool_call.is_null(),
+        "{tool}: a call that waits for an answer keeps its state"
+    );
+    assert_eq!(
+        step_with(&mut call, tool, arguments, answer),
+        RV_OK,
+        "{tool}"
+    );
+    assert_eq!(asked().len(), 1, "{tool}: the second step asks for nothing");
+    assert!(call.tool_call.is_null(), "{tool}: the call left no state");
     assert_eq!(delete_pack(&mut call), RV_OK);
     assert_eq!(unload(&mut call), RV_OK);
     let mut finished = finished();
-    assert_eq!(finished.len(), 1, "{tool} {path} finishes once");
+    assert_eq!(finished.len(), 1, "{tool} finishes once");
     let (kind, text) = finished.remove(0);
-    assert_eq!(kind, RV_RESULT_TRUSTED, "{tool} {path}");
+    assert_eq!(kind, RV_RESULT_TRUSTED, "{tool}");
+    ASKED.with_borrow_mut(Vec::clear);
+    FINISHED.with_borrow_mut(Vec::clear);
     text
 }
 
 #[test]
-fn the_stat_tool_words_what_file_stat_filled() {
-    assert_eq!(file_tool("stat", FILE), "file 5");
+fn the_stat_tool_asks_what_its_path_names_and_words_the_stat_of_its_answer() {
+    let said = file_tool(
+        "stat",
+        &path_arguments("/notes/a.md"),
+        "stat /notes/a.md",
+        &stat_answer(ENTRIES[0].stat),
+    );
+    assert_eq!(said, "file 5");
 }
 
 #[test]
 fn the_stat_tool_names_a_directory_a_link_and_anything_else() {
-    for (path, said) in [
-        (DIRECTORY, "directory"),
-        ("/link", "symlink"),
-        ("/pipe", "other"),
+    let pipe = RvStat {
+        file_type: 0,
+        reserved: 0,
+        len: 0,
+    };
+    for (stat, said) in [
+        (ENTRIES[1].stat, "directory"),
+        (ENTRIES[2].stat, "symlink"),
+        (pipe, "other"),
     ] {
-        FINISHED.with_borrow_mut(Vec::clear);
-        assert_eq!(file_tool("stat", path), said, "{path}");
+        assert_eq!(
+            file_tool("stat", &path_arguments("/x"), "stat /x", &stat_answer(stat)),
+            said
+        );
     }
 }
 
 #[test]
-fn the_list_tool_joins_the_names_and_marks_each_directory() {
-    assert_eq!(file_tool("list", DIRECTORY), "a.md,sub/,link");
+fn the_list_tool_joins_the_names_of_its_answer_and_marks_each_directory() {
+    // A borrow of a constant is promoted to a static, so the entries
+    // outlive the answer that points at them.
+    let entries: &'static [RvDirEntry] = &ENTRIES;
+    let said = file_tool(
+        "list",
+        &path_arguments("/notes"),
+        "list /notes",
+        &list_answer(entries),
+    );
+    assert_eq!(said, "a.md,sub/,link");
 }
 
 #[test]
 fn the_list_tool_answers_nothing_for_an_empty_directory() {
-    assert_eq!(file_tool("list", "/"), "");
+    assert_eq!(
+        file_tool("list", &path_arguments("/"), "list /", &done()),
+        ""
+    );
 }
 
 #[test]
-fn the_read_tool_answers_the_text_of_the_whole_file() {
-    assert_eq!(file_tool("read", FILE), FILE_TEXT);
+fn the_read_tool_asks_for_the_whole_file_and_answers_the_text_of_its_answer() {
+    let said = file_tool(
+        "read",
+        &path_arguments("/notes/a.md"),
+        &format!("read /notes/a.md 0 {}", u64::MAX),
+        &read_answer(FILE_TEXT),
+    );
+    assert_eq!(said, FILE_TEXT);
 }
 
 #[test]
-fn a_file_function_that_fails_ends_the_call_with_a_text_that_says_so() {
-    for tool in ["stat", "list", "read"] {
-        FINISHED.with_borrow_mut(Vec::clear);
+fn each_tool_that_changes_files_makes_its_request_and_answers_done() {
+    for (tool, arguments, asked_for) in [
+        (
+            "write",
+            r#"{"path":"/a","text":"one two"}"#,
+            "write /a one two",
+        ),
+        ("append", r#"{"path":"/a","text":"more"}"#, "append /a more"),
+        ("mkdir", r#"{"path":"/d","recursive":true}"#, "mkdir /d 1"),
+        ("mkdir", r#"{"path":"/d","recursive":false}"#, "mkdir /d 0"),
+        ("mkdir", r#"{"path":"/d"}"#, "mkdir /d 0"),
+        ("remove", r#"{"path":"/d","recursive":true}"#, "remove /d 1"),
+        ("remove", r#"{"path":"/d"}"#, "remove /d 0"),
+        ("rename", r#"{"from":"/a","to":"/b"}"#, "rename /a /b"),
+        ("copy", r#"{"from":"/a","to":"/b"}"#, "copy /a /b"),
+    ] {
         assert_eq!(
-            file_tool(tool, "/absent"),
+            file_tool(tool, arguments, asked_for, &done()),
+            "done",
+            "{tool} {arguments}"
+        );
+    }
+}
+
+#[test]
+fn an_operation_that_failed_ends_the_call_with_a_text_that_says_so() {
+    for (tool, arguments, asked_for) in [
+        ("stat", r#"{"path":"/absent"}"#, "stat /absent"),
+        ("list", r#"{"path":"/absent"}"#, "list /absent"),
+        (
+            "read",
+            r#"{"path":"/absent"}"#,
+            "read /absent 0 18446744073709551615",
+        ),
+        (
+            "write",
+            r#"{"path":"/absent","text":"x"}"#,
+            "write /absent x",
+        ),
+        ("remove", r#"{"path":"/absent"}"#, "remove /absent 0"),
+        ("copy", r#"{"from":"/absent","to":"/b"}"#, "copy /absent /b"),
+    ] {
+        assert_eq!(
+            file_tool(tool, arguments, asked_for, &failed_answer()),
             "failed (1): nothing is there",
             "{tool}"
         );
@@ -972,34 +1177,172 @@ fn a_file_function_that_fails_ends_the_call_with_a_text_that_says_so() {
 }
 
 #[test]
-fn a_file_function_that_returns_another_status_is_named_with_it() {
+fn an_answer_with_another_status_is_named_with_it() {
+    let odd = RvFileAnswer {
+        status: 77,
+        ..done()
+    };
     assert_eq!(
-        file_tool("stat", BROKEN),
-        "the file function returned status 77"
+        file_tool("stat", &path_arguments("/x"), "stat /x", &odd),
+        "the answer has status 77"
     );
 }
 
 #[test]
-fn a_file_tool_without_a_path_asks_for_the_empty_path() {
+fn a_file_function_that_returns_another_status_ends_the_call_at_once_and_names_it() {
     let host = host();
     let mut call = loaded(&host);
     assert_eq!(new_pack(&mut call), RV_OK);
-    assert_eq!(step(&mut call, "stat", "{}"), RV_OK);
+    ASK_STATUS.set(RV_ERR_MISUSE);
+    assert_eq!(step(&mut call, "stat", &path_arguments("/x")), RV_OK);
     assert_eq!(
         finished(),
-        [(RV_RESULT_TRUSTED, "failed (1): nothing is there".to_owned())]
+        [(
+            RV_RESULT_TRUSTED,
+            "the file function returned status 4".to_owned()
+        )]
+    );
+    assert!(
+        call.tool_call.is_null(),
+        "a call that ended leaves no state"
     );
     assert_eq!(delete_pack(&mut call), RV_OK);
     assert_eq!(unload(&mut call), RV_OK);
 }
 
 #[test]
-fn the_path_is_the_text_between_the_quotes_after_its_key() {
-    assert_eq!(path_of(r#"{"path":"/notes/a.md"}"#), "/notes/a.md");
-    assert_eq!(path_of(r#"{"limit":3,"path":"a b"}"#), "a b");
-    assert_eq!(path_of(r#"{"path":""}"#), "");
-    assert_eq!(path_of("{}"), "");
-    assert_eq!(path_of(r#"{"path":"unclosed"#), "");
+fn a_second_step_that_is_lent_no_answer_says_so() {
+    let host = host();
+    let mut call = loaded(&host);
+    assert_eq!(new_pack(&mut call), RV_OK);
+    let arguments = path_arguments("/x");
+    assert_eq!(step(&mut call, "stat", &arguments), RV_PENDING);
+    assert_eq!(step(&mut call, "stat", &arguments), RV_OK);
+    assert_eq!(
+        finished(),
+        [(RV_RESULT_TRUSTED, "the step was lent no answer".to_owned())]
+    );
+    assert_eq!(asked(), ["stat /x"], "the second step asks for nothing");
+    assert_eq!(delete_pack(&mut call), RV_OK);
+    assert_eq!(unload(&mut call), RV_OK);
+}
+
+#[test]
+fn a_file_tool_without_a_path_asks_for_the_empty_path() {
+    assert_eq!(
+        file_tool("stat", "{}", "stat ", &failed_answer()),
+        "failed (1): nothing is there"
+    );
+}
+
+#[test]
+fn a_file_call_that_waits_for_its_answer_is_freed_by_a_cancel() {
+    let host = host();
+    let mut call = loaded(&host);
+    assert_eq!(new_pack(&mut call), RV_OK);
+    assert_eq!(
+        step(&mut call, "write", r#"{"path":"/a","text":"x"}"#),
+        RV_PENDING
+    );
+    assert!(!call.tool_call.is_null());
+    assert_eq!(cancel(&mut call), RV_OK);
+    assert_eq!(finished(), [], "an abandoned call finishes nothing");
+    assert_eq!(delete_pack(&mut call), RV_OK);
+    assert_eq!(unload(&mut call), RV_OK);
+}
+
+#[test]
+fn the_read_many_tool_reads_one_file_in_each_step_and_counts_what_its_answers_hold() {
+    let host = host();
+    let mut call = loaded(&host);
+    assert_eq!(new_pack(&mut call), RV_OK);
+    let arguments = r#"{"count":3,"path":"/many"}"#;
+    let whole = u64::MAX;
+
+    assert_eq!(step(&mut call, "read_many", arguments), RV_PENDING);
+    assert_eq!(asked(), [format!("read /many/0 0 {whole}")]);
+    let two = read_answer("ab");
+    assert_eq!(
+        step_with(&mut call, "read_many", arguments, &two),
+        RV_PENDING
+    );
+    let absent = failed_answer();
+    assert_eq!(
+        step_with(&mut call, "read_many", arguments, &absent),
+        RV_PENDING
+    );
+    assert_eq!(finished(), [], "the call goes on until it read every file");
+    let three = read_answer("cde");
+    assert_eq!(step_with(&mut call, "read_many", arguments, &three), RV_OK);
+
+    assert_eq!(
+        asked(),
+        [
+            format!("read /many/0 0 {whole}"),
+            format!("read /many/1 0 {whole}"),
+            format!("read /many/2 0 {whole}"),
+        ],
+        "each step but the last asks for the next file"
+    );
+    assert_eq!(
+        finished(),
+        [(
+            RV_RESULT_TRUSTED,
+            "read 3 files, 5 bytes, 1 failed".to_owned()
+        )]
+    );
+    assert!(call.tool_call.is_null(), "the last step frees the state");
+    assert_eq!(delete_pack(&mut call), RV_OK);
+    assert_eq!(unload(&mut call), RV_OK);
+}
+
+#[test]
+fn the_read_many_tool_with_no_count_ends_in_its_first_step() {
+    let host = host();
+    let mut call = loaded(&host);
+    assert_eq!(new_pack(&mut call), RV_OK);
+    assert_eq!(step(&mut call, "read_many", r#"{"path":"/many"}"#), RV_OK);
+    assert_eq!(asked(), [] as [String; 0]);
+    assert_eq!(
+        finished(),
+        [(
+            RV_RESULT_TRUSTED,
+            "read 0 files, 0 bytes, 0 failed".to_owned()
+        )]
+    );
+    assert_eq!(delete_pack(&mut call), RV_OK);
+    assert_eq!(unload(&mut call), RV_OK);
+}
+
+#[test]
+fn a_string_is_the_text_between_the_quotes_after_its_key() {
+    assert_eq!(
+        string_of(r#"{"path":"/notes/a.md"}"#, "path"),
+        "/notes/a.md"
+    );
+    assert_eq!(string_of(r#"{"limit":3,"path":"a b"}"#, "path"), "a b");
+    assert_eq!(string_of(r#"{"from":"/a","to":"/b"}"#, "from"), "/a");
+    assert_eq!(string_of(r#"{"from":"/a","to":"/b"}"#, "to"), "/b");
+    assert_eq!(string_of(r#"{"path":""}"#, "path"), "");
+    assert_eq!(string_of("{}", "path"), "");
+    assert_eq!(string_of(r#"{"path":"unclosed"#, "path"), "");
+}
+
+#[test]
+fn a_number_is_the_digits_after_its_key_and_a_flag_is_set_only_by_true() {
+    assert_eq!(
+        number_of(r#"{"count":100000,"path":"/many"}"#, "count"),
+        100_000
+    );
+    assert_eq!(number_of(r#"{"count":7}"#, "count"), 7);
+    assert_eq!(number_of(r#"{"count":2.5}"#, "count"), 2);
+    assert_eq!(number_of(r#"{"count":"7"}"#, "count"), 0);
+    assert_eq!(number_of(r#"{"count":-1}"#, "count"), 0);
+    assert_eq!(number_of("{}", "count"), 0);
+
+    assert!(flag_of(r#"{"path":"/d","recursive":true}"#, "recursive"));
+    assert!(!flag_of(r#"{"path":"/d","recursive":false}"#, "recursive"));
+    assert!(!flag_of(r#"{"path":"/d"}"#, "recursive"));
 }
 
 #[test]
@@ -1017,7 +1360,12 @@ fn a_step_with_the_wrong_arguments_ends_the_call_and_frees_its_state() {
     );
 
     assert_eq!(step(&mut call, "never", "{}"), RV_PENDING);
-    let short = step_args(size_of_u32::<RvToolCallArgs>() - 1, "never", "{}");
+    let short = step_args(
+        size_of_u32::<RvToolCallArgs>() - 1,
+        "never",
+        "{}",
+        ptr::null(),
+    );
     call.args = (&raw const short).cast();
     assert_eq!(send(&mut call), RV_ERR_UNSUPPORTED, "short arguments");
     assert!(call.tool_call.is_null());

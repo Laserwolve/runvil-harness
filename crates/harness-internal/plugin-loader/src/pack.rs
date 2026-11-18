@@ -12,8 +12,8 @@ use runvil_plugin::{
     ToolOutput, make_tool_error,
 };
 use runvil_plugin_sys::{
-    RV_MAX_NAME, RV_MAX_TOOL_TEXT, RV_OK, RV_PACK_DELETE, RV_PACK_NEW, RvCall, RvPackNewArgs,
-    RvStatus, RvStr, RvToolInfo,
+    RV_MAX_NAME, RV_MAX_TOOL_TEXT, RV_OK, RV_PACK_DELETE, RV_PACK_NEW, RV_TOOL_CHANGES_FILES,
+    RvCall, RvPackNewArgs, RvStatus, RvStr, RvToolInfo,
 };
 use serde_json::Value;
 
@@ -21,8 +21,7 @@ use crate::call::Steps;
 use crate::host::{is_segment, new_call};
 use crate::plugin::Plugin;
 use crate::session::{
-    self, AddedTool, Field, PACK_NEW, RESERVED, Shape, Verb, answer, field, rv_str, shape,
-    size_field,
+    self, AddedTool, Field, PACK_NEW, Shape, Verb, answer, field, rv_str, shape, size_field,
 };
 
 #[cfg(test)]
@@ -77,7 +76,8 @@ impl PackFactory for EntryFactory {
     }
 }
 
-/// The catalog entry of the tool `added` under the Pack id `id`.
+/// The catalog entry of the tool `added` under the Pack id `id`. The
+/// entry says that the tool changes files when the tool's flags did.
 fn tool_info(id: &PackId, added: AddedTool) -> Result<ToolInfo, Error> {
     let tool_id = ToolId::parse(&format!("{id}/{}", added.name)).map_err(|error| {
         make_tool_error(
@@ -89,7 +89,8 @@ fn tool_info(id: &PackId, added: AddedTool) -> Result<ToolInfo, Error> {
         )
         .with_cause(&error)
     })?;
-    let info = ToolInfo::new(tool_id, added.description, added.parameters);
+    let info = ToolInfo::new(tool_id, added.description, added.parameters)
+        .changes_files(added.changes_files);
     Ok(match added.wire_name {
         Some(wire_name) => info.wire_name(wire_name),
         None => info,
@@ -156,7 +157,7 @@ impl Pack for EntryPack {
         cx: ToolContext<'a>,
         args: Value,
     ) -> BoxFuture<'a, Result<ToolOutput, Error>> {
-        Box::pin(Steps::new(self, cx.tool().name(), &args, cx.access()))
+        Box::pin(Steps::new(self, cx.tool().name(), &args, cx.files()))
     }
 }
 
@@ -174,8 +175,8 @@ pub(crate) unsafe extern "C" fn add_tool(ctx: *mut c_void, info: *const RvToolIn
         // SAFETY: the contract makes `info` point at a readable
         // `RvToolInfo` during this call.
         let info = unsafe { TOOL_INFO.read(info) }?;
-        if info.reserved != 0 {
-            return Err(RESERVED);
+        if info.flags & !RV_TOOL_CHANGES_FILES != 0 {
+            return Err("the tool's flags set a bit that is not one of the RV_TOOL constants");
         }
         // SAFETY: the contract makes each string valid for its length.
         let name = unsafe { TOOL_NAME.read(info.name) }?;
@@ -209,6 +210,7 @@ pub(crate) unsafe extern "C" fn add_tool(ctx: *mut c_void, info: *const RvToolIn
             wire_name: (!wire_name.is_empty()).then_some(wire_name),
             description,
             parameters,
+            changes_files: info.flags & RV_TOOL_CHANGES_FILES != 0,
         });
         Ok(RV_OK)
     })

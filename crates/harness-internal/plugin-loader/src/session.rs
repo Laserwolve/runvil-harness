@@ -5,15 +5,12 @@
 use std::cell::Cell;
 use std::ffi::c_void;
 use std::mem::size_of;
-use std::panic::{RefUnwindSafe, UnwindSafe};
 use std::ptr::{self, NonNull};
 use std::slice;
 
-use runvil_plugin::{Access, Error, ToolOutput};
+use runvil_plugin::{Error, ToolOutput, VfsOp};
 use runvil_plugin_sys::{RV_ERR_MISUSE, RV_ERR_REFUSED, RV_MAX_LINE, RvStatus, RvStr};
 use serde_json::Value;
-
-use crate::file::Lent;
 
 #[cfg(test)]
 #[path = "session-tests.rs"]
@@ -55,27 +52,10 @@ pub(crate) struct Session {
     pub(crate) tools: Vec<AddedTool>,
     /// The result a step finished its call with.
     pub(crate) result: Option<Result<ToolOutput, Error>>,
-    /// The files a step's file functions read: the access of the step's
-    /// tool call. `open_step` sets it while the step runs, and it is
-    /// `None` in every other call and once the step has returned.
-    access: Option<StepAccess>,
-    /// What a step's last file function handed the Plugin, which stays
-    /// valid until the next one, or until the step returns.
-    lent: Lent,
+    /// The file request a step made: the one operation a file function
+    /// of the step asked for.
+    pub(crate) request: Option<VfsOp>,
 }
-
-/// The access of the tool call whose step is open. A pointer, not a
-/// borrow, because a session is a `'static` allocation that its `ctx`
-/// names.
-#[derive(Clone, Copy)]
-struct StepAccess(NonNull<Access>);
-
-// A loaded Plugin owns the session of its load, which never names an
-// access, and a step's session names one only while the step runs. So the
-// pointer gives nobody a view of an `Access` after a panic, and a `Plugin`
-// stays unwind-safe, as it is without this field.
-impl UnwindSafe for StepAccess {}
-impl RefUnwindSafe for StepAccess {}
 
 /// The name and version a Plugin gave `describe_plugin`, copied.
 pub(crate) struct Described {
@@ -99,6 +79,8 @@ pub(crate) struct AddedTool {
     pub(crate) description: String,
     /// The parsed JSON Schema, an object.
     pub(crate) parameters: Value,
+    /// Whether a call of the tool changes files of its run.
+    pub(crate) changes_files: bool,
 }
 
 /// Sends one call of `verb` with a fresh session open on this thread.
@@ -109,24 +91,6 @@ pub(crate) fn open(
     verb: Verb,
     send: impl FnOnce(*mut c_void) -> RvStatus,
 ) -> (RvStatus, Box<Session>) {
-    open_over(verb, None, send)
-}
-
-/// Sends one step of a tool call, as [`open`] sends a call, with `access`
-/// as the files its file functions read.
-pub(crate) fn open_step(
-    access: &Access,
-    send: impl FnOnce(*mut c_void) -> RvStatus,
-) -> (RvStatus, Box<Session>) {
-    open_over(Verb::ToolCall, Some(access), send)
-}
-
-/// Sends one call of `verb` over `access`; see [`open`].
-fn open_over(
-    verb: Verb,
-    access: Option<&Access>,
-    send: impl FnOnce(*mut c_void) -> RvStatus,
-) -> (RvStatus, Box<Session>) {
     let session = NonNull::from(Box::leak(Box::new(Session {
         verb,
         misuse: None,
@@ -135,8 +99,7 @@ fn open_over(
         packs: Vec::new(),
         tools: Vec::new(),
         result: None,
-        access: access.map(|access| StepAccess(NonNull::from(access))),
-        lent: Lent::default(),
+        request: None,
     })));
     // A call inside a call, on one thread, keeps the outer session.
     let outer = OPEN.with(|cell| cell.replace(Some(session)));
@@ -147,12 +110,7 @@ fn open_over(
     OPEN.with(|cell| cell.set(outer));
     // SAFETY: `session` came from `Box::leak` above, and with the call
     // closed no slot holds it, so this is its only owner.
-    let mut session = unsafe { Box::from_raw(session.as_ptr()) };
-    // The borrow of `access` ends with this function, so the session must
-    // not name it past here, and what was lent is no longer valid.
-    session.access = None;
-    session.lent = Lent::default();
-    (status, session)
+    (status, unsafe { Box::from_raw(session.as_ptr()) })
 }
 
 /// Sends a call that has no arguments, with no session open on this
@@ -238,23 +196,6 @@ pub(crate) fn answer(
     .unwrap_or(RV_ERR_MISUSE)
 }
 
-/// Answers a file function, as [`answer`] answers a function of
-/// [`TOOL_CALL`]. `f` gets the files of the open step and the place that
-/// keeps what the function hands back.
-pub(crate) fn answer_file(
-    ctx: *mut c_void,
-    f: impl FnOnce(&Access, &mut Lent) -> Result<RvStatus, &'static str>,
-) -> RvStatus {
-    answer(ctx, &TOOL_CALL, |session| {
-        // Only `open_step` opens a step, and it always names an access.
-        let StepAccess(access) = session.access.ok_or(TOOL_CALL.wrong_call)?;
-        // SAFETY: `open_step` set the pointer from a reference that
-        // outlives the step and clears it when the step returns, and
-        // `answer` runs this only while that step is open on this thread.
-        f(unsafe { access.as_ref() }, &mut session.lent)
-    })
-}
-
 /// Records the Plugin's refusal of the open call of `family`, validated;
 /// returns RV_ERR_REFUSED, or RV_ERR_MISUSE for a `ctx` it doesn't answer
 /// or a second refusal.
@@ -270,7 +211,8 @@ pub(crate) fn refuse(ctx: *mut c_void, family: &Family, reason: RvStr) -> RvStat
     })
 }
 
-/// One string's bound, and what each way of breaking it is called.
+/// The bound of one string, or of one run of bytes, and what each way of
+/// breaking it is called.
 pub(crate) struct Field {
     cap: usize,
     too_long: &'static str,
@@ -278,9 +220,10 @@ pub(crate) struct Field {
     not_utf8: &'static str,
 }
 
-/// The [`Field`] of the string `$what` names, bounded at `$cap` bytes.
-/// The number is a literal, because it is part of the text of a misuse. A
-/// third argument is the contract's limit, which the number must equal.
+/// The [`Field`] of the string, or the run of bytes, `$what` names,
+/// bounded at `$cap` bytes. The number is a literal, because it is part
+/// of the text of a misuse. A third argument is the contract's limit,
+/// which the number must equal.
 macro_rules! field {
     ($what:literal, $cap:literal $(, $limit:expr)?) => {{
         $(const _: () = assert!($cap == $limit);)?
@@ -313,30 +256,39 @@ impl Field {
         }
     }
 
-    /// Copies the string `s` holds. The length is checked against the cap
-    /// before any byte is read, and `s.ptr` is read only when `s.len` is
-    /// nonzero, because `slice::from_raw_parts` with a NULL pointer is
-    /// undefined behavior even at length 0.
+    /// Copies the string `s` holds, which must be UTF-8, under the rules
+    /// of [`Field::bytes`].
     ///
     /// # Safety
     /// When `s.len` is nonzero, `s.ptr` must be valid for reads of `s.len`
     /// bytes for the duration of this call.
     pub(crate) unsafe fn read(&self, s: RvStr) -> Result<String, &'static str> {
-        if s.len > self.cap {
+        // SAFETY: the caller's guarantee is that of `Field::bytes`.
+        let bytes = unsafe { self.bytes(s.ptr.cast::<u8>(), s.len) }?;
+        String::from_utf8(bytes).map_err(|_| self.not_utf8)
+    }
+
+    /// Copies the `len` bytes at `ptr`. The length is checked against the
+    /// cap before any byte is read, and `ptr` is read only when `len` is
+    /// nonzero, because `slice::from_raw_parts` with a NULL pointer is
+    /// undefined behavior even at length 0.
+    ///
+    /// # Safety
+    /// When `len` is nonzero, `ptr` must be valid for reads of `len`
+    /// bytes for the duration of this call.
+    pub(crate) unsafe fn bytes(&self, ptr: *const u8, len: usize) -> Result<Vec<u8>, &'static str> {
+        if len > self.cap {
             return Err(self.too_long);
         }
-        if s.len == 0 {
-            return Ok(String::new());
+        if len == 0 {
+            return Ok(Vec::new());
         }
-        if s.ptr.is_null() {
+        if ptr.is_null() {
             return Err(self.null_with_length);
         }
-        // SAFETY: `s.ptr` is not NULL and `s.len` is at most the cap, and
-        // the caller guarantees `s.ptr` is valid for `s.len` bytes.
-        let bytes = unsafe { slice::from_raw_parts(s.ptr.cast::<u8>(), s.len) };
-        std::str::from_utf8(bytes)
-            .map(str::to_owned)
-            .map_err(|_| self.not_utf8)
+        // SAFETY: `ptr` is not NULL and `len` is at most the cap, and the
+        // caller guarantees `ptr` is valid for `len` bytes.
+        Ok(unsafe { slice::from_raw_parts(ptr, len) }.to_vec())
     }
 }
 
@@ -400,44 +352,6 @@ impl Shape {
         }
         // SAFETY: `size` says the Plugin wrote a whole `T`.
         Ok(unsafe { &*at })
-    }
-}
-
-/// One struct a Plugin hands a function to fill, and what each way of
-/// handing it over wrongly is called.
-pub(crate) struct Out {
-    null: &'static str,
-    misaligned: &'static str,
-}
-
-/// The [`Out`] of the struct the function `$function` fills and calls
-/// its `$what`.
-macro_rules! out {
-    ($function:literal, $what:literal) => {
-        $crate::session::Out::new(
-            concat!($function, " was handed a NULL ", $what, " pointer"),
-            concat!($function, " was handed a misaligned ", $what, " pointer"),
-        )
-    };
-}
-pub(crate) use out;
-
-impl Out {
-    /// An out struct with the name of each breach.
-    pub(crate) const fn new(null: &'static str, misaligned: &'static str) -> Out {
-        Out { null, misaligned }
-    }
-
-    /// `at`, once it is known to be a place a `T` can be written to. It
-    /// reads nothing.
-    pub(crate) fn check<T>(&self, at: *mut T) -> Result<*mut T, &'static str> {
-        if at.is_null() {
-            return Err(self.null);
-        }
-        if !at.is_aligned() {
-            return Err(self.misaligned);
-        }
-        Ok(at)
     }
 }
 
