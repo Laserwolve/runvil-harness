@@ -17,8 +17,10 @@
 //! operations a tool call asks for through its files in the `files` child
 //! module, the order of one reply's calls when a tool changes files in
 //! the `files_order` child module, one path used by two parties of a run
-//! in the `files_shared` child module, and the runs that end before they
-//! start and the one error `run` returns in the `errors` child module.
+//! in the `files_shared` child module, the turns the loop gives its
+//! executor while a call asks for files in the `files_turns` child
+//! module, and the runs that end before they start and the one error
+//! `run` returns in the `errors` child module.
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -49,6 +51,8 @@ mod files;
 mod files_order;
 #[path = "harness-files-shared.rs"]
 mod files_shared;
+#[path = "harness-files-turns.rs"]
+mod files_turns;
 #[path = "harness-inbox.rs"]
 mod inbox;
 #[path = "harness-stop.rs"]

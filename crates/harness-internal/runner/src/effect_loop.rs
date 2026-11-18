@@ -39,6 +39,14 @@
 //! Vfs effect whose call has gone since it asked is answered `Dropped`
 //! unperformed.
 //!
+//! The loop performs a request and wakes its call without returning to
+//! its executor, so it gives the executor a turn itself. After a set
+//! number of requests, and before it reports the next one, the run's
+//! future wakes itself and returns pending once. The executor's other
+//! tasks run then, one that raises a cancel or a stop among them, however
+//! long a tool call keeps asking. No Vfs effect is outstanding at that
+//! point, and the request is still at its desk.
+//!
 //! An effect the step withdraws is answered `Dropped` without being
 //! performed, and a withdrawn effect an earlier step issued is aborted
 //! and answered `Dropped`, so the step that decides the run leaves the
@@ -373,7 +381,8 @@ impl Driver {
     /// Waits for the next answer, then answers every effect already
     /// landed behind it, or acts on a cancel or a stop as soon as one is
     /// raised, or delivers what the Host sent, or reports a tool call's
-    /// file request to the run.
+    /// file request to the run, after a turn of the executor when the
+    /// run's queue of requests says one is due.
     ///
     /// Before a delivery, a stop raised before the messages were sent is
     /// handled, so a Host that stops and then sends gets the stop, and
@@ -392,6 +401,13 @@ impl Driver {
                 self.deliver(texts).await
             }
             Woken::Asked(call) => {
+                // Every Vfs effect is answered before the loop waits, so
+                // none is outstanding during the turn, and the request
+                // stays at its desk. A stop or a cancel raised during the
+                // turn is handled as one raised while a call asks.
+                if self.asked.turn_due() {
+                    give_a_turn().await;
+                }
                 self.report_request(call);
                 Ok(())
             }
@@ -974,6 +990,22 @@ impl Flights {
         self.fill();
         aborted
     }
+}
+
+/// Returns to the executor once, so that its other tasks run. The future
+/// wakes itself before it returns pending, so the executor polls the run
+/// again after them, and it needs no runtime of its own.
+async fn give_a_turn() {
+    let mut given = false;
+    poll_fn(|cx| {
+        if given {
+            return Poll::Ready(());
+        }
+        given = true;
+        cx.waker().wake_by_ref();
+        Poll::Pending
+    })
+    .await;
 }
 
 /// Performs `op`, an operation a tool call asked for, on `access`, and

@@ -18,6 +18,12 @@
 //! it while its call is in flight, and the desk discards its outcome. A
 //! desk lives as long as its call is in flight: the loop drops what a
 //! call that has landed or was aborted still asks for.
+//!
+//! The queue also counts the requests the loop takes, and tells the loop
+//! when it owes its executor a turn: once in every
+//! [`REQUESTS_PER_TURN`] requests. The loop performs a request and wakes
+//! its call without returning to the executor, so calls that keep asking
+//! would otherwise hold the executor's thread for as long as they ask.
 
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
@@ -30,6 +36,10 @@ use runvil_engine::effect::EffectId;
 use runvil_engine::vfs::{VfsError, VfsOp, VfsOutcome};
 use runvil_plugin::ToolFiles;
 
+/// How many file requests the effect loop takes before it gives its
+/// executor a turn.
+const REQUESTS_PER_TURN: u32 = 32;
+
 /// The run-wide queue of the tool calls that asked for a file operation:
 /// one entry for each request, oldest first.
 #[derive(Default)]
@@ -37,13 +47,17 @@ pub(crate) struct Asked {
     queue: Mutex<AskedQueue>,
 }
 
-/// The calls that asked, and the effect loop's waker.
+/// The calls that asked, the effect loop's waker, and the count of the
+/// requests the loop took.
 #[derive(Default)]
 struct AskedQueue {
     /// The id of the call behind each request the loop has not taken.
     calls: VecDeque<EffectId>,
     /// The loop's waker, kept from the last poll that found no call.
     waker: Option<Waker>,
+    /// The requests whose calls the loop took from the queue since it
+    /// last gave its executor a turn.
+    taken: u32,
 }
 
 impl Asked {
@@ -68,6 +82,20 @@ impl Asked {
         }
         queue.waker = Some(cx.waker().clone());
         Poll::Pending
+    }
+
+    /// Counts one request whose call the loop took from the queue, and
+    /// says whether the loop owes its executor a turn before it reports
+    /// that request: once in every [`REQUESTS_PER_TURN`] requests of the
+    /// run.
+    pub(crate) fn turn_due(&self) -> bool {
+        let mut queue = lock(&self.queue);
+        queue.taken += 1;
+        if queue.taken < REQUESTS_PER_TURN {
+            return false;
+        }
+        queue.taken = 0;
+        true
     }
 }
 
