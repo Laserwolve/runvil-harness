@@ -154,10 +154,10 @@ impl RunParams {
     /// Sets the run's VFS handle: the filesystem the run's tool calls work
     /// in.
     ///
-    /// Every tool call effect carries an access to this filesystem, so the
-    /// run's tools share one set of files, which the caller can fill
-    /// before the run and read after it through its own clone of `vfs`.
-    /// The default is one empty memory mount at `/`.
+    /// Every file operation a tool call asks for works on this
+    /// filesystem, so the run's tools share one set of files, which the
+    /// caller can fill before the run and read after it through its own
+    /// clone of `vfs`. The default is one empty memory mount at `/`.
     ///
     /// No store of the run is part of it. Every section's `store` table
     /// operates on a store the Engine makes empty and keeps to the run:

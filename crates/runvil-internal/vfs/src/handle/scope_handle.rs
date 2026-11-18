@@ -14,9 +14,10 @@ use crate::traits::ExecId;
 /// The authority over one scope, which [`VfsRef::acquire_scope`] returns
 /// beside the scope's root [`Access`].
 ///
-/// No other call makes one, and an `Access` never yields one, so code that
-/// holds only accesses - a tool given its call's access, a caller given a
-/// store view - cannot fork, join, or end an identity, or end the scope.
+/// No other call makes one, and an `Access` never yields one. So code
+/// that holds only accesses, such as a caller given the access of a tool
+/// call or a store view, cannot fork, join, or end an identity, or end
+/// the scope.
 /// Every method that takes an `Access` panics on one from another scope,
 /// so a scope handle acts on its own scope alone.
 /// A scope handle never keeps its scope alive.

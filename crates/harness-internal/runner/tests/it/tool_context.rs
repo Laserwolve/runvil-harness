@@ -1,6 +1,6 @@
 //! The context a tool call lends its Pack: the Pack writes the files of
-//! the setup's filesystem through `cx.access()`, where the Host reads
-//! them after the run, that access and the run's store share no file,
+//! the setup's filesystem through `cx.files()`, where the Host reads
+//! them after the run, those files and the run's store share no file,
 //! and `cx.origin()` names the section's script as the caller.
 
 use std::sync::Arc;
@@ -11,7 +11,8 @@ use runvil_engine::make_tool_error;
 use runvil_engine::vfs::{Origin, VfsRef};
 use runvil_engine::{Error, ErrorCode};
 use runvil_plugin::{
-    BoxFuture, Pack, PackId, PackInfo, ToolContext, ToolId, ToolInfo, ToolOutput, VfsError,
+    BoxFuture, Pack, PackId, PackInfo, ToolContext, ToolId, ToolInfo, ToolOutput, VfsError, VfsOp,
+    VfsOutcome,
 };
 use serde_json::{Value, json};
 
@@ -32,9 +33,9 @@ const CALLS_RECORD: &str = "---\nname: calls-record\ndescription: d\nrunvil: 0\n
     return answer .. '|' .. tostring(store.exists('from-tool.md'))\n```\n";
 
 /// The fixture Pack `context`: one tool, `context/record`, which writes
-/// [`WRITTEN`] to `/from-tool.md` through the access its call lends it
-/// and answers with the caller its origin names beside whether that
-/// access finds `/from-store.md`.
+/// [`WRITTEN`] to `/from-tool.md` through the files its call lends it
+/// and answers with the caller its origin names beside whether those
+/// files hold `/from-store.md`.
 const CONTEXT: (PackInfo, Make) = (PackInfo::new("tests/context"), new_record);
 
 struct Record {
@@ -48,7 +49,7 @@ struct Record {
 fn new_record(name: &PackId) -> Result<Arc<dyn Pack>, Error> {
     let record = ToolInfo::new(
         ToolId::parse(&format!("{name}/record")).unwrap(),
-        "Write a file through the call's access and name the caller.",
+        "Write a file through the call's files and name the caller.",
         json!({ "type": "object", "properties": {} }),
     );
     Ok(Arc::new(Record {
@@ -69,14 +70,20 @@ impl Pack for Record {
         Box::pin(async move {
             let refused =
                 |error: VfsError| make_tool_error(ErrorCode::ToolOther, format!("record: {error}"));
-            let files = cx.access();
-            files
-                .write("/from-tool.md", WRITTEN.as_bytes())
-                .map_err(refused)?;
-            let stored = files.exists("/from-store.md").map_err(refused)?;
+            let files = cx.files();
+            let write = VfsOp::Write {
+                path: "/from-tool.md".to_owned(),
+                contents: WRITTEN.as_bytes().to_vec(),
+            };
+            files.request(write).await.map_err(refused)?;
+            let exists = VfsOp::Exists {
+                path: "/from-store.md".to_owned(),
+            };
+            let stored = files.request(exists).await.map_err(refused)?;
             Ok(ToolOutput::trusted(format!(
-                "{:?}|{stored}",
-                cx.origin().caller
+                "{:?}|{}",
+                cx.origin().caller,
+                stored == VfsOutcome::Bool(true)
             )))
         })
     }

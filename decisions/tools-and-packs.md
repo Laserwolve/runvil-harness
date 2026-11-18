@@ -280,15 +280,15 @@ The Harness calls `new_pack` while it prepares the run, so a factory returns qui
 
 `Pack::tools` returns the Pack's tool list, which the Harness reads once per run. `Pack::call` performs one tool call. `Pack::ready` resolves when the tool list is complete. `Pack::render` shapes the offered tools for a model.
 
-### `ToolContext` lends each call the tool id, its files, a file access, and the call's origin
+### `ToolContext` lends each call the tool id, its files, and the call's origin
 
-`ToolContext::tool` returns the id of the called tool. `ToolContext::files` returns the call's files, a `ToolFiles`: the call asks for one operation of the `VfsOp` list with `request` and awaits its `VfsOutcome`. `ToolContext::access` returns the call's file access, on which the call performs an operation itself. Both work under the call's own identity, on paths rooted at `/` of the file system that the Host gave the run. Neither reaches a store, so a tool sees no file that `store.write` wrote ([Files and the VFS](files-and-the-vfs.md)). `ToolContext::origin` says which section and which caller made the call. The context lends each of them only until the call ends, so the Rust compiler rejects a Pack that stores the files or the access.
+`ToolContext::tool` returns the id of the called tool. `ToolContext::files` returns the call's files, a `ToolFiles`: the call asks for one operation of the `VfsOp` list with `request` and awaits its `VfsOutcome`. A request works under the call's own identity, on paths rooted at `/` of the file system that the Host gave the run. It reaches no store, so a tool sees no file that `store.write` wrote ([Files and the VFS](files-and-the-vfs.md)). The context holds no file access, so a request is the call's one way to the run's files. `ToolContext::origin` says which section and which caller made the call. The context lends each of them only until the call ends, so the Rust compiler rejects a Pack that stores the files.
 
 The owner's rule: "The tool can't keep the access. ... it has to give it up, after the call is done". A Rust Pack reads the services it needs at `install` and stores them in its factory.
 
 ### The rules that every `Pack::call` follows
 
-1. Return to the poll quickly. A call sends blocking or CPU-heavy work to the Host's runtime, because the Harness polls every effect of a run on the same task. A call awaits a file operation that it asks for through its files, and the Harness performs it between two polls of the call. An operation on the call's access is the exception: it is synchronous by design, and the run waits for it inside the poll.
+1. Return to the poll quickly. A call sends blocking or CPU-heavy work to the Host's runtime, because the Harness polls every effect of a run on the same task. A call awaits a file operation that it asks for through its files, and the Harness performs it between two polls of the call.
 2. Report failure as an `Error`. The Harness answers a panicking call as `Dropped` and logs the panic.
 3. Mark as untrusted any output that embeds data an attacker can influence.
 4. Expect to be dropped. The Harness drops the call's future on a stop, on a cancel, and when the calling task ends.
@@ -296,7 +296,7 @@ The owner's rule: "The tool can't keep the access. ... it has to give it up, aft
 
 ### A tool keeps nothing from one call that changes what a later call returns
 
-A tool's result depends on the call's arguments, the run's files, and what the tool reaches outside the run. Whatever one call would leave for a later call goes into the run's files, and the record holds each change that a tool asks for through the files of its call ([Files and the VFS](files-and-the-vfs.md)). A connection or a client that a Pack's factory shares between runs changes no result, so the rule leaves it alone.
+A tool's result depends on the call's arguments, the run's files, and what the tool reaches outside the run. Whatever one call would leave for a later call goes into the run's files, and the record holds each such change, because a tool changes a file of the run only by a request through the files of its call ([Files and the VFS](files-and-the-vfs.md)). A connection or a client that a Pack's factory shares between runs changes no result, so the rule leaves it alone.
 
 The owner's rule: "Tools are not allowed to have internal states, and if they do, they have to be recorded." The reason is replay, which feeds each recorded tool result back to the Engine and runs no tool. The owner's words: "On a replay, the, the shell tool is not invoked. The shell tool never executes." A run that went on live after a replay would call a tool that holds none of the state its earlier calls left. The shell of the `bash` Pack is the one shipped tool that keeps such state today, and the owner has decided that each of its calls gets a shell of its own (see Planned work).
 
@@ -308,13 +308,13 @@ A tool that changes files sets `changes_files` in its `ToolInfo`, and the Engine
 
 The operation itself is synchronous, because the storage underneath is synchronous ([Files and the VFS](files-and-the-vfs.md)): the Harness performs it with one blocking call. The Harness is also independent of any particular async runtime, so each part of the context has to be independent of tokio. A request is a future that the Harness itself wakes, so a tool awaits it on any runtime.
 
-An operation on the access of the `ToolContext` runs inside the call, holds the run until it returns, and stays out of the record (see Planned work). The shipped Rust Packs, `web` and `mcp`, use neither the files nor the access. The shipped tools that touch files are in the library Plugins `std` and `bashkit`, and they ask through the file functions of the contract, so the record holds each of their file operations.
+The shipped Rust Packs, `web` and `mcp`, ask for no file operation. The shipped tools that touch files are in the library Plugins `std` and `bashkit`, and they ask through the file functions of the contract, so the record holds each of their file operations.
 
 A long file job yields so that the Harness can cancel it. Grep, in the `std` library, ends its step after every 32 files or directories, or after 2 MiB read, so a stop or a cancel drops a long search between two steps.
 
 ### The run's mode policy decides each file change that a tool makes
 
-Every file operation of a tool runs on the call's access, whether the Harness performs it for the tool or the tool performs it itself, and the file system applies the run's mode policy to each one. In Ask mode it refuses each change, and in Plan mode it accepts changes to markdown paths. A `store` call is outside the policy, because the run's store is no part of the file system that tools work in. Workshop's runs use the file system's default policy, `AllowAll` ([Files and the VFS](files-and-the-vfs.md)).
+The Harness performs every file operation of a tool on the file access of its call, and the file system applies the run's mode policy to each one. In Ask mode it refuses each change, and in Plan mode it accepts changes to markdown paths. A `store` call is outside the policy, because the run's store is no part of the file system that tools work in. Workshop's runs use the file system's default policy, `AllowAll` ([Files and the VFS](files-and-the-vfs.md)).
 
 The check is in the file system because every operation passes through the access, so the check covers every tool, including each tool written later.
 
@@ -433,7 +433,6 @@ The Pack uses `rmcp`'s own HTTP client, which refuses redirects, so the client s
 Each of these items is still to be built.
 
 - **One Plugin API.** `plugin-web` and `plugin-mcp` written against the C contract and inserted with `insert_plugin`, so that a Pack compiled into the Host goes through the same contract as a Pack from a library and the two `install` functions, which is what both Plugins are, go away. The contract first needs what the two Packs use and contract 0.5 lacks: for `mcp`, a configuration for its list of servers, the call's origin, and the `describes_tools` flag, for `web`, the Host's search provider, and for both, the Host's runtime handle, a Pack inserted as unavailable with a reason, a call that waits on work outside its step, and error causes.
-- **A `ToolContext` with no file access.** A tool call whose every file operation is a request through the files of its call, so that the file access leaves `ToolContext` ([Files and the VFS](files-and-the-vfs.md)). Today a Rust Pack can perform an operation itself on the access of its call, outside the run's record, and no shipped Pack does.
 - **The `std` tools that are stubs.** Write, StrReplace, Delete, and Glob, each of which answers a fixed text that says the tool is missing from this build. The first three wait for the Pack to use the file functions of contract 0.5.
 - **Approval by a person.** The step that asks the operator to approve a file change. When the run's policy answers `Ask`, the file system refuses the operation with `VfsError::ApprovalRequired` and a reason, which a library Pack's tool receives as a denied file error with the same reason, and a run under Workshop cannot reach that error, because the shipped tools read files only and Workshop's runs use `AllowAll`.
 - **Ignore files.** Applying `.gitignore`, so that Grep skips a folder such as `target/` and spends its budget of 100,000 files elsewhere. Walks skip `.git` and names that contain a control character.

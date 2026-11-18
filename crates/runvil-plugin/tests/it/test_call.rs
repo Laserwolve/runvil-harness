@@ -24,34 +24,34 @@ fn asked(call: &TestCall, op: VfsOp) -> Result<VfsOutcome, VfsError> {
     }
 }
 
+/// A write of `text` to `path`.
+fn write(path: &str, text: &str) -> VfsOp {
+    VfsOp::Write {
+        path: path.to_owned(),
+        contents: text.as_bytes().to_vec(),
+    }
+}
+
+/// A read of the first 64 bytes of `path`.
+fn read(path: &str) -> VfsOp {
+    VfsOp::ReadRange {
+        path: path.to_owned(),
+        offset: 0,
+        len: 64,
+    }
+}
+
 #[test]
 fn a_test_calls_files_answer_each_request_at_once_from_the_calls_own_filesystem() {
     let call = TestCall::new(inspect());
-    let write = VfsOp::Write {
-        path: "/notes.md".to_owned(),
-        contents: b"asked for".to_vec(),
-    };
-    assert_eq!(asked(&call, write), Ok(VfsOutcome::Unit));
     assert_eq!(
-        call.context()
-            .access()
-            .read("/notes.md")
-            .expect("the access reads what the files wrote"),
-        b"asked for"
+        asked(&call, write("/notes.md", "asked for")),
+        Ok(VfsOutcome::Unit)
     );
-
-    call.context()
-        .access()
-        .write("/seeded.md", b"seeded")
-        .expect("the in-memory filesystem accepts a write");
-    let read = VfsOp::ReadRange {
-        path: "/seeded.md".to_owned(),
-        offset: 0,
-        len: 64,
-    };
     assert_eq!(
-        asked(&call, read),
-        Ok(VfsOutcome::Bytes(b"seeded".to_vec()))
+        asked(&call, read("/notes.md")),
+        Ok(VfsOutcome::Bytes(b"asked for".to_vec())),
+        "a later request reads what an earlier one wrote"
     );
 
     let missing = VfsOp::Remove {
@@ -72,14 +72,16 @@ fn a_test_call_lends_its_tool_a_script_origin_and_a_working_filesystem() {
     let cx = call.context();
     assert_eq!(cx.tool(), &inspect());
     assert_eq!(cx.origin().caller, ToolCaller::Script);
-    cx.access()
-        .write("notes.md", b"hello")
-        .expect("the in-memory filesystem accepts a write");
+    // A test seeds a file before the call and reads what the call left
+    // after it, each through a context of its own.
     assert_eq!(
-        cx.access()
-            .read("notes.md")
-            .expect("the written file reads back"),
-        b"hello"
+        asked(&call, write("notes.md", "hello")),
+        Ok(VfsOutcome::Unit)
+    );
+    assert_eq!(
+        asked(&call, read("notes.md")),
+        Ok(VfsOutcome::Bytes(b"hello".to_vec())),
+        "every context of one call lends the same files"
     );
 }
 
@@ -95,18 +97,14 @@ fn a_test_call_with_a_caller_lends_that_caller() {
 #[test]
 fn each_test_call_has_a_filesystem_of_its_own() {
     let first = TestCall::new(inspect());
-    first
-        .context()
-        .access()
-        .write("left.txt", b"1")
-        .expect("the in-memory filesystem accepts a write");
+    assert_eq!(asked(&first, write("left.txt", "1")), Ok(VfsOutcome::Unit));
     let second = TestCall::new(inspect());
-    assert!(
-        !second
-            .context()
-            .access()
-            .exists("left.txt")
-            .expect("an existence check succeeds"),
+    let exists = VfsOp::Exists {
+        path: "left.txt".to_owned(),
+    };
+    assert_eq!(
+        asked(&second, exists),
+        Ok(VfsOutcome::Bool(false)),
         "a second call starts from an empty filesystem"
     );
 }

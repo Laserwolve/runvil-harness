@@ -1,9 +1,11 @@
 //! Scenarios: a facade test's setup as data, the [`Driver`] that steps its
 //! run, and the [`Trace`] a finished run leaves.
 //!
-//! The driver answers a store effect with `perform_vfs_op` and a timer as
-//! fired at once, a chat effect with the next scripted reply served under
-//! the bound model's name, and a tool call with the registered handler. An
+//! The driver answers a file effect with what `perform_vfs_op` returns,
+//! as the whole outcome for a `store` call and as its receipt for a tool
+//! call's request, and a timer as fired at once. It answers a chat effect
+//! with the next scripted reply served under the bound model's name, and
+//! a tool call with the registered handler. An
 //! effect the scenario holds waits. An effect the run withdraws gets
 //! `Dropped`, whether the scenario holds it or the withdrawing step issued
 //! it; no other effect is ever dropped. The driver fails the test instead
@@ -17,7 +19,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
 use runvil_engine::ToolCatalog;
-use runvil_engine::effect::{Effect, EffectAnswer, EffectId, IssuedEffect};
+use runvil_engine::effect::{Effect, EffectAnswer, EffectId, IssuedEffect, VfsAsker, VfsReceipt};
 use runvil_engine::event::Event;
 use runvil_engine::ids::Provenance;
 use runvil_engine::model::{Completion, ModelInfo, ModelRole};
@@ -341,7 +343,15 @@ impl Driver {
 
     fn answer(&mut self, effect: Effect) -> TestResult<EffectAnswer> {
         Ok(match effect {
-            Effect::Vfs { access, op, .. } => EffectAnswer::Vfs(perform_vfs_op(&access, &op)),
+            Effect::Vfs { asker, access, op } => {
+                let outcome = perform_vfs_op(&access, &op);
+                match asker {
+                    VfsAsker::Tool { .. } => {
+                        EffectAnswer::VfsReceipt(outcome.map(|outcome| VfsReceipt::of(&outcome)))
+                    }
+                    _ => EffectAnswer::Vfs(outcome),
+                }
+            }
             Effect::Timer { .. } => EffectAnswer::Timer,
             Effect::Render { offered, .. } => EffectAnswer::Render(offered),
             Effect::Chat { binding, .. } => {

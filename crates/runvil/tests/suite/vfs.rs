@@ -10,7 +10,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 use runvil::harness::{MemoryRecorder, Packs, RecordKind, RunId};
 use runvil::packs::PackId;
 use runvil::plugin::{Pack, PackInfo, PackRegistry, ToolContext};
-use runvil::vfs::{MemoryBackend, Op, Origin, Policy, Verdict, VfsError, VfsPath, VfsRef};
+use runvil::vfs::{
+    MemoryBackend, Op, Origin, Policy, Verdict, VfsError, VfsOp, VfsOutcome, VfsPath, VfsRef,
+};
 use runvil::{
     BoxFuture, Error, ErrorCode, RunSetup, ToolId, ToolInfo, ToolOutput, make_tool_error,
 };
@@ -39,8 +41,8 @@ const KEEPS: &str = concat!(
     "```\n",
 );
 
-/// The Pack `acme/desk`, whose one tool, `desk/read`, reads `/notes.md`
-/// through the access its call is lent.
+/// The Pack `acme/desk`, whose one tool, `desk/read`, asks for the text
+/// of `/notes.md` through the files its call is lent.
 const DESK: PackInfo = PackInfo::new("acme/desk").description("Reads the notes on the desk");
 
 /// One run's instance of [`DESK`].
@@ -59,15 +61,22 @@ impl Pack for Desk {
         _args: Value,
     ) -> BoxFuture<'a, Result<ToolOutput, Error>> {
         Box::pin(async move {
+            let read = VfsOp::Read {
+                path: "/notes.md".to_owned(),
+                start: None,
+                end: None,
+            };
+            let failed = |why: String| {
+                let text = format!("{} cannot read /notes.md: {why}", cx.tool());
+                make_tool_error(ErrorCode::ToolOther, text)
+            };
             // The notes are the Host's own text, so the script reads them
             // as trusted output, verbatim.
-            cx.access()
-                .read_string("/notes.md")
-                .map(ToolOutput::trusted)
-                .map_err(|error| {
-                    let text = format!("{} cannot read /notes.md: {error}", cx.tool());
-                    make_tool_error(ErrorCode::ToolOther, text)
-                })
+            match cx.files().request(read).await {
+                Ok(VfsOutcome::Text(notes)) => Ok(ToolOutput::trusted(notes)),
+                Ok(other) => Err(failed(format!("the read answered {other:?}"))),
+                Err(error) => Err(failed(error.to_string())),
+            }
         })
     }
 }

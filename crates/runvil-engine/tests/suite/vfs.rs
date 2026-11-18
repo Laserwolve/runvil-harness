@@ -1,42 +1,63 @@
 //! Guarding and watching the files a run's tool calls work in, and the
-//! run's own store, which shares no file with them. The loop here
-//! performs each tool call itself, through the call's own access.
+//! run's own store, which shares no file with them. The loop here plays
+//! each tool call itself: it reports the file operations the tool asks
+//! for with `Run::request_file`, and performs each through the access of
+//! the `Vfs` effect the run issues for it.
 
 use std::sync::{Arc, Mutex};
 
-use runvil_engine::effect::{Effect, EffectAnswer, IssuedEffect};
+use runvil_engine::effect::{Effect, EffectAnswer, EffectId, IssuedEffect, VfsAsker, VfsReceipt};
 use runvil_engine::vfs::{
-    Access, MemoryBackend, Mode, ModePolicy, Op, OpEvent, Origin, VfsError, VfsOp, VfsRef,
-    VfsRefBuilder, perform_vfs_op,
+    Access, MemoryBackend, Mode, ModePolicy, Op, OpEvent, Origin, VfsError, VfsOp, VfsOutcome,
+    VfsRef, VfsRefBuilder, perform_vfs_op,
 };
 use runvil_engine::{Run, Step, ToolCatalog, ToolOutput};
 use serde_json::{Value, json};
 
 use super::support::{Built, Scenario, TestResult, greeter, note, tool_info};
 
-/// The id of the one tool a run here may call, which [`drive`] performs.
+/// The id of the one tool a run here may call, which [`drive`] plays.
 const KEEP: &str = "example/note/keep";
 
-/// What a test has [`KEEP`] do with one call's access and arguments: the
-/// text the tool answers with.
-type Perform = fn(&Access, &Value) -> TestResult<String>;
+/// What a test has [`KEEP`] do in one call.
+struct Keep {
+    /// The file operations the tool asks for, in order, given the call's
+    /// arguments.
+    asks: fn(&Value) -> TestResult<Vec<VfsOp>>,
+    /// The text the tool answers with, given the outcomes of those
+    /// operations, in order.
+    says: fn(&[VfsOutcome]) -> TestResult<String>,
+}
+
+/// A call of [`KEEP`] that waits for the outcomes of its operations.
+struct Open {
+    /// The id of the call's effect.
+    call: EffectId,
+    /// How many of the call's operations the run has still to issue.
+    asked: usize,
+    /// The outcome of each operation performed so far, in order.
+    outcomes: Vec<VfsOutcome>,
+}
 
 /// A run this module's own loop stepped to its end.
 struct Ran {
     /// The run's final text.
     text: String,
-    /// Each `Vfs` effect's store view, in issue order, kept once the loop
-    /// had performed the effect through it.
+    /// The store view of each `Vfs` effect a `store` call asked for, in
+    /// issue order, kept once the loop had performed the effect through
+    /// it.
     views: Vec<Arc<Access>>,
     /// The run itself, at `Done` and not yet dropped.
     run: Run,
 }
 
 /// Runs `source` over `vfs` with [`KEEP`] as its one catalog tool, as a
-/// caller's loop does: it performs each store effect through that
-/// effect's view, and each tool call through `tool`, which it lends the
-/// call's access.
-fn drive(vfs: &VfsRef, source: &str, tool: Perform) -> TestResult<Ran> {
+/// caller's loop does. It performs each store effect through that
+/// effect's view. It plays each tool call as `tool` says: it reports
+/// each operation the tool asks for, performs it through the access of
+/// the effect the run issues for it, answers that effect with the
+/// receipt, and answers the call once every outcome is in.
+fn drive(vfs: &VfsRef, source: &str, tool: &Keep) -> TestResult<Ran> {
     let catalog = ToolCatalog::new([tool_info(KEEP, json!({ "type": "object" }))?])?;
     let vfs = vfs.clone();
     let scenario = Scenario::default()
@@ -44,9 +65,10 @@ fn drive(vfs: &VfsRef, source: &str, tool: Perform) -> TestResult<Ran> {
     let Built { prompt, ctx } = scenario.build(source)?;
     let mut run = Run::new(Arc::new(prompt), "{}", ctx);
     let mut views = Vec::new();
+    let mut open: Option<Open> = None;
     loop {
         // Each prompt here runs one chain to its end, so no step
-        // withdraws an effect.
+        // withdraws an effect, and one tool call is open at a time.
         let effects = match run.step() {
             Step::Pending { effects, .. } => effects,
             Step::Done { result, .. } => {
@@ -58,18 +80,48 @@ fn drive(vfs: &VfsRef, source: &str, tool: Perform) -> TestResult<Ran> {
             }
         };
         for IssuedEffect { id, effect, .. } in effects {
-            let answer = match effect {
+            match effect {
+                Effect::ToolCall { args, .. } => {
+                    let ops = (tool.asks)(&args)?;
+                    let asked = ops.len();
+                    for op in ops {
+                        run.request_file(id, op);
+                    }
+                    open = Some(Open {
+                        call: id,
+                        asked,
+                        outcomes: Vec::new(),
+                    });
+                }
+                Effect::Vfs {
+                    asker: VfsAsker::Tool { .. },
+                    access,
+                    op,
+                } => {
+                    // The tool gets the whole outcome, and the run its
+                    // receipt.
+                    let outcome = perform_vfs_op(&access, &op)?;
+                    run.resume(id, EffectAnswer::VfsReceipt(Ok(VfsReceipt::of(&outcome))));
+                    let call = open.as_mut().ok_or("a file effect names an open call")?;
+                    call.outcomes.push(outcome);
+                    call.asked -= 1;
+                }
                 Effect::Vfs { access, op, .. } => {
                     let outcome = perform_vfs_op(&access, &op);
                     views.push(access);
-                    EffectAnswer::Vfs(outcome)
-                }
-                Effect::ToolCall { access, args, .. } => {
-                    EffectAnswer::ToolCall(Ok(ToolOutput::trusted(tool(&access, &args)?)))
+                    run.resume(id, EffectAnswer::Vfs(outcome));
                 }
                 other => return Err(format!("no prompt here asks for {other:?}").into()),
-            };
-            run.resume(id, answer);
+            }
+        }
+        // A call whose every operation has its outcome ends with what
+        // the tool says of them.
+        if let Some(call) = open.take_if(|call| call.asked == 0) {
+            let said = (tool.says)(&call.outcomes)?;
+            run.resume(
+                call.call,
+                EffectAnswer::ToolCall(Ok(ToolOutput::trusted(said))),
+            );
         }
     }
 }
@@ -80,17 +132,33 @@ fn keeps_hello() -> String {
 }
 
 /// [`KEEP`] as a tool that keeps a note: it writes the call's `text` to
-/// `/note.md` through `access` and answers with the file read back.
-fn keep_note(access: &Access, args: &Value) -> TestResult<String> {
-    let text = args["text"].as_str().ok_or("the call passes its `text`")?;
-    access.write("/note.md", text.as_bytes())?;
-    Ok(access.read_string("/note.md")?)
-}
+/// `/note.md` and answers with the file read back.
+const KEEP_NOTE: Keep = Keep {
+    asks: |args| {
+        let text = args["text"].as_str().ok_or("the call passes its `text`")?;
+        Ok(vec![
+            VfsOp::Write {
+                path: "/note.md".to_owned(),
+                contents: text.as_bytes().to_vec(),
+            },
+            VfsOp::Read {
+                path: "/note.md".to_owned(),
+                start: None,
+                end: None,
+            },
+        ])
+    },
+    says: |outcomes| match outcomes {
+        [_, VfsOutcome::Text(text)] => Ok(text.clone()),
+        other => Err(format!("the note was written and read back, got {other:?}").into()),
+    },
+};
 
 /// [`KEEP`] under a prompt that calls no tool: a call fails the test.
-fn no_tool(_: &Access, _: &Value) -> TestResult<String> {
-    Err("the prompt calls no tool".into())
-}
+const NO_TOOL: Keep = Keep {
+    asks: |_| Err("the prompt calls no tool".into()),
+    says: |_| Err("the prompt calls no tool".into()),
+};
 
 /// Each watched operation's kind, path, and origin.
 type Watched = Arc<Mutex<Vec<(Op, String, Origin)>>>;
@@ -120,7 +188,7 @@ fn agent_mode_lets_a_tool_call_write_and_ask_mode_refuses_a_later_write() -> Tes
         .policy(policy)
         .build();
 
-    assert_eq!(drive(&vfs, &keeps_hello(), keep_note)?.text, "hello");
+    assert_eq!(drive(&vfs, &keeps_hello(), &KEEP_NOTE)?.text, "hello");
 
     mode.set(Mode::Ask);
     let access = vfs.acquire(Origin::new("caller"))?;
@@ -138,7 +206,7 @@ fn an_operation_watcher_sees_a_tool_calls_write_then_read_under_the_calls_origin
     let (builder, log) = watched();
 
     assert_eq!(
-        drive(&builder.build(), &keeps_hello(), keep_note)?.text,
+        drive(&builder.build(), &keeps_hello(), &KEEP_NOTE)?.text,
         "hello"
     );
 
@@ -164,7 +232,7 @@ fn a_mode_policy_and_an_operation_watcher_never_see_a_store_operation() -> TestR
     let vfs = builder.policy(ModePolicy::new(Mode::Ask)).build();
 
     assert_eq!(
-        drive(&vfs, &note("'hello'"), no_tool)?.text,
+        drive(&vfs, &note("'hello'"), &NO_TOOL)?.text,
         "hello",
         "the Ask mode, which refuses every change to the caller's files, lets the store write"
     );
@@ -191,7 +259,7 @@ fn each_run_starts_with_an_empty_store_that_shares_no_file_with_the_callers_file
 
     // The second run finds neither the caller's file nor the first run's.
     for _ in 0..2 {
-        assert_eq!(drive(&vfs, &source, no_tool)?.text, "false 0");
+        assert_eq!(drive(&vfs, &source, &NO_TOOL)?.text, "false 0");
     }
 
     let access = vfs.acquire(Origin::new("caller"))?;
@@ -214,11 +282,24 @@ fn a_tool_call_and_the_runs_store_share_no_file() -> TestResult {
         return found .. ' ' .. store.read('note.md')",
     );
     // The tool looks for the store's note, then writes one of its own.
-    let ran = drive(&VfsRef::default(), &source, |access, _| {
-        let found = access.exists("/note.md")?;
-        access.write("/note.md", b"from the tool")?;
-        Ok(found.to_string())
-    })?;
+    let looks_then_writes = Keep {
+        asks: |_| {
+            Ok(vec![
+                VfsOp::Exists {
+                    path: "/note.md".to_owned(),
+                },
+                VfsOp::Write {
+                    path: "/note.md".to_owned(),
+                    contents: b"from the tool".to_vec(),
+                },
+            ])
+        },
+        says: |outcomes| match outcomes {
+            [VfsOutcome::Bool(found), _] => Ok(found.to_string()),
+            other => Err(format!("the tool looked and then wrote, got {other:?}").into()),
+        },
+    };
+    let ran = drive(&VfsRef::default(), &source, &looks_then_writes)?;
     assert_eq!(ran.text, "false from the store");
     Ok(())
 }
@@ -227,7 +308,7 @@ fn a_tool_call_and_the_runs_store_share_no_file() -> TestResult {
 fn a_store_view_is_the_callers_one_way_to_the_runs_store_and_refuses_every_operation_once_the_run_is_done()
 -> TestResult {
     let vfs = VfsRef::default();
-    let ran = drive(&vfs, &note("'hello'"), no_tool)?;
+    let ran = drive(&vfs, &note("'hello'"), &NO_TOOL)?;
     assert_eq!(
         ran.text, "hello",
         "the read through its view returns what the write through its view stored"

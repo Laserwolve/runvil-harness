@@ -76,7 +76,7 @@ The traits are synchronous because the backends are synchronous by nature: memor
 
 ### The Host builds the file system that a run's tools work in
 
-A Host sets `RunSetup.vfs` to one `VfsRef` for each run: the file system that the run's tool calls work in ([The Harness and the Host API](harness-and-host.md)). The Harness passes the handle to the Engine with `RunParams::with_vfs`, and each tool call receives an `Access` to it. `RunSetup::new` sets a default `VfsRef`, one empty in-memory mount at `/`. A Host can fill the handle before a run and read it after the run, through its own clone of the `VfsRef`, and concurrent runs can share one handle. When the handle refuses the run its access, or refuses the fork for a task or a tool call, the failure has the handle's own error code and the message `file access failed: {cause}`.
+A Host sets `RunSetup.vfs` to one `VfsRef` for each run: the file system that the run's tool calls work in ([The Harness and the Host API](harness-and-host.md)). The Harness passes the handle to the Engine with `RunParams::with_vfs`, and the Engine makes an `Access` to it for each tool call. `RunSetup::new` sets a default `VfsRef`, one empty in-memory mount at `/`. A Host can fill the handle before a run and read it after the run, through its own clone of the `VfsRef`, and concurrent runs can share one handle. When the handle refuses the run its access, or refuses the fork for a task or a tool call, the failure has the handle's own error code and the message `file access failed: {cause}`.
 
 The Host builds the handle because the mounts are the Host's choice: memory, a real directory, or a backend of its own. The handle holds tool files alone, and the Engine and the Harness put nothing into it.
 
@@ -168,17 +168,15 @@ The scope bounds what a run can do: once it is closed, no access of the run chan
 
 ### A tool call works under its own identity, which the Engine ends with the call
 
-The Engine forks an identity for each Pack tool call. The identity's `Access`, rooted at `/` of the run's handle, reaches the files of the handle and no store, and every file operation of the call runs on it ([Tools and Packs](tools-and-packs.md)). The Engine passes the `Access` in each `Vfs` effect that it issues for a request of the call, and the Harness performs the operation on it. The `ToolCall` effect holds the same `Access`, and a Rust Pack can perform an operation on it itself. A Pack that follows the C contract has no way to the `Access`: each file function of the contract is a request, which the Harness performs as a `Vfs` effect. When the Harness answers the call or the Engine aborts it, `ScopeHandle::end_access` joins the identity into the calling chain, and every later operation through that `Access` fails with `ScopeEnded`. The Engine ends the identity because a call that it aborted could otherwise still write.
+The Engine forks an identity for each Pack tool call. The identity's `Access`, rooted at `/` of the run's handle, reaches the files of the handle and no store, and every file operation of the call runs on it ([Tools and Packs](tools-and-packs.md)). The Engine keeps the `Access` and passes it in each `Vfs` effect that it issues for a request of the call, and the Harness performs the operation on it. A tool has no way to the `Access`: the `ToolCall` effect holds none, and neither the Rust API nor the C contract lends one to a call. When the Harness answers the call or the Engine aborts it, `ScopeHandle::end_access` joins the identity into the calling chain, and every later operation through that `Access` fails with `ScopeEnded`. The Engine ends the identity because a file operation of a call that it aborted could otherwise still run.
 
 A tool call's operations make no claim, so none of them conflicts with another access (see the entry on the claims check). A failure of one, such as a path that is absent or a policy's denial, goes to the tool alone, and its Pack decides how to answer the call. The Engine ends a run for a conflict only in the answer to a `store` call.
 
 ### A tool's file request is a `Vfs` effect, which the Harness performs and records
 
-A tool asks for a file operation and waits for the outcome. A Rust Pack's tool asks through the files of its call, and a library Pack's tool asks through a file function of the C contract, which the loader passes on through the files of the call ([Tools and Packs](tools-and-packs.md)). The Harness reports the request to the Engine, the Engine issues a `Vfs` effect under the call's identity, the Harness performs and records it, and the tool goes on with the answer ([The Engine](engine.md)). The owner's rule: "every VFS operation that's performed by a tool has to turn into an effect in the engine."
+A tool asks for a file operation and waits for the outcome. A Rust Pack's tool asks through the files of its call, and a library Pack's tool asks through a file function of the C contract, which the loader passes on through the files of the call ([Tools and Packs](tools-and-packs.md)). The Harness reports the request to the Engine, the Engine issues a `Vfs` effect under the call's identity, the Harness performs and records it, and the tool goes on with the answer ([The Engine](engine.md)). A request is a tool's one way to the run's files, so the record holds every file operation of a tool. The owner's rule: "every VFS operation that's performed by a tool has to turn into an effect in the engine."
 
 The reason is the record. The owner's questions about a tool that performs its file operations itself: "how's replay gonna work? How are we gonna do replay? How are we gonna handle debugging?" One ordered record of a run exists only if the Harness sees every effect and every answer ([The Harness and the Host API](harness-and-host.md)).
-
-One way to a file stays outside the record: an operation that a Rust Pack performs itself on the `Access` of its call. The `Access` is to leave a tool's reach (see Planned work).
 
 ## 6. Errors
 
@@ -220,7 +218,6 @@ A run has one way in, its arguments, and one way out, its result. The owner's re
 
 ## 8. Planned work
 
-- **A tool call whose every file operation is an effect.** The `Access` of a call leaving the `ToolCall` effect and the Rust API, so that a tool reaches a file only by asking. Today a Rust Pack can perform an operation itself on the `Access` of its call, and the record holds no such operation ([Tools and Packs](tools-and-packs.md)).
 - **A database mount.** A mount would show an agent's run database as files. Its backend is synchronous like every other, so a backend over a database client with an async interface drives that client on a thread of its own. The backends that ship are `MemoryBackend` and `RealBackend`.
 - **Replay.** Replay would read a run's records back into a run, and a debugger would rebuild each store of a run from the same records, at any step. Today the Harness records each `Vfs` effect and its answer.
 - **Glob across mounts.** A glob would also search the backends mounted below the mount that matches its pattern. Today a glob runs inside that one mount and skips a backend mounted below it.

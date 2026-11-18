@@ -725,7 +725,7 @@ pub(crate) fn seeded_call(name: &str, files: &[(&str, &str)]) -> TestCall {
 /// files.
 pub(crate) fn context_over<'a>(call: &'a TestCall, files: &'a dyn ToolFiles) -> ToolContext<'a> {
     let lent = call.context();
-    ToolContext::new(lent.tool(), lent.access(), lent.origin(), files)
+    ToolContext::new(lent.tool(), lent.origin(), files)
 }
 
 /// The whole text of the file at `path` in the filesystem of `call`.

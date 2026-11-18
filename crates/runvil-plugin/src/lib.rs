@@ -95,11 +95,10 @@
 //!   Host's runtime. A file operation is the exception: it is synchronous
 //!   by design, and the run waits for it. The Harness performs each
 //!   operation a call asks for through [`ToolContext::files`] with one
-//!   blocking call, and an operation through the call's access holds the
-//!   run until it returns.
-//! - A call asks for a file operation through [`ToolContext::files`], so
-//!   the run's record holds it. An operation through the call's access is
-//!   outside the record.
+//!   blocking call, between two polls of the call.
+//! - [`ToolContext::files`] is a call's one way to the run's files. The
+//!   call asks for each file operation through it, so the run's record
+//!   holds every file operation of a tool.
 //! - A tool whose calls change files sets `changes_files` in its
 //!   [`ToolInfo`]. The Engine then issues each of its calls alone, in the
 //!   order the model listed them, so the changes of one model reply
@@ -138,4 +137,4 @@ pub use runvil_types::packs::PackId;
 pub use runvil_types::tools::{
     OutputTrust, ToolCallOrigin, ToolCaller, ToolId, ToolInfo, ToolOutput, make_tool_error,
 };
-pub use runvil_vfs::{Access, Entry, FileType, PathReason, Stat, VfsError, VfsOp, VfsOutcome};
+pub use runvil_vfs::{Entry, FileType, PathReason, Stat, VfsError, VfsOp, VfsOutcome};

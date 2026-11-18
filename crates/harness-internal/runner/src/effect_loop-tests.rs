@@ -12,7 +12,6 @@ use runvil_engine::effect::{Round, ToolCallOrigin};
 use runvil_engine::model::{
     Completion, CompletionOptions, Message, ModelBinding, ModelCatalog, ToolSchema,
 };
-use runvil_engine::vfs::Access;
 use runvil_engine::{
     BoxFuture, Error, ErrorCode, Prompt, Run, RunParams, RunSeed, Step, Timestamp,
 };
@@ -111,7 +110,6 @@ impl ToolPerformer for Unused {
         &self,
         _tool: ToolId,
         _alias: String,
-        _access: Arc<Access>,
         _origin: ToolCallOrigin,
         _args: Value,
         _files: Arc<dyn ToolFiles>,

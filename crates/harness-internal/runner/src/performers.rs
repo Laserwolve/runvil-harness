@@ -33,7 +33,6 @@ use runvil_engine::effect::{PackToolSets, Round, ToolCallOrigin};
 use runvil_engine::model::{
     Completion, CompletionOptions, Message, ModelBinding, ModelCatalog, ModelInfo, ToolSchema,
 };
-use runvil_engine::vfs::Access;
 use runvil_engine::{BoxFuture, Error, Timestamp};
 use runvil_engine::{ToolId, ToolInfo, ToolOutput};
 use runvil_plugin::ToolFiles;
@@ -75,9 +74,9 @@ pub trait InferenceBroker: Send + Sync {
 }
 
 /// Performs a `ToolCall` effect: resolves `tool` to an implementation and
-/// calls it with `args`, lending it the call's `access`, `origin`, and
-/// `files`. Also performs a `Render` effect: the tools each offered Pack
-/// shows the model.
+/// calls it with `args`, lending it the call's `origin` and `files`. Also
+/// performs a `Render` effect: the tools each offered Pack shows the
+/// model.
 ///
 /// Each method returns a [`BoxFuture`] for the Harness to poll. The future
 /// is `Send` and `'static`. It can move between threads, and it owns the
@@ -85,18 +84,16 @@ pub trait InferenceBroker: Send + Sync {
 pub trait ToolPerformer: Send + Sync {
     /// Calls the tool. `alias` is the tool's wire name for a model call and
     /// its canonical id for a script call, for the performer's own
-    /// diagnostics; `tool` is the identity it resolves. `access` is the
-    /// call's own filesystem access and `origin` says who made the call.
-    /// `files` is the call's desk at the effect loop: the tool asks it for
-    /// each file operation, and the loop performs and records the
-    /// operation and resolves the request. The returned future owns all
-    /// three until it finishes, and drops them when it finishes or is
-    /// dropped.
+    /// diagnostics; `tool` is the identity it resolves. `origin` says who
+    /// made the call. `files` is the call's desk at the effect loop, and
+    /// the tool's one way to the run's files: the tool asks it for each
+    /// file operation, and the loop performs and records the operation
+    /// and resolves the request. The returned future owns both until it
+    /// finishes, and drops them when it finishes or is dropped.
     fn call(
         &self,
         tool: ToolId,
         alias: String,
-        access: Arc<Access>,
         origin: ToolCallOrigin,
         args: Value,
         files: Arc<dyn ToolFiles>,

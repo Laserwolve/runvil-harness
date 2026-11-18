@@ -543,9 +543,8 @@ pub fn runvil::plugin::PackRegistry::into_entries(self) -> impl core::iter::trai
 pub fn runvil::plugin::PackRegistry::list(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&runvil::plugin::PackInfo, runvil::plugin::PackOrigin)>
 pub fn runvil::plugin::PackRegistry::new() -> runvil::plugin::PackRegistry
 pub fn runvil::plugin::RenderContext::new(entry: &'a str, model: &'a runvil::model::ModelInfo) -> Self
-pub fn runvil::plugin::ToolContext::access(&self) -> &'a runvil::vfs::Access
 pub fn runvil::plugin::ToolContext::files(&self) -> &'a dyn runvil::plugin::ToolFiles
-pub fn runvil::plugin::ToolContext::new(tool: &'a runvil::ToolId, access: &'a runvil::vfs::Access, origin: &'a runvil::effect::ToolCallOrigin, files: &'a dyn runvil::plugin::ToolFiles) -> Self
+pub fn runvil::plugin::ToolContext::new(tool: &'a runvil::ToolId, origin: &'a runvil::effect::ToolCallOrigin, files: &'a dyn runvil::plugin::ToolFiles) -> Self
 pub fn runvil::plugin::ToolContext::origin(&self) -> &'a runvil::effect::ToolCallOrigin
 pub fn runvil::plugin::ToolContext::tool(&self) -> &'a runvil::ToolId
 pub fn runvil::plugin::ToolFiles::request(&self, op: runvil::vfs::VfsOp) -> runvil::BoxFuture<'_, core::result::Result<runvil::vfs::VfsOutcome, runvil::vfs::VfsError>>

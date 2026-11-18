@@ -586,16 +586,13 @@ impl Driver {
                 alias,
                 args,
                 origin,
-                access,
                 survives_stop,
             } => {
                 let performer = Arc::clone(&self.tool);
                 let desk = CallDesk::open(id, &self.asked);
                 let files: Arc<dyn ToolFiles> = Arc::clone(&desk) as _;
                 let call = async move {
-                    let output = performer
-                        .call(tool, alias, access, origin, args, files)
-                        .await;
+                    let output = performer.call(tool, alias, origin, args, files).await;
                     EffectAnswer::ToolCall(output)
                 };
                 self.flights

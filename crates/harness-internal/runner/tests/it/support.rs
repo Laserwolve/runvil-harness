@@ -18,7 +18,6 @@ use runvil_engine::effect::{Round, ToolCallOrigin};
 use runvil_engine::model::{
     Completion, CompletionOptions, Message, ModelBinding, ModelCatalog, ToolSchema,
 };
-use runvil_engine::vfs::Access;
 use runvil_engine::{BoxFuture, Error, ErrorCode};
 use runvil_engine::{Prompt, Run, RunParams, RunSeed, Timestamp};
 use runvil_engine::{ToolCatalog, ToolId, ToolInfo, ToolOutput};
@@ -180,7 +179,6 @@ impl ToolPerformer for Unused {
         &self,
         _tool: ToolId,
         _alias: String,
-        _access: Arc<Access>,
         _origin: ToolCallOrigin,
         _args: Value,
         _files: Arc<dyn ToolFiles>,
@@ -210,7 +208,6 @@ impl ToolPerformer for TextTool {
         &self,
         _tool: ToolId,
         _alias: String,
-        _access: Arc<Access>,
         _origin: ToolCallOrigin,
         _args: Value,
         _files: Arc<dyn ToolFiles>,
@@ -228,7 +225,6 @@ impl ToolPerformer for PendingTool {
         &self,
         _tool: ToolId,
         _alias: String,
-        _access: Arc<Access>,
         _origin: ToolCallOrigin,
         _args: Value,
         _files: Arc<dyn ToolFiles>,
@@ -246,7 +242,6 @@ impl ToolPerformer for PanickingTool {
         &self,
         _tool: ToolId,
         _alias: String,
-        _access: Arc<Access>,
         _origin: ToolCallOrigin,
         _args: Value,
         _files: Arc<dyn ToolFiles>,
@@ -271,7 +266,6 @@ impl ToolPerformer for ClosingTool {
         &self,
         _tool: ToolId,
         _alias: String,
-        _access: Arc<Access>,
         _origin: ToolCallOrigin,
         _args: Value,
         _files: Arc<dyn ToolFiles>,
@@ -411,7 +405,6 @@ impl ToolPerformer for GatedTool {
         &self,
         _tool: ToolId,
         _alias: String,
-        _access: Arc<Access>,
         _origin: ToolCallOrigin,
         _args: Value,
         _files: Arc<dyn ToolFiles>,

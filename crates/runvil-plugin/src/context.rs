@@ -7,7 +7,7 @@ use std::fmt;
 use runvil_types::future::BoxFuture;
 use runvil_types::models::ModelInfo;
 use runvil_types::tools::{ToolCallOrigin, ToolId};
-use runvil_vfs::{Access, VfsError, VfsOp, VfsOutcome};
+use runvil_vfs::{VfsError, VfsOp, VfsOutcome};
 
 /// The files of one tool call: the call asks for a file operation and
 /// waits for its outcome.
@@ -42,21 +42,19 @@ pub trait ToolFiles: Send + Sync {
 }
 
 /// What one tool call lends its Pack: facts about that call alone, the
-/// called tool's id, the call's files, the call's filesystem access, and
-/// who made the call.
+/// called tool's id, the call's files, and who made the call.
 ///
-/// The files and the access reach one filesystem under one identity, the
-/// call's own, which ends with the call. The filesystem checks no
-/// conflicts: an operation runs whatever another call or task has read or
-/// written, and the later write to a path is its content. A tool that
-/// edits a file as a read and a later write can therefore lose a change
-/// that another task makes between the two, where one
-/// [`VfsOp::StrReplace`] cannot. Both are rooted at `/`. An
-/// operation asked for through [`files`](ToolContext::files) is in the
-/// run's record, and one made through [`access`](ToolContext::access) is
-/// outside it. The context borrows everything for the call alone, so a
-/// Pack cannot store the files or the access, move them into a spawned
-/// task or thread, or keep them past the call.
+/// The files are the call's one way to the run's filesystem. Every
+/// operation the call asks for runs under one identity, the call's own,
+/// which ends with the call, on paths rooted at `/`, and the run's record
+/// holds each one. The filesystem checks no conflicts: an operation runs
+/// whatever another call or task has read or written, and the later
+/// write to a path is its content. A tool that edits a file as a read
+/// and a later write can therefore lose a change that another task makes
+/// between the two, where one [`VfsOp::StrReplace`] cannot. The context
+/// borrows everything for the call alone, so a Pack cannot store the
+/// files, move them into a spawned task or thread, or keep them past the
+/// call.
 ///
 /// A call gets no services. A Plugin's `install` keeps the Host-wide
 /// services its Pack needs in the Pack's
@@ -64,7 +62,6 @@ pub trait ToolFiles: Send + Sync {
 /// instance it makes at [`new_pack`](crate::PackFactory::new_pack).
 pub struct ToolContext<'a> {
     tool: &'a ToolId,
-    access: &'a Access,
     origin: &'a ToolCallOrigin,
     files: &'a dyn ToolFiles,
 }
@@ -73,25 +70,18 @@ impl fmt::Debug for ToolContext<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ToolContext")
             .field("tool", &self.tool)
-            .field("access", &self.access)
             .field("origin", &self.origin)
             .finish_non_exhaustive()
     }
 }
 
 impl<'a> ToolContext<'a> {
-    /// Facts about one call: the tool id, its access, its origin, and
-    /// its files. The Harness builds one per call.
+    /// Facts about one call: the tool id, its origin, and its files. The
+    /// Harness builds one per call.
     #[must_use]
-    pub fn new(
-        tool: &'a ToolId,
-        access: &'a Access,
-        origin: &'a ToolCallOrigin,
-        files: &'a dyn ToolFiles,
-    ) -> Self {
+    pub fn new(tool: &'a ToolId, origin: &'a ToolCallOrigin, files: &'a dyn ToolFiles) -> Self {
         Self {
             tool,
-            access,
             origin,
             files,
         }
@@ -109,13 +99,6 @@ impl<'a> ToolContext<'a> {
     #[must_use]
     pub fn files(&self) -> &'a dyn ToolFiles {
         self.files
-    }
-
-    /// The call's filesystem access, rooted at `/`. An operation made
-    /// through it runs inside the call and is outside the run's record.
-    #[must_use]
-    pub fn access(&self) -> &'a Access {
-        self.access
     }
 
     /// Who made the call and where.
@@ -162,7 +145,7 @@ mod tests {
     use runvil_types::future::BoxFuture;
     use runvil_types::models::{ModelId, ModelInfo, ThinkingMode};
     use runvil_types::tools::{ToolCallOrigin, ToolCaller, ToolId};
-    use runvil_vfs::{Access, Origin, VfsError, VfsOp, VfsOutcome, VfsRef};
+    use runvil_vfs::{VfsError, VfsOp, VfsOutcome};
 
     use super::{RenderContext, ToolContext, ToolFiles};
 
@@ -179,23 +162,16 @@ mod tests {
         }
     }
 
-    fn fresh_access() -> Access {
-        VfsRef::default()
-            .acquire(Origin::new("context test"))
-            .expect("a fresh memory filesystem acquires")
-    }
-
     fn model_origin() -> ToolCallOrigin {
         ToolCallOrigin::new("Fetch", ToolCaller::Model)
     }
 
     #[test]
     fn each_getter_returns_the_value_the_context_was_built_from() {
-        let (tool, access, origin) = (fetch(), fresh_access(), model_origin());
+        let (tool, origin) = (fetch(), model_origin());
         let files = NoFiles;
-        let cx = ToolContext::new(&tool, &access, &origin, &files);
+        let cx = ToolContext::new(&tool, &origin, &files);
         assert!(std::ptr::eq(cx.tool(), &raw const tool));
-        assert!(std::ptr::eq(cx.access(), &raw const access));
         assert!(std::ptr::eq(cx.origin(), &raw const origin));
         assert!(std::ptr::addr_eq(cx.files(), &raw const files));
         assert_eq!(cx.tool().name(), "fetch");
@@ -204,8 +180,8 @@ mod tests {
 
     #[test]
     fn a_tool_context_shows_its_tool_and_origin_in_debug_and_not_its_files() {
-        let (tool, access, origin) = (fetch(), fresh_access(), model_origin());
-        let shown = format!("{:?}", ToolContext::new(&tool, &access, &origin, &NoFiles));
+        let (tool, origin) = (fetch(), model_origin());
+        let shown = format!("{:?}", ToolContext::new(&tool, &origin, &NoFiles));
         assert!(shown.starts_with("ToolContext { tool: "), "{shown}");
         assert!(
             shown.contains("\"fetch\"") && shown.contains("section: \"Fetch\""),

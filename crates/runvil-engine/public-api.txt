@@ -720,7 +720,6 @@ pub runvil_engine::effect::Effect::Render::offered: alloc::vec::Vec<runvil_engin
 pub runvil_engine::effect::Effect::Timer { .. }
 pub runvil_engine::effect::Effect::Timer::duration: core::time::Duration
 pub runvil_engine::effect::Effect::ToolCall { .. }
-pub runvil_engine::effect::Effect::ToolCall::access: alloc::sync::Arc<runvil_engine::vfs::Access>
 pub runvil_engine::effect::Effect::ToolCall::alias: alloc::string::String
 pub runvil_engine::effect::Effect::ToolCall::args: serde_json::value::Value
 pub runvil_engine::effect::Effect::ToolCall::origin: runvil_engine::effect::ToolCallOrigin

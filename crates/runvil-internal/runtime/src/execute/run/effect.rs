@@ -252,9 +252,11 @@ pub enum Effect {
     },
     /// One call to a Pack's tool: a run catalog tool, or a tool only the
     /// model sees, from the section entry's render. The caller resolves
-    /// `tool` to an implementation. The effect's record keeps every field
-    /// but `access`, a live handle, and `survives_stop`, which the run
-    /// catalog and the render's answer already give.
+    /// `tool` to an implementation. The effect holds no way to a file:
+    /// the tool asks the caller for each file operation, and the caller
+    /// reports the request with `Run::request_file`. The effect's record
+    /// keeps every field but `survives_stop`, which the run catalog and
+    /// the render's answer already give.
     ToolCall {
         /// The tool's stable live identity.
         tool: ToolId,
@@ -265,14 +267,6 @@ pub enum Effect {
         /// Who made the call: the run, the section and its entry, and the
         /// section's script or the model whose round asked for it.
         origin: ToolCallOrigin,
-        /// The call's own identity, forked from the calling chain's
-        /// access when the call is issued and joined back into it when the
-        /// answer is applied or the call is aborted, so the chain's earlier
-        /// work happens before the tool's and the tool's before the chain's
-        /// next step. It is rooted at `/` of the filesystem the caller gave
-        /// the run, and it reaches no store. Once the answer is applied or
-        /// the call is aborted, every operation through it is refused.
-        access: Arc<Access>,
         /// Whether a stop leaves the call in flight, from the binding the
         /// call resolved to: the run catalog's flag for a catalog tool, and
         /// the flag the section entry's render gave a tool only the model
@@ -298,9 +292,14 @@ pub enum Effect {
     /// An open tool call asks through the caller: the caller reports the
     /// tool's request with `Run::request_file`, and the operation works
     /// on the filesystem the caller gave the run. `access` is then the
-    /// call's own, the one its [`ToolCall`](Effect::ToolCall) effect
-    /// holds. The caller hands the whole outcome to the tool and answers
-    /// with [`EffectAnswer::VfsReceipt`].
+    /// call's own identity, which the Engine forks from the calling
+    /// chain's access when it issues the call and joins back into it
+    /// when the call's answer is applied or the call is aborted. So the
+    /// chain's earlier work happens before the tool's, and the tool's
+    /// before the chain's next step. That access is rooted at `/` of the
+    /// filesystem, reaches no store, and refuses every operation once the
+    /// call has ended. The caller hands the whole outcome to the tool and
+    /// answers with [`EffectAnswer::VfsReceipt`].
     ///
     /// The caller must use the access exactly as given, for this one
     /// operation. When the caller drops the access does not affect

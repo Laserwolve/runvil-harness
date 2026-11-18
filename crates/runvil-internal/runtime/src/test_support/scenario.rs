@@ -33,7 +33,7 @@ use super::recording::{
     DebugCapture, DebugEvent, NullObserver, Observation, Observer, forward_one,
 };
 use super::scripted_chat::ScriptedChat;
-use super::{FnTool, drive_step, forward};
+use super::{FnTool, answer_vfs, drive_step, forward};
 use crate::Error;
 use crate::execute::{
     AnswerRecord, Effect, EffectAnswer, EffectId, EffectRecord, Run, RunLimits, RunParams,
@@ -121,11 +121,11 @@ enum Chat {
     Closure(Box<dyn Fn(&Effect) -> EffectAnswer>),
 }
 
-/// How a scenario answers its run's effects: a store operation on the
-/// effect's own access, a timer at once, a render with every offered tool
-/// passed through, a tool call through the scenario's tool of that id,
-/// and a model round from its script or closure, unless the scenario
-/// holds the effect.
+/// How a scenario answers its run's effects: a file operation on the
+/// effect's own access, with the answer its asker takes, a timer at
+/// once, a render with every offered tool passed through, a tool call
+/// through the scenario's tool of that id, and a model round from its
+/// script or closure, unless the scenario holds the effect.
 struct Answers {
     tools: BTreeMap<ToolId, FnTool>,
     chat: Option<Chat>,
@@ -182,7 +182,7 @@ impl Answers {
                     "the tool the call names has no implementation in the test driver's tool table",
                 ))),
             },
-            Effect::Vfs { access, op, .. } => EffectAnswer::Vfs(access.perform(op)),
+            Effect::Vfs { asker, access, op } => answer_vfs(asker, access, op),
             Effect::Timer { .. } => EffectAnswer::Timer,
         }
     }

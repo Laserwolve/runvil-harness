@@ -1,8 +1,10 @@
-//! Tests for the access a `ToolCall` effect carries: the call's own
-//! identity, forked from the calling chain when the call is issued and
-//! ended when its answer is applied or the call is aborted, and rooted at
-//! `/` of the handle the caller gave the run. The driver performs each
-//! call through that access. The run's handle checks no claims, so a
+//! Tests for the access a tool call's file requests run on: the call's
+//! own identity, forked from the calling chain when the call is issued
+//! and ended when its answer is applied or the call is aborted, and
+//! rooted at `/` of the handle the caller gave the run. The driver
+//! reports the one operation each call asks for with
+//! `Run::request_file`, and performs it through the access of the `Vfs`
+//! effect the run issues for it. The run's handle checks no claims, so a
 //! test of the order of identities has the driver note each call in a
 //! store of the test's own first, through a view under the call's
 //! identity: a store checks claims, and a note that nothing orders after
@@ -25,16 +27,18 @@ use runvil_vfs::{ExecId, Origin, Store, VfsRef};
 
 use super::models_loop::loop_models;
 use super::*;
-use crate::execute::run::{Effect, EffectAnswer, EffectId, IssuedEffect, Run, Step};
+use crate::execute::run::{
+    Effect, EffectAnswer, EffectId, IssuedEffect, Run, Step, VfsAsker, VfsReceipt,
+};
+use crate::test_support::perform_locally;
 use crate::test_support::scenario::text_of;
-use crate::test_support::{drive, perform_locally};
 
 /// The suite's one tool, called by its full id: it is the run's whole
 /// catalog.
 const FILES: &str = "test/tools/files";
 
 /// The tool the run binds. The driver performs its calls itself, through
-/// the effect's access, so its own call never runs.
+/// the access of each call's file request, so its own call never runs.
 #[track_caller]
 fn files_tool() -> FnTool {
     FnTool::new(FILES, json!({ "type": "object" }), |_| {
@@ -46,81 +50,157 @@ fn files_tool() -> FnTool {
     .description("reads, writes, or lists the run's files")
 }
 
-/// Performs one files call through `access`: `read` names a file whose
+/// The one operation a files call asks for: `read` names a file whose
 /// text is the output, `list` is a pattern whose matches are the output,
-/// joined with commas between brackets, and `write` names a file that
-/// receives `text`.
-fn use_access(
-    access: &Access,
-    args: &Value,
-) -> std::result::Result<ToolOutput, runvil_types::error::Error> {
-    let failed = |error: VfsError| make_tool_error(ErrorCode::ToolOther, error.to_string());
+/// and `write` names a file that receives `text`.
+fn asked_op(args: &Value) -> VfsOp {
     if let Some(path) = args["read"].as_str() {
-        return access
-            .read_string(path)
-            .map(ToolOutput::trusted)
-            .map_err(failed);
+        return VfsOp::Read {
+            path: path.to_owned(),
+            start: None,
+            end: None,
+        };
     }
     if let Some(pattern) = args["list"].as_str() {
-        return access
-            .glob(pattern)
-            .map(|paths| ToolOutput::trusted(format!("[{}]", paths.join(","))))
-            .map_err(failed);
+        return VfsOp::Glob {
+            pattern: pattern.to_owned(),
+        };
     }
     let path = args["write"]
         .as_str()
         .expect("a files call names a file to read or write, or a pattern to list");
-    let text = args["text"].as_str().unwrap_or_default();
-    access.write(path, text.as_bytes()).map_err(failed)?;
-    Ok(ToolOutput::trusted("written"))
+    VfsOp::Write {
+        path: path.to_owned(),
+        contents: args["text"]
+            .as_str()
+            .unwrap_or_default()
+            .as_bytes()
+            .to_vec(),
+    }
 }
 
-/// Notes one files call in `ledger`, a store the test keeps beside the
+/// One file request of a files call, as the run issued it.
+struct Asked<'a> {
+    /// The call's own access, which the run issued the operation with.
+    access: &'a Arc<Access>,
+    /// The operation the call asked for.
+    op: &'a VfsOp,
+}
+
+/// What a driver made of one file request: the outcome of its operation,
+/// which the run takes as a receipt, and the answer of the call that
+/// asked.
+type Performed = (std::result::Result<VfsOutcome, VfsError>, EffectAnswer);
+
+/// The answer of a files call whose operation ended as `outcome`: the
+/// text of a read, the matches of a listing joined with commas between
+/// brackets, `written` for a write, or the failure as a tool error.
+fn call_answer(outcome: &std::result::Result<VfsOutcome, VfsError>) -> EffectAnswer {
+    EffectAnswer::ToolCall(match outcome {
+        Ok(VfsOutcome::Text(text)) => Ok(ToolOutput::trusted(text.clone())),
+        Ok(VfsOutcome::Paths(paths)) => Ok(ToolOutput::trusted(format!("[{}]", paths.join(",")))),
+        Ok(_) => Ok(ToolOutput::trusted("written")),
+        Err(error) => Err(make_tool_error(ErrorCode::ToolOther, error.to_string())),
+    })
+}
+
+/// Performs the operation of `asked` through the call's access, and
+/// answers the call with what it found.
+fn use_access(asked: &Asked<'_>) -> Performed {
+    let outcome = asked.access.perform(asked.op);
+    let answer = call_answer(&outcome);
+    (outcome, answer)
+}
+
+/// Notes one file request in `ledger`, a store the test keeps beside the
 /// run: the call's write or read of its file, made through a view under
 /// the call's own identity. A store checks claims, which the run's handle
 /// does not, so the note fails with a conflict unless every earlier note
 /// of the file is ordered before this call.
-fn note_in(ledger: &Store, access: &Access, args: &Value) -> std::result::Result<(), VfsError> {
-    let view = ledger.view(access)?;
+fn note_in(ledger: &Store, asked: &Asked<'_>) -> std::result::Result<(), VfsError> {
+    let view = ledger.view(asked.access)?;
     let name = |path: &str| path.trim_start_matches('/').to_owned();
-    if let Some(path) = args["write"].as_str() {
-        return view.write(&name(path), b"noted");
+    match asked.op {
+        VfsOp::Write { path, .. } => view.write(&name(path), b"noted"),
+        VfsOp::Read { path, .. } => view.exists(&name(path)).map(drop),
+        _ => Ok(()),
     }
-    if let Some(path) = args["read"].as_str() {
-        return view.exists(&name(path)).map(drop);
-    }
-    Ok(())
 }
 
-/// Performs one files call through `access` once its note in `ledger` is
-/// made, or fails the call with the note's conflict and leaves the file
+/// [`use_access`] once the request's note in `ledger` is made. A note
+/// that conflicts fails the call with the conflict and leaves the file
 /// alone.
-fn use_noted(
-    ledger: &Store,
-    access: &Access,
-    args: &Value,
-) -> std::result::Result<ToolOutput, runvil_types::error::Error> {
-    note_in(ledger, access, args)
-        .map_err(|error| make_tool_error(ErrorCode::ToolOther, error.to_string()))?;
-    use_access(access, args)
+fn use_noted(ledger: &Store, asked: &Asked<'_>) -> Performed {
+    match note_in(ledger, asked) {
+        Ok(()) => use_access(asked),
+        Err(conflict) => {
+            let outcome = Err(conflict);
+            let answer = call_answer(&outcome);
+            (outcome, answer)
+        }
+    }
 }
 
-/// The identities a driven run's effects held, in issue order: each tool
-/// call's access, and each store effect's view, which keeps its chain's
+/// The receipt the run takes for an operation that ended as `outcome`.
+fn receipt(outcome: std::result::Result<VfsOutcome, VfsError>) -> EffectAnswer {
+    EffectAnswer::VfsReceipt(outcome.map(|outcome| VfsReceipt::of(&outcome)))
+}
+
+/// What a driven files run came to: its result, and the identity each
+/// store effect's view held, in issue order. A view keeps its chain's
 /// identity.
-#[derive(Default)]
-struct Identities {
-    tools: Vec<ExecId>,
+struct Driven {
+    result: std::result::Result<String, runvil_types::error::Error>,
     stores: Vec<ExecId>,
 }
 
-impl Identities {
-    /// Whether every tool call ran under an identity of its own: distinct
-    /// from every other call's and from every chain's.
-    fn each_call_is_its_own(&self) -> bool {
-        self.tools.iter().enumerate().all(|(index, tool)| {
-            !self.stores.contains(tool) && !self.tools[index + 1..].contains(tool)
-        })
+/// Whether every tool call of `tools` ran under an identity of its own:
+/// distinct from every other call's and from every chain's in `stores`.
+fn each_call_is_its_own(tools: &[ExecId], stores: &[ExecId]) -> bool {
+    tools
+        .iter()
+        .enumerate()
+        .all(|(index, tool)| !stores.contains(tool) && !tools[index + 1..].contains(tool))
+}
+
+/// Drives `run` to its end as a caller whose tool asks for its files.
+/// For each files call, the driver reports the operation the call's
+/// arguments name with `Run::request_file`. The run issues it as a `Vfs`
+/// effect that holds the call's own access, `perform` makes of it the
+/// operation's outcome and the call's answer, and the driver answers the
+/// effect with the receipt and then the call. Each store effect runs on
+/// its view.
+fn drive_files(mut run: Run, mut perform: impl FnMut(Asked<'_>) -> Performed) -> Driven {
+    let mut stores = Vec::new();
+    loop {
+        let effects = match run.step() {
+            Step::Done { result, .. } => return Driven { result, stores },
+            Step::Pending { effects, .. } => effects,
+        };
+        assert!(
+            !effects.is_empty(),
+            "the driver answers every effect, so a pending step issues one"
+        );
+        for IssuedEffect { id, effect, .. } in effects {
+            match &effect {
+                Effect::ToolCall { args, .. } => run.request_file(id, asked_op(args)),
+                Effect::Vfs {
+                    asker: VfsAsker::Tool { call },
+                    access,
+                    op,
+                } => {
+                    let (outcome, answer) = perform(Asked { access, op });
+                    run.resume(id, receipt(outcome));
+                    run.resume(*call, answer);
+                }
+                other => {
+                    if let Effect::Vfs { access, .. } = other {
+                        stores.push(access.id());
+                    }
+                    run.resume(id, perform_store(other));
+                }
+            }
+        }
     }
 }
 
@@ -197,41 +277,25 @@ fn assert_all_refused_as_ended<T: fmt::Debug>(
     }
 }
 
-/// The serial driver's performer for a files run: each files call is
-/// performed through its own access and answered with its output, each
-/// store effect runs on its view, and `seen` notes the identity each
-/// held.
-fn files_answers(seen: &mut Identities) -> impl FnMut(EffectId, &Effect) -> EffectAnswer + '_ {
-    move |_, effect| match effect {
-        Effect::ToolCall { access, args, .. } => {
-            seen.tools.push(access.id());
-            EffectAnswer::ToolCall(use_access(access, args))
-        }
-        other => {
-            if let Effect::Vfs { access, .. } = other {
-                seen.stores.push(access.id());
-            }
-            perform_store(other)
-        }
+/// The performer of a files run for a test of the order of identities:
+/// each file request is first noted in a store the performer keeps, and
+/// a call whose note conflicts fails with the conflict. `tools` takes
+/// the identity each request held.
+fn ordered(tools: &mut Vec<ExecId>) -> impl FnMut(Asked<'_>) -> Performed + '_ {
+    let ledger = Store::new();
+    move |asked| {
+        tools.push(asked.access.id());
+        use_noted(&ledger, &asked)
     }
 }
 
-/// [`files_answers`] for a test of the order of identities: each files
-/// call is first noted in a store the performer keeps, and a call whose
-/// note conflicts fails with the conflict.
-fn ordered_answers(seen: &mut Identities) -> impl FnMut(EffectId, &Effect) -> EffectAnswer + '_ {
-    let ledger = Store::new();
-    move |_, effect| match effect {
-        Effect::ToolCall { access, args, .. } => {
-            seen.tools.push(access.id());
-            EffectAnswer::ToolCall(use_noted(&ledger, access, args))
-        }
-        other => {
-            if let Effect::Vfs { access, .. } = other {
-                seen.stores.push(access.id());
-            }
-            perform_store(other)
-        }
+/// The performer of a files run with no note: each file request is
+/// performed through its call's access. `tools` takes the identity each
+/// request held.
+fn unordered(tools: &mut Vec<ExecId>) -> impl FnMut(Asked<'_>) -> Performed + '_ {
+    move |asked| {
+        tools.push(asked.access.id());
+        use_access(&asked)
     }
 }
 
@@ -251,11 +315,8 @@ fn one_tool_call_hands_a_file_to_a_later_tool_call() -> std::result::Result<(), 
         return tools.call('test/tools/files', { read = '/handoff.txt' })\n\
         ```\n";
     let vfs = VfsRef::default();
-    let (result, _) = drive(
-        files_run(md, &vfs),
-        ordered_answers(&mut Identities::default()),
-    );
-    assert_eq!(text_of(result), "first call wrote this");
+    let driven = drive_files(files_run(md, &vfs), ordered(&mut Vec::new()));
+    assert_eq!(text_of(driven.result), "first call wrote this");
     assert_eq!(
         files_in(&vfs)?,
         one_file("/handoff.txt", "first call wrote this")
@@ -294,19 +355,15 @@ fn a_tool_call_of_an_executed_prompt_and_one_of_its_caller_hand_files_to_each_ot
         .tool(files_tool())
         .vfs(vfs.clone())
         .into_run();
-    let mut seen = Identities::default();
-    let (result, _) = drive(run, ordered_answers(&mut seen));
+    let mut tools = Vec::new();
+    let driven = drive_files(run, ordered(&mut tools));
     assert_eq!(
-        text_of(result),
+        text_of(driven.result),
         "the caller wrote this | the child wrote this"
     );
-    assert_eq!(
-        seen.tools.len(),
-        4,
-        "two calls of each prompt, none refused"
-    );
+    assert_eq!(tools.len(), 4, "two calls of each prompt, none refused");
     assert!(
-        seen.each_call_is_its_own(),
+        each_call_is_its_own(&tools, &driven.stores),
         "each call ran under an identity of its own"
     );
     assert_eq!(
@@ -336,11 +393,8 @@ fn a_tool_calls_work_is_ordered_after_its_chains_earlier_work_and_before_its_cha
         tools.call('test/tools/files', { write = 'turn.txt', text = 'second call' })\n\
         return tools.call('test/tools/files', { read = 'turn.txt' })\n\
         ```\n";
-    let (result, _) = drive(
-        files_run(md, &VfsRef::default()),
-        ordered_answers(&mut Identities::default()),
-    );
-    assert_eq!(text_of(result), "second call");
+    let driven = drive_files(files_run(md, &VfsRef::default()), ordered(&mut Vec::new()));
+    assert_eq!(text_of(driven.result), "second call");
 }
 
 #[test]
@@ -366,21 +420,15 @@ fn the_tool_calls_of_two_tasks_are_unordered_and_both_reach_the_runs_files()
         return tostring(pcall(tools.call, 'test/tools/files', { write = 'same.txt', text = 'right' }))\n\
         ```\n";
     let vfs = VfsRef::default();
-    let (result, _) = drive(
-        files_run(md, &vfs),
-        ordered_answers(&mut Identities::default()),
-    );
-    assert_eq!(text_of(result), "true|false");
+    let driven = drive_files(files_run(md, &vfs), ordered(&mut Vec::new()));
+    assert_eq!(text_of(driven.result), "true|false");
     assert_eq!(files_in(&vfs)?, one_file("/same.txt", "left"));
 
     // With no note to conflict, both calls write the file through the
     // run's handle, which checks no claims, and the later write stays.
     let vfs = VfsRef::default();
-    let (result, _) = drive(
-        files_run(md, &vfs),
-        files_answers(&mut Identities::default()),
-    );
-    assert_eq!(text_of(result), "true|true");
+    let driven = drive_files(files_run(md, &vfs), unordered(&mut Vec::new()));
+    assert_eq!(text_of(driven.result), "true|true");
     assert_eq!(files_in(&vfs)?, one_file("/same.txt", "right"));
     Ok(())
 }
@@ -400,16 +448,16 @@ fn each_tool_call_has_an_identity_of_its_own() {
         store.exists('after.txt')\n\
         return 'done'\n\
         ```\n";
-    let mut seen = Identities::default();
-    let (result, _) = drive(files_run(md, &VfsRef::default()), files_answers(&mut seen));
-    assert_eq!(text_of(result), "done");
-    assert_eq!(seen.tools.len(), 2, "two calls were issued");
+    let mut tools = Vec::new();
+    let driven = drive_files(files_run(md, &VfsRef::default()), unordered(&mut tools));
+    assert_eq!(text_of(driven.result), "done");
+    assert_eq!(tools.len(), 2, "two calls were issued");
     assert_eq!(
-        seen.stores, [seen.stores[0]; 3],
+        driven.stores, [driven.stores[0]; 3],
         "the chain keeps one identity across its calls"
     );
     assert!(
-        seen.each_call_is_its_own(),
+        each_call_is_its_own(&tools, &driven.stores),
         "each call ran under an identity forked from the chain, not the chain's own"
     );
 }
@@ -435,19 +483,19 @@ fn a_tasks_tool_calls_fork_from_the_task_and_the_owners_call_reads_their_file_af
         tools.call('test/tools/files', { write = 'out.txt', text = 'later call saw: ' .. seen })\n\
         return 'done'\n\
         ```\n";
-    let mut seen = Identities::default();
-    let (result, _) = drive(
-        files_run(md, &VfsRef::default()),
-        ordered_answers(&mut seen),
-    );
-    assert_eq!(text_of(result), "later call saw: task call wrote this");
+    let mut tools = Vec::new();
+    let driven = drive_files(files_run(md, &VfsRef::default()), ordered(&mut tools));
     assert_eq!(
-        seen.tools.len(),
+        text_of(driven.result),
+        "later call saw: task call wrote this"
+    );
+    assert_eq!(
+        tools.len(),
         4,
         "the task issued three calls and its owner one"
     );
     assert!(
-        seen.each_call_is_its_own(),
+        each_call_is_its_own(&tools, &driven.stores),
         "each call ran under its own identity"
     );
 }
@@ -455,11 +503,11 @@ fn a_tasks_tool_calls_fork_from_the_task_and_the_owners_call_reads_their_file_af
 #[test]
 fn a_tool_call_answered_dropped_is_still_joined_and_its_access_refuses_every_operation()
 -> std::result::Result<(), VfsError> {
-    // The driver performs the first call, answers it `Dropped`, and keeps
-    // its access. The second call reads what the first wrote, and its
-    // note meets no conflict, so the
-    // dropped call was joined into the chain; while the driver performs
-    // the second call, with the run's scope still open, it tries the
+    // The driver performs the first call's request, answers the call
+    // `Dropped`, and keeps its access. The second call reads what the
+    // first wrote, and its note meets no conflict, so the dropped call
+    // was joined into the chain; while the driver performs the second
+    // call's request, with the run's scope still open, it tries the
     // first call's access.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
         ## Only\n\n\
@@ -471,20 +519,17 @@ fn a_tool_call_answered_dropped_is_still_joined_and_its_access_refuses_every_ope
     let ledger = Store::new();
     let mut dropped: Option<Arc<Access>> = None;
     let mut late = None;
-    let (result, _) = drive(files_run(md, &vfs), |_, effect| match effect {
-        Effect::ToolCall { access, args, .. } => {
-            let output = use_noted(&ledger, access, args);
-            if let Some(earlier) = &dropped {
-                late = Some(every_operation(earlier, "dropped.txt"));
-                EffectAnswer::ToolCall(output)
-            } else {
-                dropped = Some(Arc::clone(access));
-                EffectAnswer::Dropped
-            }
+    let driven = drive_files(files_run(md, &vfs), |asked| {
+        let (outcome, answer) = use_noted(&ledger, &asked);
+        if let Some(earlier) = &dropped {
+            late = Some(every_operation(earlier, "dropped.txt"));
+            (outcome, answer)
+        } else {
+            dropped = Some(Arc::clone(asked.access));
+            (outcome, EffectAnswer::Dropped)
         }
-        other => perform_store(other),
     });
-    assert_eq!(text_of(result), "false:canceled|tool wrote this");
+    assert_eq!(text_of(driven.result), "false:canceled|tool wrote this");
     assert_all_refused_as_ended(late.expect("the second call tried the dropped call's access"));
     assert_eq!(
         files_in(&vfs)?,
@@ -495,10 +540,11 @@ fn a_tool_call_answered_dropped_is_still_joined_and_its_access_refuses_every_ope
 }
 
 #[test]
-fn an_access_kept_past_its_answer_refuses_every_operation_and_changes_nothing()
+fn an_access_kept_past_its_calls_answer_refuses_every_operation_and_changes_nothing()
 -> std::result::Result<(), VfsError> {
-    // The driver keeps the first call's access and tries it while
-    // performing the second call, with the run's scope still open.
+    // The driver keeps the access of the first call's request and tries
+    // it while performing the second call's request, with the run's
+    // scope still open.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
         ## Only\n\n\
         ```lua\n\
@@ -508,17 +554,14 @@ fn an_access_kept_past_its_answer_refuses_every_operation_and_changes_nothing()
     let vfs = VfsRef::default();
     let mut kept: Option<Arc<Access>> = None;
     let mut late = None;
-    let (result, _) = drive(files_run(md, &vfs), |_, effect| match effect {
-        Effect::ToolCall { access, args, .. } => {
-            if let Some(earlier) = &kept {
-                late = Some(every_operation(earlier, "first.txt"));
-            }
-            kept = Some(Arc::clone(access));
-            EffectAnswer::ToolCall(use_access(access, args))
+    let driven = drive_files(files_run(md, &vfs), |asked| {
+        if let Some(earlier) = &kept {
+            late = Some(every_operation(earlier, "first.txt"));
         }
-        other => perform_store(other),
+        kept = Some(Arc::clone(asked.access));
+        use_access(&asked)
     });
-    assert_eq!(text_of(result), "first call");
+    assert_eq!(text_of(driven.result), "first call");
     assert_all_refused_as_ended(late.expect("the second call tried the first call's access"));
     assert_eq!(
         files_in(&vfs)?,
@@ -531,12 +574,13 @@ fn an_access_kept_past_its_answer_refuses_every_operation_and_changes_nothing()
 #[test]
 fn a_canceled_tasks_tool_call_is_joined_and_its_access_refuses_every_later_operation()
 -> std::result::Result<(), VfsError> {
-    // The driver performs the task's call at once but holds its answer, so
-    // the cancel finds the task parked on it. The owner's call reads what
-    // the task's call wrote before the cancel, and its note meets no
-    // conflict, so the canceled call was joined; what the driver tries
-    // through the task's call once the owner has returned, while the run
-    // waits only on the held answer, is refused.
+    // The driver performs the request of the task's call at once but
+    // holds the call's answer, so the cancel finds the task parked on
+    // it. The owner's call reads what the task's call wrote before the
+    // cancel, and its note meets no conflict, so the canceled call was
+    // joined; what the driver tries through the access of the task's
+    // call once the owner has returned, while the run waits only on the
+    // held answer, is refused.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
         ## Main\n\n\
         ```lua\n\
@@ -578,13 +622,19 @@ fn a_canceled_tasks_tool_call_is_joined_and_its_access_refuses_every_later_opera
         }
         for IssuedEffect { id, effect, .. } in effects {
             match &effect {
-                Effect::ToolCall { access, args, .. } if args["write"].is_string() => {
-                    let answer = EffectAnswer::ToolCall(use_noted(&ledger, access, args));
-                    held = Some((id, Arc::clone(access), answer));
-                }
-                Effect::ToolCall { access, args, .. } => {
-                    let answer = EffectAnswer::ToolCall(use_noted(&ledger, access, args));
-                    run.resume(id, answer);
+                Effect::ToolCall { args, .. } => run.request_file(id, asked_op(args)),
+                Effect::Vfs {
+                    asker: VfsAsker::Tool { call },
+                    access,
+                    op,
+                } => {
+                    let (outcome, answer) = use_noted(&ledger, &Asked { access, op });
+                    run.resume(id, receipt(outcome));
+                    if matches!(op, VfsOp::Write { .. }) {
+                        held = Some((*call, Arc::clone(access), answer));
+                    } else {
+                        run.resume(*call, answer);
+                    }
                 }
                 _ => run.resume(id, perform_store(&effect)),
             }
@@ -615,12 +665,9 @@ fn a_tool_call_sees_no_file_the_chain_wrote_with_store_write() -> std::result::R
         return listed .. '|' .. tostring(ok) .. '|' .. tostring(err) .. '|' .. store.read('note.txt')\n\
         ```\n";
     let vfs = VfsRef::default();
-    let (result, _) = drive(
-        files_run(md, &vfs),
-        files_answers(&mut Identities::default()),
-    );
+    let driven = drive_files(files_run(md, &vfs), unordered(&mut Vec::new()));
     assert_eq!(
-        text_of(result),
+        text_of(driven.result),
         "[]|false|prompt:12: not found: /note.txt|the chain wrote this"
     );
     assert_eq!(
@@ -641,11 +688,8 @@ fn store_read_sees_no_file_a_tool_call_wrote() -> std::result::Result<(), VfsErr
         return tostring(ok) .. '|' .. err.reason .. '|' .. tostring(store.exists('tool.txt')) .. '|' .. #store.glob('**')\n\
         ```\n";
     let vfs = VfsRef::default();
-    let (result, _) = drive(
-        files_run(md, &vfs),
-        files_answers(&mut Identities::default()),
-    );
-    assert_eq!(text_of(result), "false|not_found|false|0");
+    let driven = drive_files(files_run(md, &vfs), unordered(&mut Vec::new()));
+    assert_eq!(text_of(driven.result), "false|not_found|false|0");
     assert_eq!(
         files_in(&vfs)?,
         one_file("/tool.txt", "a tool call wrote this"),

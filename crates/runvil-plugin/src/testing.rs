@@ -12,10 +12,11 @@ use crate::{ToolContext, ToolFiles};
 /// fresh in-memory filesystem of its own, and an origin naming the
 /// section `Test` and a caller that is the script unless
 /// [`with_caller`](TestCall::with_caller) names another. The context's
-/// files and its access reach that one filesystem, so a test seeds a file
-/// through either and reads it back through the other. A request through
-/// the files is answered at once: its future is ready at its first poll.
-/// A test calls the Pack's factory for the instance it calls.
+/// files reach that one filesystem, and a request through them is
+/// answered at once: its future is ready at its first poll. So a test
+/// seeds a file with a write through the files before the call, and
+/// reads what the call left with a read through them after it. A test
+/// calls the Pack's factory for the instance it calls.
 #[derive(Debug)]
 pub struct TestCall {
     tool: ToolId,
@@ -69,6 +70,6 @@ impl TestCall {
     /// Lends the context to one call.
     #[must_use]
     pub fn context(&self) -> ToolContext<'_> {
-        ToolContext::new(&self.tool, &self.files.0, &self.origin, &self.files)
+        ToolContext::new(&self.tool, &self.origin, &self.files)
     }
 }

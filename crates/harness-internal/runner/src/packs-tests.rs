@@ -18,7 +18,7 @@ use runvil_engine::cancel::CancelHandle;
 use runvil_engine::effect::{ToolCallOrigin, ToolCaller};
 use runvil_engine::make_tool_error;
 use runvil_engine::packs::RosterEntry;
-use runvil_engine::vfs::{Origin, VfsError, VfsOp, VfsOutcome, VfsRef};
+use runvil_engine::vfs::{VfsError, VfsOp, VfsOutcome};
 use runvil_engine::{Error, ErrorCode};
 use runvil_engine::{Prompt, Run, RunParams, RunSeed, Step, Timestamp};
 use runvil_plugin::{
@@ -752,18 +752,10 @@ async fn call_with(
     tool: &str,
     files: Arc<dyn ToolFiles>,
 ) -> Result<ToolOutput, Error> {
-    let access = VfsRef::default().acquire(Origin::new("host test")).unwrap();
     let origin = ToolCallOrigin::new("Only", ToolCaller::Script);
     let tool = ToolId::parse(tool).unwrap();
-    run.call(
-        tool,
-        "alias".to_owned(),
-        Arc::new(access),
-        origin,
-        json!({}),
-        files,
-    )
-    .await
+    run.call(tool, "alias".to_owned(), origin, json!({}), files)
+        .await
 }
 
 #[tokio::test]

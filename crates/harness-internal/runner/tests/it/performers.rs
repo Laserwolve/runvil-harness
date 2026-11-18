@@ -13,7 +13,6 @@ use harness_runner::recorder::{MemoryRecorder, Record, RecordKind, RunId, RunMet
 use runvil_engine::Error;
 use runvil_engine::cancel::CancelHandle;
 use runvil_engine::effect::ToolCallOrigin;
-use runvil_engine::vfs::Access;
 use runvil_engine::{BoxFuture, Timestamp, ToolId, ToolOutput};
 use runvil_plugin::ToolFiles;
 use serde_json::{Value, json};
@@ -111,7 +110,6 @@ impl ToolPerformer for DelayedTool {
         &self,
         _tool: ToolId,
         _alias: String,
-        _access: Arc<Access>,
         _origin: ToolCallOrigin,
         _args: Value,
         _files: Arc<dyn ToolFiles>,

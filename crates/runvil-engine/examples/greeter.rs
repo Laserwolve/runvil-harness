@@ -11,7 +11,7 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use runvil_engine::cancel::CancelHandle;
-use runvil_engine::effect::{Effect, EffectAnswer, IssuedEffect};
+use runvil_engine::effect::{Effect, EffectAnswer, IssuedEffect, VfsAsker, VfsReceipt};
 use runvil_engine::event::Event;
 use runvil_engine::model::{
     Completion, CompletionResult, ModelId, ModelInfo, ModelRole, ThinkingMode,
@@ -35,16 +35,29 @@ pub const GREETER: &str = concat!(
     "```\n",
 );
 
-/// Answers a store effect through the store view it holds, the model with
+/// Answers a file effect through the access it holds, the model with
 /// `hi there`, a render with the offered tools unchanged, the shout tool
 /// with the trusted `HI THERE`, and a timer as fired at once. A caller
 /// with a real clock waits `seconds` before answering a timer.
 #[must_use]
 pub fn answer(effect: Effect) -> EffectAnswer {
     match effect {
-        // The view reaches the one store the effect names, so the loop
-        // performs the operation without reading which store that is.
-        Effect::Vfs { access, op, .. } => EffectAnswer::Vfs(perform_vfs_op(&access, &op)),
+        // The access reaches the files the operation works on, so the
+        // loop performs the operation without reading which they are. Who
+        // asked settles the answer. A tool call that asked gets the whole
+        // outcome from its caller, and the run takes the receipt. The
+        // shout tool asks for no file, so no effect here takes that arm.
+        Effect::Vfs { asker, access, op } => {
+            let outcome = perform_vfs_op(&access, &op);
+            match asker {
+                VfsAsker::Tool { .. } => {
+                    EffectAnswer::VfsReceipt(outcome.map(|outcome| VfsReceipt::of(&outcome)))
+                }
+                // A `store` call of the prompt's Lua resumes with the
+                // whole outcome.
+                _ => EffectAnswer::Vfs(outcome),
+            }
+        }
         Effect::Chat { .. } => {
             let reply = CompletionResult::Text("hi there".to_owned());
             EffectAnswer::Chat(Completion::from_result(reply, "canned").map(Box::new))

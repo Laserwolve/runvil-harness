@@ -20,7 +20,6 @@ use runvil_engine::effect::ToolCallOrigin;
 use runvil_engine::model::{
     Completion, CompletionResult, ModelId, ModelInfo, ModelRole, ThinkingMode, ToolCall,
 };
-use runvil_engine::vfs::Access;
 use runvil_engine::{BoxFuture, Prompt, Run, RunParams, Timestamp};
 use runvil_engine::{ToolCatalog, ToolId, ToolInfo, ToolOutput};
 use runvil_plugin::ToolFiles;
@@ -132,7 +131,6 @@ impl ToolPerformer for ParkingTool {
         &self,
         _tool: ToolId,
         _alias: String,
-        _access: Arc<Access>,
         _origin: ToolCallOrigin,
         args: Value,
         _files: Arc<dyn ToolFiles>,

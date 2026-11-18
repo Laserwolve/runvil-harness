@@ -103,18 +103,29 @@ fn finished(run: &mut Run) -> Result<String, Error> {
     }
 }
 
-/// The tool call among `effects`: its id, its provenance, and its access.
+/// The tool call among `effects`: its id and its provenance.
 #[track_caller]
-fn tool_call(effects: &[IssuedEffect]) -> (EffectId, Provenance, Arc<Access>) {
+fn tool_call(effects: &[IssuedEffect]) -> (EffectId, Provenance) {
     effects
         .iter()
         .find_map(|issued| match &issued.effect {
-            Effect::ToolCall { access, .. } => {
-                Some((issued.id, issued.provenance.clone(), Arc::clone(access)))
-            }
+            Effect::ToolCall { .. } => Some((issued.id, issued.provenance.clone())),
             _ => None,
         })
         .unwrap_or_else(|| panic!("the step issued a tool call: {effects:?}"))
+}
+
+/// The access a tool's file effect holds.
+#[track_caller]
+fn file_access(issued: &IssuedEffect) -> &Arc<Access> {
+    match &issued.effect {
+        Effect::Vfs {
+            asker: VfsAsker::Tool { .. },
+            access,
+            ..
+        } => access,
+        other => panic!("the effect is a tool's file effect: {other:?}"),
+    }
 }
 
 /// The one `store` effect among `effects`.
@@ -152,12 +163,12 @@ fn assert_internal(error: &Error, phrase: &str) {
 }
 
 #[test]
-fn a_file_request_is_issued_as_a_vfs_effect_with_the_calls_access_and_the_call_stays_open()
+fn a_file_request_is_issued_as_a_vfs_effect_that_names_the_call_and_the_call_stays_open()
 -> Result<(), VfsError> {
     let vfs = VfsRef::default();
     let mut run = one_call_run(&vfs);
     let (effects, ..) = stepped(&mut run);
-    let (call, made_by, call_access) = tool_call(&effects);
+    let (call, made_by) = tool_call(&effects);
 
     let op = write("/note.md", "from the tool");
     run.request_file(call, op.clone());
@@ -175,11 +186,6 @@ fn a_file_request_is_issued_as_a_vfs_effect_with_the_calls_access_and_the_call_s
     };
     assert_eq!(*asker, VfsAsker::Tool { call });
     assert_eq!(*issued_op, op);
-    assert_eq!(
-        access.id(),
-        call_access.id(),
-        "the operation runs under the call's own identity"
-    );
     assert_eq!(
         issued.provenance.task, made_by.task,
         "the effect is stamped under the task that made the call"
@@ -216,6 +222,11 @@ fn the_answer_to_a_tools_file_effect_resumes_no_chain_whether_a_failure_or_a_dro
     let [first, second, third] = effects.as_slice() else {
         panic!("each request is one effect, in request order: {effects:?}");
     };
+    let identity = file_access(first).id();
+    assert!(
+        file_access(second).id() == identity && file_access(third).id() == identity,
+        "every request of one call runs under the call's one identity"
+    );
     // A conflict in the answer to a `store` call ends the run. In the
     // answer to a tool's request it is the tool's to handle.
     let conflict = VfsError::Conflict {
@@ -249,7 +260,7 @@ fn a_file_effect_goes_out_ahead_of_the_effects_its_step_issues() {
         &VfsRef::default(),
     );
     let (effects, ..) = stepped(&mut run);
-    let (call, made_by, _) = tool_call(&effects);
+    let (call, made_by) = tool_call(&effects);
     let first_store = store_call(&effects);
 
     // The request arrives before the step that runs the main chain on.

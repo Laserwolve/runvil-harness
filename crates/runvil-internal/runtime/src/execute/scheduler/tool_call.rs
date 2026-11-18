@@ -11,9 +11,9 @@
 //! is answered with its handler; a discovery tool, or a Dynamic Set tool
 //! the model names directly, by the discovery route; any other tool has
 //! its attempt counted and is issued as a `ToolCall` effect under the
-//! binding its route holds, carrying an identity forked from the chain's
-//! access, whose answer the driver applies through the shared dispatch
-//! body.
+//! binding its route holds. The call gets an identity forked from the
+//! chain's access, which its continuation keeps, and the driver applies
+//! its answer through the shared dispatch body.
 //! A model-issued call, alone or batched, always resumes a bound tool with
 //! content - a tool's own failure becomes untrusted failure text - and
 //! `ToolResult` fires under the id and the turn of the round that requested
@@ -619,20 +619,18 @@ impl ChainOps<'_> {
                 prompt_origin(&prompt, &binding.id().to_string(), chain.blocks(&prompt)),
             )
             .map_err(|cause| error::make_files_error(&cause))?;
-        let access = Arc::new(access);
         let effect = Effect::ToolCall {
             tool: binding.id().clone(),
             alias: binding.alias().to_owned(),
             args,
             origin,
-            access: Arc::clone(&access),
             survives_stop: binding.survives_stop(),
         };
         let resume = Continuation::ToolCall(ToolCallContinuation {
             binding,
             report,
             site,
-            access,
+            access: Arc::new(access),
         });
         self.issue(effect, resume);
         Ok(())

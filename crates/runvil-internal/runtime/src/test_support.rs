@@ -29,8 +29,11 @@
 use runvil_types::error::{Error, ErrorCode};
 use runvil_types::event::Event;
 use runvil_types::tools::make_tool_error;
+use runvil_vfs::{Access, VfsOp};
 
-use crate::execute::{Effect, EffectAnswer, EffectId, IssuedEffect, Run, Step};
+use crate::execute::{
+    Effect, EffectAnswer, EffectId, IssuedEffect, Run, Step, VfsAsker, VfsReceipt,
+};
 
 #[cfg(test)]
 pub(crate) mod recording;
@@ -96,7 +99,7 @@ pub(crate) fn with_author_prose(error: crate::Error, line: u32) -> crate::Error 
     error
 }
 
-/// Performs one effect locally, with no I/O: a store operation runs on the
+/// Performs one effect locally, with no I/O: a file operation runs on the
 /// effect's own access handle, a timer fires at once, a render passes
 /// every offered tool through, a bound tool is unbound, and a model round
 /// is answered by `chat`, a function of the effect alone so the answer
@@ -104,7 +107,7 @@ pub(crate) fn with_author_prose(error: crate::Error, line: u32) -> crate::Error 
 ///
 /// # Panics
 ///
-/// Only when `chat` panics: a store operation's failure is answered as a
+/// Only when `chat` panics: a file operation's failure is answered as a
 /// `Vfs` error, not raised.
 pub fn perform_locally(
     effect: &Effect,
@@ -117,8 +120,22 @@ pub fn perform_locally(
             ErrorCode::ToolOther,
             format!("no tool is bound as {alias} in this test"),
         ))),
-        Effect::Vfs { access, op, .. } => EffectAnswer::Vfs(access.perform(op)),
+        Effect::Vfs { asker, access, op } => answer_vfs(asker, access, op),
         Effect::Timer { .. } => EffectAnswer::Timer,
+    }
+}
+
+/// Performs `op`, the operation of a `Vfs` effect, on `access`, and
+/// returns the answer the effect takes: the whole outcome for an
+/// operation the prompt's Lua asked for, and the receipt of the outcome
+/// for one a tool call asked for.
+pub(crate) fn answer_vfs(asker: &VfsAsker, access: &Access, op: &VfsOp) -> EffectAnswer {
+    let outcome = access.perform(op);
+    match asker {
+        VfsAsker::Lua { .. } => EffectAnswer::Vfs(outcome),
+        VfsAsker::Tool { .. } => {
+            EffectAnswer::VfsReceipt(outcome.map(|outcome| VfsReceipt::of(&outcome)))
+        }
     }
 }
 
