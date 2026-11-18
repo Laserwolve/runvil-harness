@@ -5,7 +5,7 @@
 //! `sys.taskid`), and spawn shares `call`'s target resolution and depth cap.
 //! The chain-end rules sit in `chain_end`.
 
-use runvil_types::ids::TaskId;
+use runvil_types::ids::{AbandonReason, TaskId};
 
 use super::context::task;
 use super::scheduler::scheduler_scenario;
@@ -78,6 +78,37 @@ impl TaskRecorder {
                 _ => false,
             })
             .collect()
+    }
+
+    /// Asserts that `task`, which reports under `section`, ended with the
+    /// stop of the task that owned it: it started, then reported one
+    /// terminal, an abandonment naming its owner's abort, before
+    /// `owner_terminal`, which its owner reported under `owner_section`.
+    #[track_caller]
+    pub(super) fn assert_aborted_with_its_owner(
+        &self,
+        task: &TaskId,
+        section: &str,
+        owner_section: &str,
+        owner_terminal: &Observation,
+    ) {
+        let aborted = Observation::TaskAbandoned {
+            task: task.clone(),
+            reason: AbandonReason::OwnerAborted,
+        };
+        let observations = self.observations_of(task);
+        assert!(
+            matches!(
+                observations.as_slice(),
+                [Observation::TaskStarted { .. }, terminal] if *terminal == aborted
+            ),
+            "task {task} started, then its one terminal names its owner's abort: {observations:?}"
+        );
+        assert!(
+            self.position(section, &aborted) < self.position(owner_section, owner_terminal),
+            "task {task} reports its terminal before its owner's own: {:?}",
+            self.records()
+        );
     }
 }
 

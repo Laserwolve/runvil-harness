@@ -149,18 +149,42 @@ fn run_abandoning_a_running_task(scenario: Scenario, reason: AbandonReason) -> R
 #[test]
 fn a_returning_owner_abandons_its_running_task_as_owner_returned() {
     // The spawner suspends on a store write after the spawn, so the child
-    // is admitted and parks on its held round; the spawner then returns
-    // with the child live, which is the leak.
-    let md = spawner_prompt(
-        "tasks.spawn('../Child')\n\
-         store.write('own', 'x')\n\
-         return 'done'",
-        CHILD_PARKED_ON_HELD_ROUND,
+    // is admitted, spawns a task of its own, and parks on its held round;
+    // that admits the grandchild, which parks on a held round too. The
+    // spawner then returns with the child live, which is the leak. The
+    // child's end takes the grandchild with it: the grandchild started, so
+    // it reports one terminal, which names the abort of its owner and
+    // comes before its owner's own terminal.
+    let child = format!("tasks.spawn('../Grandchild')\n{CHILD_PARKED_ON_HELD_ROUND}");
+    let md = format!(
+        "{}\n## Grandchild\n\n```lua\n{CHILD_PARKED_ON_HELD_ROUND}\n```\n",
+        spawner_prompt(
+            "tasks.spawn('../Child')\n\
+             store.write('own', 'x')\n\
+             return 'done'",
+            &child,
+        )
     );
-    let rig = run_abandoning_a_running_task(scheduler_scenario(md), AbandonReason::OwnerReturned);
+    let mut rig =
+        run_abandoning_a_running_task(scheduler_scenario(md), AbandonReason::OwnerReturned);
     assert_eq!(
         rig.trace().error(),
         &crate::test_support::placed(crate::error::make_tasks_live_error(&[task("0.0")]), 10)
+    );
+    assert_eq!(
+        rig.task_state_for_test(&task("0.0.0")),
+        Some(TaskState::Abandoned),
+        "the task under the abandoned task ended with it"
+    );
+    let returned = Observation::TaskAbandoned {
+        task: task("0.0"),
+        reason: AbandonReason::OwnerReturned,
+    };
+    TaskRecorder::replayed(rig.trace()).assert_aborted_with_its_owner(
+        &task("0.0.0"),
+        "Grandchild",
+        "Child",
+        &returned,
     );
 }
 

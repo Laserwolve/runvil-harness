@@ -245,28 +245,44 @@ fn status_reports_no_block_for_a_task_whose_answer_arrived() {
 #[test]
 fn a_non_owner_is_refused_with_task_not_owned() {
     // The child may read and annotate its own task (the self exception),
-    // but waiting on or canceling it is the owner's alone, and a task id
-    // the caller never spawned is refused the same way.
+    // but waiting on, checking with `ready`, or canceling it is the owner's
+    // alone, and a task id the caller never spawned is refused the same
+    // way. The child's sibling, task `0.1`, is a real task the child does
+    // not own and does not run inside, so `ready` and `status` refuse the
+    // child there too: an unknown id would be refused for having no entry.
     let md = tasks_prompt(
         "local t = tasks.spawn('../Child')\n\
+         local sibling = tasks.spawn('../Sibling')\n\
+         assert(sibling.task == '0.1', sibling.task)\n\
          local ok, err = pcall(tasks.cancel, '9.9')\n\
          assert(not ok and err.kind == 'task_not_owned', tostring(err))\n\
          assert(err.task == '9.9', tostring(err.task))\n\
          local _, ok2, result = tasks.join_any({ t })\n\
          assert(ok2, tostring(result))\n\
+         tasks.join_any({ sibling })\n\
          return result",
-        &[(
-            "Child",
-            "local me = sys.taskid\n\
-             tasks.note('hello from ' .. me)\n\
-             local s = tasks.status(me)\n\
-             assert(s.note == 'hello from ' .. me, tostring(s.note))\n\
-             local ok, err = pcall(tasks.cancel, me)\n\
-             assert(not ok and err.kind == 'task_not_owned', tostring(err))\n\
-             local ok2, err2 = pcall(tasks.join_any, { me })\n\
-             assert(not ok2 and err2.kind == 'task_not_owned', tostring(err2))\n\
-             return 'refused:' .. tostring(err) .. '|' .. tostring(err2)",
-        )],
+        &[
+            (
+                "Child",
+                "local me = sys.taskid\n\
+                 tasks.note('hello from ' .. me)\n\
+                 local s = tasks.status(me)\n\
+                 assert(s.note == 'hello from ' .. me, tostring(s.note))\n\
+                 local ok, err = pcall(tasks.cancel, me)\n\
+                 assert(not ok and err.kind == 'task_not_owned', tostring(err))\n\
+                 local ok2, err2 = pcall(tasks.join_any, { me })\n\
+                 assert(not ok2 and err2.kind == 'task_not_owned', tostring(err2))\n\
+                 local ok3, err3 = pcall(tasks.ready, me)\n\
+                 assert(not ok3 and err3.kind == 'task_not_owned', tostring(err3))\n\
+                 for _, check in ipairs({ { 'ready', tasks.ready }, { 'status', tasks.status } }) do\n\
+                   local ok4, err4 = pcall(check[2], '0.1')\n\
+                   assert(not ok4 and err4.kind == 'task_not_owned', check[1] .. ': ' .. tostring(err4))\n\
+                   assert(err4.task == '0.1', check[1] .. ': ' .. tostring(err4.task))\n\
+                 end\n\
+                 return 'refused:' .. tostring(err) .. '|' .. tostring(err2)",
+            ),
+            ("Sibling", "return 'sibling'"),
+        ],
     );
     let trace = scheduler_scenario(md).run();
     let out = trace.text();
@@ -305,18 +321,22 @@ fn waiting_on_a_delivered_task_raises_task_consumed() {
 
 #[test]
 fn cancel_ends_a_parked_task_idempotently_and_reports_task_canceled_once() {
-    // The child parks on a store write; the owner cancels it twice (the
-    // second is a no-op), reads the terminal state, and ends with no live
-    // task - so no `make_tasks_live_error`. A wait on the canceled entry delivers
-    // `ok = false` with a `canceled` error value.
+    // The child spawns a task of its own and parks on a store write, and
+    // the grandchild parks on one too; the owner cancels the child twice
+    // (the second is a no-op), reads the terminal state, and ends with no
+    // live task - so no `make_tasks_live_error`. A wait on the canceled entry
+    // delivers `ok = false` with a `canceled` error value. The cancel
+    // takes the grandchild with the child: the grandchild started, so it
+    // reports one terminal, which names the abort of its owner and comes
+    // before the child's own.
     //
-    // The rig holds the child's write, so the child is still parked on it
-    // when the cancel lands. The cancel withdraws the write, so the rig
-    // drops it unperformed while the run is still live. The owner's own
-    // yields are `exists`: the one before the cancel lets the child run,
-    // and the one after it keeps the run undecided past the step that
-    // cancels.
-    let child_write = |effect: &Effect| matches!(effect, Effect::Vfs { op: VfsOp::Write { path, .. }, .. } if path == "child-park");
+    // The rig holds both writes, so the child and the grandchild are still
+    // parked on them when the cancel lands. The cancel withdraws the
+    // writes, so the rig drops them unperformed while the run is still
+    // live. The owner's own yields are `exists`: the one before the cancel
+    // lets the child and then the grandchild run, and the one after it
+    // keeps the run undecided past the step that cancels.
+    let parked_write = |effect: &Effect| matches!(effect, Effect::Vfs { op: VfsOp::Write { path, .. }, .. } if path == "child-park" || path == "grandchild-park");
     let md = tasks_prompt(
         "local t = tasks.spawn('../Child')\n\
          store.exists('park')\n\
@@ -332,9 +352,18 @@ fn cancel_ends_a_parked_task_idempotently_and_reports_task_canceled_once() {
          assert(err.reason == nil, 'a canceled delivery leaves reason nil')\n\
          assert(#tasks.pending() == 0, 'nothing is pending')\n\
          return 'done'",
-        &[("Child", "store.write('child-park', 'x')\nreturn 'never'")],
+        &[
+            (
+                "Child",
+                "tasks.spawn('../Grandchild')\nstore.write('child-park', 'x')\nreturn 'never'",
+            ),
+            (
+                "Grandchild",
+                "store.write('grandchild-park', 'x')\nreturn 'never'",
+            ),
+        ],
     );
-    let mut rig = Rig::start(scheduler_scenario(md).hold(child_write));
+    let mut rig = Rig::start(scheduler_scenario(md).hold(parked_write));
     while !rig
         .events()
         .iter()
@@ -349,16 +378,23 @@ fn cancel_ends_a_parked_task_idempotently_and_reports_task_canceled_once() {
         "a canceled task is not a leaked one"
     );
     let effects = rig.trace().effects();
-    assert!(
-        effects.iter().any(|(effect, answer)| matches!(
-            effect,
-            EffectRecord::Vfs { op: VfsOp::Write { path, .. }, .. } if path == "child-park"
-        ) && *answer == AnswerRecord::Dropped),
-        "the cancel withdrew the held write, which the caller dropped: {effects:?}"
-    );
+    for parked in ["child-park", "grandchild-park"] {
+        assert!(
+            effects.iter().any(|(effect, answer)| matches!(
+                effect,
+                EffectRecord::Vfs { op: VfsOp::Write { path, .. }, .. } if path == parked
+            ) && *answer == AnswerRecord::Dropped),
+            "the cancel withdrew the held write of {parked}, which the caller dropped: {effects:?}"
+        );
+    }
     assert_eq!(
         rig.task_state_for_test(&task("0.0")),
         Some(TaskState::Canceled)
+    );
+    assert_eq!(
+        rig.task_state_for_test(&task("0.0.0")),
+        Some(TaskState::Abandoned),
+        "the task under the canceled task ended with it"
     );
     let recorder = TaskRecorder::replayed(rig.trace());
     assert_eq!(
@@ -376,15 +412,16 @@ fn cancel_ends_a_parked_task_idempotently_and_reports_task_canceled_once() {
         1,
         "the cancellation reports exactly once under the target: {records:?}"
     );
+    let canceled = Observation::TaskCanceled { task: task("0.0") };
+    let observations = recorder.observations_of(&task("0.0"));
     assert!(
-        !records.iter().any(|(_, event)| matches!(
-            event,
-            Observation::TaskSucceeded { .. }
-                | Observation::TaskFailed { .. }
-                | Observation::TaskAbandoned { .. }
-        )),
-        "a canceled task reports no other terminal event: {records:?}"
+        matches!(
+            observations.as_slice(),
+            [Observation::TaskStarted { .. }, terminal] if *terminal == canceled
+        ),
+        "a canceled task reports no other terminal event: {observations:?}"
     );
+    recorder.assert_aborted_with_its_owner(&task("0.0.0"), "Grandchild", "Child", &canceled);
 }
 
 #[test]
