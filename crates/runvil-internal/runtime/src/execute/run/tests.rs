@@ -23,6 +23,8 @@ use crate::test_support::scenario::{TEST_SEED, only_effect, round_trip, test_bin
 
 #[path = "tests-drops.rs"]
 mod drops;
+#[path = "tests-files.rs"]
+mod files;
 #[path = "tests-inbox.rs"]
 mod inbox;
 #[path = "tests-reply.rs"]
@@ -178,7 +180,9 @@ fn a_store_effect_records_its_store_and_operation_and_drops_the_access_handle() 
             .expect("the stock backend acquires"),
     );
     let effect = Effect::Vfs {
-        store: ChainId::root().child(2),
+        asker: VfsAsker::Lua {
+            store: ChainId::root().child(2),
+        },
         access,
         op: VfsOp::Read {
             path: "notes.md".to_owned(),
@@ -190,7 +194,9 @@ fn a_store_effect_records_its_store_and_operation_and_drops_the_access_handle() 
     assert_eq!(
         record,
         EffectRecord::Vfs {
-            store: ChainId::root().child(2),
+            asker: VfsAsker::Lua {
+                store: ChainId::root().child(2),
+            },
             op: VfsOp::Read {
                 path: "notes.md".to_owned(),
                 start: Some(1),

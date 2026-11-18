@@ -1,5 +1,7 @@
 #[non_exhaustive] pub enum runvil_engine::OutputTrust
 #[non_exhaustive] pub enum runvil_engine::effect::ToolCaller
+#[non_exhaustive] pub enum runvil_engine::effect::VfsAsker
+#[non_exhaustive] pub enum runvil_engine::effect::VfsReceipt
 #[non_exhaustive] pub enum runvil_engine::event::Event
 #[non_exhaustive] pub enum runvil_engine::event::ReplyOrigin
 #[non_exhaustive] pub enum runvil_engine::ids::AbandonReason
@@ -74,6 +76,8 @@ auto runvil_engine::effect::IssuedEffect: Freeze, !RefUnwindSafe, Send, Sync, Un
 auto runvil_engine::effect::Round: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil_engine::effect::ToolCallOrigin: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil_engine::effect::ToolCaller: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
+auto runvil_engine::effect::VfsAsker: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
+auto runvil_engine::effect::VfsReceipt: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil_engine::event::Event: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil_engine::event::ReplyOrigin: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil_engine::ids::AbandonReason: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
@@ -164,6 +168,8 @@ derives runvil_engine::effect::IssuedEffect: Debug
 derives runvil_engine::effect::Round: Clone, Copy, Debug, Eq, PartialEq
 derives runvil_engine::effect::ToolCallOrigin: Clone, Debug, Deserialize, Eq, PartialEq, Serialize
 derives runvil_engine::effect::ToolCaller: Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize
+derives runvil_engine::effect::VfsAsker: Clone, Debug, Eq, PartialEq
+derives runvil_engine::effect::VfsReceipt: Clone, Debug, Eq, PartialEq
 derives runvil_engine::event::Event: Clone, Debug, Deserialize, PartialEq, Serialize
 derives runvil_engine::event::ReplyOrigin: Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize
 derives runvil_engine::ids::AbandonReason: Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize
@@ -319,6 +325,7 @@ pub fn runvil_engine::Prompt::parse(finder: &dyn runvil_engine::PromptFinder, na
 pub fn runvil_engine::PromptFinder::find(&self, name: &str) -> core::result::Result<alloc::string::String, runvil_engine::Error>
 pub fn runvil_engine::Run::deliver(&mut self, text: alloc::string::String) -> alloc::vec::Vec<runvil_engine::event::Event>
 pub fn runvil_engine::Run::new(prompt: alloc::sync::Arc<runvil_engine::Prompt>, args: &str, params: runvil_engine::RunParams) -> runvil_engine::Run
+pub fn runvil_engine::Run::request_file(&mut self, call: runvil_engine::effect::EffectId, op: runvil_engine::vfs::VfsOp)
 pub fn runvil_engine::Run::resume(&mut self, id: runvil_engine::effect::EffectId, answer: runvil_engine::effect::EffectAnswer)
 pub fn runvil_engine::Run::step(&mut self) -> runvil_engine::Step
 pub fn runvil_engine::RunParams::new(seed: runvil_engine::RunSeed, started_at: runvil_engine::Timestamp) -> runvil_engine::RunParams
@@ -362,6 +369,7 @@ pub fn runvil_engine::effect::Round::new(id: runvil_engine::ids::RoundId, origin
 pub fn runvil_engine::effect::ToolCallOrigin::new(section: impl core::convert::Into<alloc::string::String>, caller: runvil_engine::effect::ToolCaller) -> runvil_engine::effect::ToolCallOrigin
 pub fn runvil_engine::effect::ToolCallOrigin::with_entry(self, entry: impl core::convert::Into<alloc::string::String>) -> runvil_engine::effect::ToolCallOrigin
 pub fn runvil_engine::effect::ToolCallOrigin::with_model(self, model: impl core::convert::Into<alloc::string::String>) -> runvil_engine::effect::ToolCallOrigin
+pub fn runvil_engine::effect::VfsReceipt::of(outcome: &runvil_engine::vfs::VfsOutcome) -> runvil_engine::effect::VfsReceipt
 pub fn runvil_engine::event::Event::provenance(&self) -> &runvil_engine::ids::Provenance
 pub fn runvil_engine::event::Event::section(&self) -> &str
 pub fn runvil_engine::ids::AbandonReason::why(self) -> &'static str
@@ -718,8 +726,8 @@ pub runvil_engine::effect::Effect::ToolCall::survives_stop: bool
 pub runvil_engine::effect::Effect::ToolCall::tool: runvil_engine::ToolId
 pub runvil_engine::effect::Effect::Vfs { .. }
 pub runvil_engine::effect::Effect::Vfs::access: alloc::sync::Arc<runvil_engine::vfs::Access>
+pub runvil_engine::effect::Effect::Vfs::asker: runvil_engine::effect::VfsAsker
 pub runvil_engine::effect::Effect::Vfs::op: runvil_engine::vfs::VfsOp
-pub runvil_engine::effect::Effect::Vfs::store: runvil_engine::ids::ChainId
 pub runvil_engine::effect::EffectAnswer::Chat(..)
 pub runvil_engine::effect::EffectAnswer::Chat::0: core::result::Result<alloc::boxed::Box<runvil_engine::model::Completion>, runvil_engine::Error>
 pub runvil_engine::effect::EffectAnswer::Dropped
@@ -730,6 +738,8 @@ pub runvil_engine::effect::EffectAnswer::ToolCall(..)
 pub runvil_engine::effect::EffectAnswer::ToolCall::0: core::result::Result<runvil_engine::ToolOutput, runvil_engine::Error>
 pub runvil_engine::effect::EffectAnswer::Vfs(..)
 pub runvil_engine::effect::EffectAnswer::Vfs::0: core::result::Result<runvil_engine::vfs::VfsOutcome, runvil_engine::vfs::VfsError>
+pub runvil_engine::effect::EffectAnswer::VfsReceipt(..)
+pub runvil_engine::effect::EffectAnswer::VfsReceipt::0: core::result::Result<runvil_engine::effect::VfsReceipt, runvil_engine::vfs::VfsError>
 pub runvil_engine::effect::IssuedEffect::effect: runvil_engine::effect::Effect
 pub runvil_engine::effect::IssuedEffect::id: runvil_engine::effect::EffectId
 pub runvil_engine::effect::IssuedEffect::provenance: runvil_engine::ids::Provenance
@@ -744,6 +754,19 @@ pub runvil_engine::effect::ToolCallOrigin::model: core::option::Option<alloc::st
 pub runvil_engine::effect::ToolCallOrigin::section: alloc::string::String
 pub runvil_engine::effect::ToolCaller::Model
 pub runvil_engine::effect::ToolCaller::Script
+pub runvil_engine::effect::VfsAsker::Lua { .. }
+pub runvil_engine::effect::VfsAsker::Lua::store: runvil_engine::ids::ChainId
+pub runvil_engine::effect::VfsAsker::Tool { .. }
+pub runvil_engine::effect::VfsAsker::Tool::call: runvil_engine::effect::EffectId
+pub runvil_engine::effect::VfsReceipt::Bool(..)
+pub runvil_engine::effect::VfsReceipt::Bool::0: bool
+pub runvil_engine::effect::VfsReceipt::Bytes(..)
+pub runvil_engine::effect::VfsReceipt::Bytes::0: u64
+pub runvil_engine::effect::VfsReceipt::Count(..)
+pub runvil_engine::effect::VfsReceipt::Count::0: u64
+pub runvil_engine::effect::VfsReceipt::Done
+pub runvil_engine::effect::VfsReceipt::Stat(..)
+pub runvil_engine::effect::VfsReceipt::Stat::0: runvil_engine::vfs::Stat
 pub runvil_engine::event::Event::AssistantReply { .. }
 pub runvil_engine::event::Event::AssistantReply::finish_reason: core::option::Option<alloc::string::String>
 pub runvil_engine::event::Event::AssistantReply::metrics: core::option::Option<runvil_engine::metrics::CallMetrics>

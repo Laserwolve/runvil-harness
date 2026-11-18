@@ -3,9 +3,11 @@
 //!
 //! A run walks the prompt's top-level sections top to bottom, the preamble
 //! first when the prompt has one. It issues each model round, Pack render, Pack tool call,
-//! `store` call, and timer as an [`Effect`] the
+//! file operation, and timer as an [`Effect`] the
 //! Harness performs and answers, and reports every boundary as an event
-//! returned from `step`. Other crates reach these items through the
+//! returned from `step`. A file operation is a `store` call of the
+//! prompt's Lua, or a request of an open tool call that the caller
+//! reports with [`Run::request_file`]. Other crates reach these items through the
 //! `runvil-engine` facade.
 //!
 //! ## Invariants
@@ -37,5 +39,5 @@ use crate::error::{Error, Result};
 // `runvil_runtime::X`, not a module path.
 pub use crate::execute::{
     Effect, EffectAnswer, EffectId, IssuedEffect, PackToolSets, Round, Run, RunLimits, RunParams,
-    Step, ToolCallOrigin, ToolCaller, perform_vfs_op,
+    Step, ToolCallOrigin, ToolCaller, VfsAsker, VfsReceipt, perform_vfs_op,
 };

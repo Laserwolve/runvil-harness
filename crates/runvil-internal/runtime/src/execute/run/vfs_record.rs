@@ -1,4 +1,5 @@
-//! The record forms of a file operation and of its outcome.
+//! The record forms of a file operation, of who asked for it, and of its
+//! outcome.
 //!
 //! `runvil-vfs` is std only, so its [`VfsOp`] and [`VfsOutcome`] have no
 //! serde form of their own. A `Vfs` effect's record and its answer's
@@ -13,6 +14,12 @@
 //! other outcome is a one-key object, such as `{"Text":"..."}`,
 //! `{"Paths":["a.txt"]}`, or `{"Bool":true}`.
 //!
+//! The asker records as one key beside the operation: `store`, the id of
+//! the chain the store was made for, when the prompt's Lua asked, and
+//! `call`, the id of the tool call's effect, when a tool call asked. The
+//! outcome of an operation that a tool call asked for records as its
+//! [`VfsReceipt`]: `"Done"`, or a one-key object such as `{"Bytes":12}`.
+//!
 //! [`VfsOp`], [`VfsOutcome`], and the kind of a file are
 //! `#[non_exhaustive]`. An operation or an outcome this module has no
 //! form for records as `null`, and a kind of file it does not name
@@ -21,9 +28,12 @@
 use std::fmt::Write as _;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use runvil_types::ids::ChainId;
 use runvil_vfs::{Entry, FileType, Stat, VfsOp, VfsOutcome};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use super::effect::{EffectId, VfsAsker, VfsReceipt};
 
 /// Bytes as a record holds them: as text when they are UTF-8, and as hex
 /// otherwise. Flattened into an operation's record, the variant's name
@@ -512,6 +522,133 @@ impl VfsOutcomeRecord {
             ),
             VfsOutcomeRecord::Bytes(bytes) => VfsOutcome::Bytes(bytes.into_bytes()?),
         })
+    }
+}
+
+/// Who asked for an operation, as a record holds it. Flattened into the
+/// effect's record, the variant's name is the one key that says who.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+enum VfsAskerRecord {
+    /// A `store` call of the prompt's Lua: the id of the chain the store
+    /// was made for.
+    #[serde(rename = "store")]
+    Lua(ChainId),
+    /// A tool call: the id of its effect.
+    #[serde(rename = "call")]
+    Tool(u64),
+}
+
+/// A [`VfsReceipt`] as a record holds it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+enum VfsReceiptRecord {
+    /// `VfsReceipt::Done`.
+    Done,
+    /// `VfsReceipt::Bytes`.
+    Bytes(u64),
+    /// `VfsReceipt::Count`.
+    Count(u64),
+    /// `VfsReceipt::Bool`.
+    Bool(bool),
+    /// `VfsReceipt::Stat`.
+    Stat(StatRecord),
+}
+
+impl VfsReceiptRecord {
+    /// The record form of `receipt`.
+    fn of(receipt: &VfsReceipt) -> VfsReceiptRecord {
+        match receipt {
+            VfsReceipt::Done => VfsReceiptRecord::Done,
+            VfsReceipt::Bytes(count) => VfsReceiptRecord::Bytes(*count),
+            VfsReceipt::Count(count) => VfsReceiptRecord::Count(*count),
+            VfsReceipt::Bool(flag) => VfsReceiptRecord::Bool(*flag),
+            VfsReceipt::Stat(stat) => VfsReceiptRecord::Stat(StatRecord::of(stat)),
+        }
+    }
+
+    /// The receipt this record holds.
+    ///
+    /// # Errors
+    /// Returns a sentence that names the fault when a stat does not read
+    /// back.
+    fn into_receipt(self) -> Result<VfsReceipt, String> {
+        Ok(match self {
+            VfsReceiptRecord::Done => VfsReceipt::Done,
+            VfsReceiptRecord::Bytes(count) => VfsReceipt::Bytes(count),
+            VfsReceiptRecord::Count(count) => VfsReceipt::Count(count),
+            VfsReceiptRecord::Bool(flag) => VfsReceipt::Bool(flag),
+            VfsReceiptRecord::Stat(stat) => VfsReceipt::Stat(stat.into_stat()?),
+        })
+    }
+}
+
+/// Writes `asker` as the one key that says who asked, for a flattened
+/// field's `serialize_with`.
+///
+/// # Errors
+/// Returns the serializer's own error.
+pub(super) fn serialize_asker<S: Serializer>(
+    asker: &VfsAsker,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let record = match asker {
+        VfsAsker::Lua { store } => VfsAskerRecord::Lua(store.clone()),
+        VfsAsker::Tool { call } => VfsAskerRecord::Tool(call.get()),
+    };
+    record.serialize(serializer)
+}
+
+/// Reads who asked back from the key [`serialize_asker`] writes, for a
+/// flattened field's `deserialize_with`.
+///
+/// # Errors
+/// Returns the deserializer's error for a record that holds neither key.
+pub(super) fn deserialize_asker<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<VfsAsker, D::Error> {
+    Ok(match VfsAskerRecord::deserialize(deserializer)? {
+        VfsAskerRecord::Lua(store) => VfsAsker::Lua { store },
+        VfsAskerRecord::Tool(call) => VfsAsker::Tool {
+            call: EffectId(call),
+        },
+    })
+}
+
+/// Writes `answer`, the receipt of an operation's outcome or its failure,
+/// with the receipt in its record form, for a record's `serialize_with`.
+///
+/// # Errors
+/// Returns the serializer's own error.
+pub(super) fn serialize_receipt<S, E>(
+    answer: &Result<VfsReceipt, E>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+    E: Serialize,
+{
+    answer
+        .as_ref()
+        .map(VfsReceiptRecord::of)
+        .serialize(serializer)
+}
+
+/// Reads the receipt of an operation's outcome, or its failure, back from
+/// the form [`serialize_receipt`] writes, for a record's
+/// `deserialize_with`.
+///
+/// # Errors
+/// Returns the deserializer's error for a value of another form, or for a
+/// stat that does not read back.
+pub(super) fn deserialize_receipt<'de, D, E>(
+    deserializer: D,
+) -> Result<Result<VfsReceipt, E>, D::Error>
+where
+    D: Deserializer<'de>,
+    E: Deserialize<'de>,
+{
+    match Result::<VfsReceiptRecord, E>::deserialize(deserializer)? {
+        Ok(record) => record.into_receipt().map(Ok).map_err(D::Error::custom),
+        Err(failure) => Ok(Err(failure)),
     }
 }
 

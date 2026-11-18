@@ -10,7 +10,8 @@
 //! depend on, the public JSON record of every kind is the typed record's
 //! JSON and reads back identical, and an effect or answer record reads
 //! from its JSON form. The store answer's records are in the `store`
-//! child.
+//! child, and the records of a file operation that a tool call asked for
+//! are in the `files` child.
 
 use std::fmt;
 
@@ -25,6 +26,8 @@ use serde_json::json;
 use super::*;
 use crate::test_support::scenario::test_binding;
 
+#[path = "effect-tests-files.rs"]
+mod files;
 #[path = "effect-tests-store.rs"]
 mod store;
 
@@ -438,11 +441,21 @@ fn every_kinds_public_record_is_json_that_round_trips_exactly() {
             survives_stop: false,
         },
         Effect::Vfs {
-            store: ChainId::root().child(3),
+            asker: VfsAsker::Lua {
+                store: ChainId::root().child(3),
+            },
             access: access(),
             op: VfsOp::Write {
                 path: "note.md".to_owned(),
                 contents: b"hello".to_vec(),
+            },
+        },
+        Effect::Vfs {
+            asker: VfsAsker::Tool { call: EffectId(7) },
+            access: access(),
+            op: VfsOp::Write {
+                path: "/blob.bin".to_owned(),
+                contents: vec![0xff, 0x00],
             },
         },
         Effect::Timer {
@@ -464,6 +477,10 @@ fn every_kinds_public_record_is_json_that_round_trips_exactly() {
         EffectAnswer::Render(tools_pack("Shout the value.", "shout")),
         EffectAnswer::ToolCall(Ok(ToolOutput::untrusted("<html>"))),
         EffectAnswer::Vfs(Ok(VfsOutcome::Paths(vec!["a.txt".to_owned()]))),
+        EffectAnswer::VfsReceipt(Ok(VfsReceipt::Bytes(12))),
+        EffectAnswer::VfsReceipt(Err(VfsError::NotFound {
+            path: "/gone.md".to_owned(),
+        })),
         EffectAnswer::Timer,
         EffectAnswer::Dropped,
     ];

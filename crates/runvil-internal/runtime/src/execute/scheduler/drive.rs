@@ -2,8 +2,9 @@
 //! answer`, run until no chain can proceed without an answer or a message
 //! from the caller. The step applies the messages `Run::deliver` queued,
 //! checks that the run can start and starts its first chain on its first
-//! call, drains the ready queue, and returns the effects the drain issued
-//! with the events it reported.
+//! call, drains the ready queue, and returns the effects issued since the
+//! last step, those `Run::request_file` issued for a tool's file requests
+//! and then those the drain issued, with the events it reported.
 //! An empty ready queue with no parked effect and no queued chain that can
 //! be admitted is a stall, which ends the run rather than hangs, unless the
 //! main chain waits on its inbox: then the step reports `waiting_for_input`,
@@ -18,15 +19,16 @@
 use runvil_types::error::{ErrorCode, make_failure_error, place};
 use runvil_types::event_lifecycle;
 use runvil_types::ids::AbandonReason;
+use runvil_vfs::VfsOp;
 
-use crate::execute::run::{EffectAnswer, EffectId, Step};
+use crate::execute::run::{Effect, EffectAnswer, EffectId, Step, VfsAsker};
 use crate::prompt::Prompt;
 use crate::{Error, Result, error};
 
 use super::chain::ChainStep;
-use super::effects::Arrival;
+use super::effects::{Arrival, Asking};
 use super::inbox::main_task;
-use super::{Phase, Scheduler};
+use super::{Continuation, Phase, Scheduler};
 
 impl Scheduler {
     /// Drains the ready queue and returns the step's outcome: the effects
@@ -161,6 +163,39 @@ impl Scheduler {
         // fatal store conflict ends the run.
         if let Err(error) = self.apply_answer(parked, answer) {
             self.end(Err(error));
+        }
+    }
+
+    /// Applies one file request of the open tool call `call`: issues `op`
+    /// as a `Vfs` effect whose asker is the call, under the chain that
+    /// awaits the call and with the call's own access, for the next step
+    /// to return. No chain parks on the effect.
+    ///
+    /// A request for an effect whose chain stopped waiting is discarded.
+    /// A request that names no outstanding tool call, because the run
+    /// never issued the id, its answer already arrived, or it is an
+    /// effect of another kind, ends the run with an internal error, as an
+    /// answer for an unknown id does. A run that has returned `Done`
+    /// ignores every request.
+    pub(crate) fn request_file(&mut self, call: EffectId, op: VfsOp) {
+        if matches!(self.phase, Phase::Done) {
+            return;
+        }
+        match self.effects.asking(call) {
+            Asking::Awaited(chain, access) => {
+                let effect = Effect::Vfs {
+                    asker: VfsAsker::Tool { call },
+                    access,
+                    op,
+                };
+                self.with_chain(chain, |ops| {
+                    ops.issue(effect, Continuation::ToolVfs);
+                });
+            }
+            Asking::Orphaned => {}
+            Asking::NotACall => self.end(Err(error::make_internal_error(
+                "a file request named an effect that is no outstanding tool call of the run",
+            ))),
         }
     }
 

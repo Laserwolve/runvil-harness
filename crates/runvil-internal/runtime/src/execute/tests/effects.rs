@@ -19,7 +19,7 @@ use super::models_loop::{loop_model_name, loop_scenario};
 use super::scheduler::scheduler_scenario;
 use super::*;
 use crate::execute::run::{
-    AnswerRecord, EffectRecord, PackToolSets, Round, ToolCallOrigin, ToolCaller,
+    AnswerRecord, EffectRecord, PackToolSets, Round, ToolCallOrigin, ToolCaller, VfsAsker,
 };
 use crate::test_support::rig::Rig;
 use crate::test_support::scenario::{fresh_store_view, round_trip};
@@ -202,18 +202,21 @@ fn a_store_operation_issues_exactly_one_store_effect() {
     let rig = Rig::run(loop_scenario(source));
     assert_eq!(rig.trace().text(), "kept");
 
+    let root_store = VfsAsker::Lua {
+        store: ChainId::root(),
+    };
     assert_eq!(
         rig.issued(),
         vec![
             EffectRecord::Vfs {
-                store: ChainId::root(),
+                asker: root_store.clone(),
                 op: VfsOp::Write {
                     path: "notes.md".to_owned(),
                     contents: b"kept".to_vec(),
                 },
             },
             EffectRecord::Vfs {
-                store: ChainId::root(),
+                asker: root_store,
                 op: VfsOp::Read {
                     path: "notes.md".to_owned(),
                     start: None,

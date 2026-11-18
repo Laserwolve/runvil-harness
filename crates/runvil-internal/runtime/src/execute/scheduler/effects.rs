@@ -18,14 +18,19 @@
 //! itself holds none of this: it describes the work, the continuation
 //! describes what the work means to the chain.
 //!
+//! A file operation that an open tool call asks for is keyed under the
+//! chain that awaits the call, though no chain waits on it: the chain's
+//! end withdraws it with the call, and its answer resumes nothing.
+//!
 //! [`EffectAnswer`]: super::EffectAnswer
 //! [`Answer`]: super::Answer
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use runvil_types::event::ReplyOrigin;
 use runvil_types::ids::{Provenance, RoundId, TaskId};
-use runvil_vfs::{ExecId, VfsOp};
+use runvil_vfs::{Access, ExecId, VfsOp};
 
 use crate::execute::run::{Effect, EffectId, IssuedEffect, Round};
 use crate::lua::{ScriptReport, ToolBinding};
@@ -58,11 +63,16 @@ pub(super) enum Continuation {
     /// dispatch body (counts already taken at dispatch, then the
     /// succeeded/failed event, the trust rule, and the `ToolResult`).
     ToolCall(ToolCallContinuation),
-    /// A [`Vfs`](Effect::Vfs) effect: the operation the chain
-    /// yielded, from which the answer's succeeded/failed observation, its
-    /// failure's model-facing message, and its make_determinism_error classification
-    /// render under the call surface the author used.
+    /// A [`Vfs`](Effect::Vfs) effect the chain's Lua asked for: the
+    /// operation the chain yielded, from which the answer's
+    /// succeeded/failed observation, its failure's model-facing message,
+    /// and its make_determinism_error classification render under the
+    /// call surface the author used.
     Vfs(VfsOp),
+    /// A [`Vfs`](Effect::Vfs) effect an open tool call asked for: its
+    /// answer resumes no chain and reports nothing, because the caller
+    /// hands the outcome to the tool, whose call the chain still awaits.
+    ToolVfs,
     /// The internal timer behind a timed wait, naming the timer's task: the
     /// firing completes that task's entry and wakes its waiting owner; no
     /// chain resumes.
@@ -72,7 +82,7 @@ pub(super) enum Continuation {
 /// What a bound `tool_call`'s answer is applied with: the binding the call
 /// resolved to (its alias, output kind, and trust rules), the coordinates
 /// the `ToolResult` reports under, the call's site, and the call's
-/// identity the answer joins.
+/// access, whose identity the answer joins.
 #[derive(Debug)]
 pub(super) struct ToolCallContinuation {
     /// The binding the alias resolved to at dispatch.
@@ -81,10 +91,18 @@ pub(super) struct ToolCallContinuation {
     pub(super) report: ScriptReport,
     /// Who asked for the call, and where its answer goes.
     pub(super) site: CallSite,
-    /// The call's own identity, forked from the chain's access at
-    /// dispatch. The answer, or the call's abort, ends it and joins it
-    /// back into the chain.
-    pub(super) exec: ExecId,
+    /// The call's own access, forked from the chain's at dispatch. Each
+    /// file operation the tool asks for is issued with it. The answer, or
+    /// the call's abort, ends its identity and joins it back into the
+    /// chain.
+    pub(super) access: Arc<Access>,
+}
+
+impl ToolCallContinuation {
+    /// The call's own identity, which its answer or its abort ends.
+    pub(super) fn exec(&self) -> ExecId {
+        self.access.id()
+    }
 }
 
 /// Who asked for one tool call, and where its answer goes. Only a
@@ -168,6 +186,19 @@ pub(super) enum Arrival {
     Unknown,
 }
 
+/// What a file request finds of the effect it names as its tool call.
+#[derive(Debug)]
+pub(super) enum Asking {
+    /// A chain awaits the tool call: that chain, and the call's access.
+    Awaited(ChainIndex, Arc<Access>),
+    /// The chain stopped waiting on the effect, so the request is
+    /// discarded.
+    Orphaned,
+    /// The id names no outstanding tool call: the run never issued it,
+    /// its answer already arrived, or it is an effect of another kind.
+    NotACall,
+}
+
 /// The effect table and the step's outgoing queue.
 #[derive(Default)]
 pub(super) struct EffectTable {
@@ -231,11 +262,24 @@ impl EffectTable {
         }
     }
 
+    /// What a file request finds of `call`, the effect it names as its
+    /// tool call, which stays in the table.
+    pub(super) fn asking(&self, call: EffectId) -> Asking {
+        match self.outstanding.get(&call) {
+            Some(Outstanding::Awaited(Pending {
+                chain,
+                resume: Continuation::ToolCall(held),
+            })) => Asking::Awaited(*chain, Arc::clone(&held.access)),
+            Some(Outstanding::Orphaned) => Asking::Orphaned,
+            Some(Outstanding::Awaited(_)) | None => Asking::NotACall,
+        }
+    }
+
     /// Orphans `id`, whose chain stopped waiting, and lists it as
     /// withdrawn: the caller still owes the answer, which is discarded on
     /// arrival. Only a tool call has an identity to end, so only a tool
     /// call returns its chain and identity; a `chat` round, an `infer`, a
-    /// render, a store operation, and a timer return `None`. An id with no
+    /// render, a file operation, and a timer return `None`. An id with no
     /// entry stays unknown, so an answer for it still fails loudly, and an
     /// orphan stays as it is.
     pub(super) fn orphan(&mut self, id: EffectId) -> Option<(ChainIndex, ExecId)> {
@@ -247,11 +291,12 @@ impl EffectTable {
         };
         self.withdrawn.push(id);
         match resume {
-            Continuation::ToolCall(call) => Some((chain, call.exec)),
+            Continuation::ToolCall(call) => Some((chain, call.exec())),
             Continuation::Infer(_)
             | Continuation::Chat(_)
             | Continuation::Render(_)
             | Continuation::Vfs(_)
+            | Continuation::ToolVfs
             | Continuation::Timer(_) => None,
         }
     }
@@ -329,9 +374,12 @@ mod tests {
     //! exactly one answer, an orphan's answer is discarded, unknown ids and
     //! second answers are reported, every orphaned effect is withdrawn, in id
     //! order, and teardown withdraws every outstanding one, a step lists only
-    //! withdrawals still owed an answer, and an effect orphaned in its own
-    //! step still goes out with that step.
+    //! withdrawals still owed an answer, an effect orphaned in its own
+    //! step still goes out with that step, a file request finds its tool
+    //! call only while a chain awaits it, and a tool's file operation is
+    //! keyed under the call's chain.
 
+    use std::sync::Arc;
     use std::time::Duration;
 
     use runvil_types::ids::{ChainId, Provenance, RoundId, TaskId};
@@ -340,7 +388,7 @@ mod tests {
     use serde_json::json;
 
     use super::super::ChainIndex;
-    use super::{Arrival, CallSite, Continuation, EffectTable, ToolCallContinuation};
+    use super::{Arrival, Asking, CallSite, Continuation, EffectTable, ToolCallContinuation};
     use crate::execute::run::{Effect, EffectId};
     use crate::lua::{ScriptReport, ToolBinding};
 
@@ -396,9 +444,60 @@ mod tests {
             binding,
             report: ScriptReport { turn: 0 },
             site: CallSite::Script,
-            exec,
+            access: Arc::new(access),
         });
         (table.issue(chain, provenance(), timer(), resume), exec)
+    }
+
+    #[test]
+    fn a_file_request_finds_an_awaited_tool_call_with_its_chain_and_its_access() {
+        let mut table = EffectTable::default();
+        let (call, exec) = issue_tool_call(&mut table, chain(4));
+        let Asking::Awaited(awaiting, access) = table.asking(call) else {
+            panic!("the call is awaited");
+        };
+        assert_eq!(awaiting, chain(4));
+        assert_eq!(access.id(), exec, "the access is the call's own");
+        assert!(
+            matches!(table.arrive(call), Arrival::Awaited(_)),
+            "the lookup left the call in the table"
+        );
+    }
+
+    #[test]
+    fn a_file_request_finds_no_call_in_an_orphan_another_kind_or_an_unknown_id() {
+        let mut table = EffectTable::default();
+        let (orphan, _) = issue_tool_call(&mut table, chain(0));
+        table.orphan(orphan);
+        assert!(matches!(table.asking(orphan), Asking::Orphaned));
+        let round = issue_round(&mut table, chain(0));
+        assert!(
+            matches!(table.asking(round), Asking::NotACall),
+            "a model round is no tool call"
+        );
+        let file = table.issue(chain(0), provenance(), timer(), Continuation::ToolVfs);
+        assert!(
+            matches!(table.asking(file), Asking::NotACall),
+            "a tool's file operation is no tool call"
+        );
+        let (answered, _) = issue_tool_call(&mut table, chain(0));
+        assert!(matches!(table.arrive(answered), Arrival::Awaited(_)));
+        assert!(
+            matches!(table.asking(answered), Asking::NotACall),
+            "an answered call is gone"
+        );
+        assert!(matches!(table.asking(EffectId(99)), Asking::NotACall));
+    }
+
+    #[test]
+    fn a_tools_file_operation_is_awaited_by_the_calls_chain_and_orphans_with_no_identity() {
+        let mut table = EffectTable::default();
+        let (call, _) = issue_tool_call(&mut table, chain(2));
+        let file = table.issue(chain(2), provenance(), timer(), Continuation::ToolVfs);
+        assert_eq!(table.awaited_by(chain(2)), [call, file]);
+        assert_eq!(table.orphan(file), None, "it has no identity of its own");
+        let (_, withdrawn) = table.take_step();
+        assert_eq!(withdrawn, [file]);
     }
 
     #[test]

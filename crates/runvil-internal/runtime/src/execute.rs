@@ -57,16 +57,17 @@ pub use params::{RunLimits, RunParams};
 pub(crate) use run::{AnswerRecord, ChatAnswerRecord, EffectRecord};
 pub use run::{
     Effect, EffectAnswer, EffectId, IssuedEffect, PackToolSets, Round, Run, Step, ToolCallOrigin,
-    ToolCaller,
+    ToolCaller, VfsAsker, VfsReceipt,
 };
 use runvil_vfs::{Access, VfsError, VfsOp, VfsOutcome};
 
-/// Performs the store operation of an [`Effect::Vfs`] and returns its answer.
+/// Performs the operation of an [`Effect::Vfs`] and returns its outcome.
 ///
-/// `access` is the store view the effect carries: a view of the calling
-/// chain's store under the chain's identity, made when the effect is
-/// dispatched.
-/// The function runs `op` with [`Access::perform`] on that view, so the
+/// `access` is the access the effect carries: for a `store` call, a view
+/// of the calling chain's store under the chain's identity, made when the
+/// effect is dispatched, and for a tool's request, the tool call's own
+/// access.
+/// The function runs `op` with [`Access::perform`] on that access, so the
 /// caller answers a `Vfs` effect exactly as the Engine's own test drivers
 /// do. Line bounds arrive as `i64` and convert to `usize`. A read that
 /// gives an `end` and omits `start` is refused as an invalid range.
@@ -77,10 +78,10 @@ use runvil_vfs::{Access, VfsError, VfsOp, VfsOutcome};
 /// for it.
 ///
 /// # Errors
-/// Returns the store's own structured failure for the operation (path
-/// validation, not-found, anchor, range, or conflict).
-/// When the caller resumes the run with that answer, the Engine raises
-/// the failure at the prompt author's call site.
+/// Returns the operation's own structured failure (path validation,
+/// not-found, anchor, range, or conflict).
+/// When the caller resumes the run with that answer to a `store` call,
+/// the Engine raises the failure at the prompt author's call site.
 pub fn perform_vfs_op(access: &Access, op: &VfsOp) -> std::result::Result<VfsOutcome, VfsError> {
     access.perform(op)
 }

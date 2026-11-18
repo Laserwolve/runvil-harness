@@ -3,8 +3,9 @@
 //! documented on the `runvil-engine` facade's crate page and its `effect` and
 //! `cancel` modules.
 //!
-//! The effect vocabulary - [`Effect`] with its [`Round`] and
-//! [`PackToolSets`], [`EffectAnswer`], [`EffectId`], and the
+//! The effect vocabulary - [`Effect`] with its [`Round`],
+//! [`PackToolSets`], and [`VfsAsker`], [`EffectAnswer`] with its
+//! [`VfsReceipt`], [`EffectId`], and the
 //! [`ToolCallOrigin`] and [`ToolCaller`] it re-exports from
 //! `runvil-types` - comes from the `effect` child module and is
 //! re-exported here. The records of effects and answers stay in that
@@ -17,13 +18,17 @@ use std::sync::Arc;
 use runvil_types::error::Error;
 use runvil_types::event::Event;
 use runvil_types::ids::Provenance;
+use runvil_vfs::VfsOp;
 
 mod effect;
 mod vfs_record;
 
 #[cfg(test)]
 pub(crate) use effect::{AnswerRecord, ChatAnswerRecord, EffectRecord};
-pub use effect::{Effect, EffectAnswer, EffectId, PackToolSets, Round, ToolCallOrigin, ToolCaller};
+pub use effect::{
+    Effect, EffectAnswer, EffectId, PackToolSets, Round, ToolCallOrigin, ToolCaller, VfsAsker,
+    VfsReceipt,
+};
 
 use crate::prompt::Prompt;
 
@@ -40,11 +45,13 @@ use super::scheduler::Scheduler;
 pub enum Step {
     /// The run continues.
     Pending {
-        /// The effects this step issued, in issue order, each with the
-        /// provenance of the task that built it, for the caller to perform
-        /// and answer through [`Run::resume`]. An empty list means the run
-        /// waits on effects an earlier step issued, or, when
-        /// `waiting_for_input` is set, on the main chain's next message.
+        /// The effects issued since the previous step, in issue order,
+        /// each with the provenance of the task that built it, for the
+        /// caller to perform and answer through [`Run::resume`]: those
+        /// [`Run::request_file`] issued for a tool's file requests, then
+        /// those this step issued. An empty list means the run waits on
+        /// effects an earlier step issued, or, when `waiting_for_input`
+        /// is set, on the main chain's next message.
         effects: Vec<IssuedEffect>,
         /// The events reported since the previous step, in order, less
         /// those [`Run::deliver`] already returned.
@@ -207,9 +214,12 @@ impl Run {
     ///
     /// Each answer must match the kind of its effect: a chat answer for a
     /// `Chat` effect, a tool answer for a `ToolCall` effect, and so on. A
-    /// mismatch is an internal error that ends the run. So is an answer for
-    /// an id the run never issued, or a second answer for one effect. An
-    /// answer for an effect whose chain stopped waiting is discarded.
+    /// `Vfs` effect takes [`EffectAnswer::Vfs`] when the prompt's Lua
+    /// asked for it and [`EffectAnswer::VfsReceipt`] when a tool call
+    /// did. A mismatch is an internal error that ends the run. So is an
+    /// answer for an id the run never issued, or a second answer for one
+    /// effect. An answer for an effect whose chain stopped waiting is
+    /// discarded.
     ///
     /// `resume` cannot fail: a bad answer ends the run with an internal
     /// error, which the result of [`Step::Done`] holds, instead of
@@ -232,6 +242,27 @@ impl Run {
     /// Call it only before `step` returns `Done`.
     pub fn deliver(&mut self, text: String) -> Vec<Event> {
         self.scheduler.deliver_message(text)
+    }
+
+    /// Reports one file request of an open tool call: the tool behind the
+    /// `ToolCall` effect `call` asks for `op`.
+    ///
+    /// The run issues the operation as an [`Effect::Vfs`] whose asker is
+    /// the call, under the task that made the call and with the call's
+    /// own access, and the next `step` returns it. The caller performs
+    /// the operation, hands the whole outcome to the tool, and answers
+    /// the effect with [`EffectAnswer::VfsReceipt`]. That answer resumes
+    /// no chain, and a failure in it ends nothing: the tool call stays
+    /// open until the caller answers it with the tool's result.
+    ///
+    /// A request for a call whose chain stopped waiting, one a step
+    /// listed as withdrawn, is discarded. A request for any other id is a
+    /// caller error that ends the run with an internal error, as a bad
+    /// answer does: an id the run never issued, a call already answered,
+    /// or an effect that is no tool call. A run that has returned `Done`
+    /// ignores the request.
+    pub fn request_file(&mut self, call: EffectId, op: VfsOp) {
+        self.scheduler.request_file(call, op);
     }
 
     /// Whether the run's result is decided: it has reported its end

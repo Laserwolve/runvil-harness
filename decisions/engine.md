@@ -1,6 +1,6 @@
 # The Engine: design decisions
 
-This page covers the Engine as a library: parsing a prompt, the run state machine, effects and their answers, run limits, the one error type, the public surface, and the internal crates. The Engine is a Rust library that parses a prompt file and runs it as a state machine. `Prompt::parse` compiles each Lua block and returns a `Prompt`, which also holds every prompt that it lists for `execute`, and `Run::new` builds a `Run` from it. Each `Run::step` runs the prompt's Lua until the run waits for answers and returns the effects the run needs: model rounds, Pack renders, Pack tool calls, `store` operations, and timers. The caller performs each effect and passes its answer to `Run::resume`. A run ends with its final text or with one `Error`. Private crates contain the code, and `runvil-engine` re-exports the names a caller uses.
+This page covers the Engine as a library: parsing a prompt, the run state machine, effects and their answers, run limits, the one error type, the public surface, and the internal crates. The Engine is a Rust library that parses a prompt file and runs it as a state machine. `Prompt::parse` compiles each Lua block and returns a `Prompt`, which also holds every prompt that it lists for `execute`, and `Run::new` builds a `Run` from it. Each `Run::step` runs the prompt's Lua until the run waits for answers and returns the effects the run needs: model rounds, Pack renders, Pack tool calls, file operations, and timers. The caller performs each effect and passes its answer to `Run::resume`. A run ends with its final text or with one `Error`. Private crates contain the code, and `runvil-engine` re-exports the names a caller uses.
 
 ## 1. The Engine and its caller
 
@@ -10,9 +10,9 @@ An effect is a Rust value that describes one piece of outside work, such as a mo
 
 The Engine returns this work as values so that it is independent of any runtime and is a deterministic function of its inputs.
 
-### The Engine returns model rounds, Pack work, store operations, and timers as effects, and performs the rest itself
+### The Engine returns model rounds, Pack work, file operations, and timers as effects, and performs the rest itself
 
-The variants of `Effect` are `Chat` for one model round, `Render` for a Pack's rendering of offered tools, `ToolCall` for one call of a Pack's tool, `Vfs` for one `store` operation, and `Timer` for one sleep. [Tools and Packs](tools-and-packs.md) covers `Render` and `ToolCall`.
+The variants of `Effect` are `Chat` for one model round, `Render` for a Pack's rendering of offered tools, `ToolCall` for one call of a Pack's tool, `Vfs` for one file operation, and `Timer` for one sleep. A file operation is a `store` call of the prompt's Lua, or a file request of an open tool call. [Tools and Packs](tools-and-packs.md) covers `Render` and `ToolCall`.
 
 The Engine performs these kinds of work itself and reports each as an event: an adhoc tool call, a `GetDynamicTools` call, and a refused discovery call.
 
@@ -56,11 +56,17 @@ A heading outside the set and a heading absent from the file get the same answer
 
 ## 3. The run state machine
 
-### A caller steps a run with `Run::new`, `Run::step`, `Run::resume`, and `Run::deliver`
+### A caller steps a run with `Run::new`, `Run::step`, `Run::resume`, `Run::deliver`, and `Run::request_file`
 
-`Run::new(prompt, args, params)` builds a run, and `args` is the text of the run's arguments, one JSON object. The run holds `prompt` and every prompt it links, so a caller passes the prompt that `Prompt::parse` returned. `Run::step` advances it until it needs an answer and returns a `Step`. `Run::resume(id, answer)` delivers the answer to one effect. `Run::deliver(text)` queues a message for the main chain's inbox ([The Harness and the Host API](harness-and-host.md)). A chain is the Engine's record of one sequence of sections: the main walk, a `call` child, an `execute` child, or a task ([Tasks and fanout](tasks-and-fanout.md)). `Run` is `Send` and owns its prompt through an `Arc`.
+`Run::new(prompt, args, params)` builds a run, and `args` is the text of the run's arguments, one JSON object. The run holds `prompt` and every prompt it links, so a caller passes the prompt that `Prompt::parse` returned. `Run::step` advances it until it needs an answer and returns a `Step`. `Run::resume(id, answer)` delivers the answer to one effect. `Run::deliver(text)` queues a message for the main chain's inbox ([The Harness and the Host API](harness-and-host.md)). `Run::request_file(call, op)` reports one file request of an open tool call, and the next `Run::step` returns the operation as a `Vfs` effect. A chain is the Engine's record of one sequence of sections: the main walk, a `call` child, an `execute` child, or a task ([Tasks and fanout](tasks-and-fanout.md)). `Run` is `Send` and owns its prompt through an `Arc`.
 
 The caller answers effects one at a time, in any order. Parallel work in a fanout depends on that: the caller resumes one arm while the effects of the other arms are in flight.
+
+### A tool call stays open while its tool asks for files
+
+The `ToolCall` effect stays open until the caller answers it with the tool's result. While it is open, the tool asks its caller for each file operation it needs, and the caller reports each request with `Run::request_file(call, op)`, where `call` is the id of the `ToolCall` effect. The Engine issues the operation as a `Vfs` effect whose asker is that call, under the task that made the call and with the call's own file access. A request for a call whose chain stopped waiting does nothing. A request for any other id ends the run with an `internal` error, as a bad answer does. A request on a run that has returned `Step::Done` does nothing.
+
+The request goes through the Engine so that the run's record holds every file operation of a tool, in order with the rest of the run. The owner's rule: "every VFS operation that's performed by a tool has to turn into an effect in the engine." The call stays open because the tool's result is still to come: the file operation is a step of the call, and the call's one answer is that result.
 
 ### `Run::new` always succeeds, and the first `step` checks that the run can start
 
@@ -84,9 +90,9 @@ The Harness matches these values. With `#[non_exhaustive]` it would need wildcar
 
 ### Every effect gets exactly one answer, and `Dropped` is an answer
 
-`EffectAnswer` has one variant for each effect kind, plus `Dropped`. A caller that abandons an effect answers it `Dropped`, and the chain that waited resumes with the canceled error. `Run::step` returns `Step::Done` once the caller has answered every issued effect, so a store operation still in progress finishes inside the run's file scope.
+`EffectAnswer` has one variant for each effect kind, a second one for the `Vfs` kind, and `Dropped`. A `Vfs` effect takes `Vfs` when the prompt's Lua asked for it and `VfsReceipt` when a tool call did. A caller that abandons an effect answers it `Dropped`, and the chain that waited resumes with the canceled error. `Run::step` returns `Step::Done` once the caller has answered every issued effect, so a file operation still in progress finishes inside the run's file scope.
 
-These caller mistakes end the run with an `internal` error: an answer of the wrong kind, an answer for an unknown id, and a second answer for one effect. The Engine discards an answer for an effect whose chain stopped waiting.
+These caller mistakes end the run with an `internal` error: an answer of the wrong kind, a `Vfs` answer of the other form, an answer for an unknown id, and a second answer for one effect. The Engine discards an answer for an effect whose chain stopped waiting.
 
 ### A step lists the effects it withdraws
 
@@ -128,17 +134,21 @@ One counter numbers every model round of a run in issue order, and loop rounds a
 
 A `Round` has only these two values, because a caller needs only a round's id and whether the round is user-facing.
 
-### `Effect::Vfs` is one `store` operation
+### `Effect::Vfs` is one file operation, and it says who asked
 
-The Engine issues a `Vfs` effect for each `store.*` call. Its fields are `store`, the id of the store that the call works on, `access`, the calling chain's view of that store, and `op`, a `VfsOp` with the call's arguments. A caller answers it with `perform_vfs_op(&access, &op)`, a synchronous function that runs the operation with `Access::perform` ([Files and the VFS](files-and-the-vfs.md)).
+The Engine issues a `Vfs` effect for each `store.*` call, and for each file request of an open tool call that the caller reports with `Run::request_file`. Its fields are `asker`, `access`, and `op`, a `VfsOp` with the operation's arguments. `asker` is a `VfsAsker`: `Lua` for a `store` call, with the id of the store that the call works on, and `Tool` for a tool's request, with the effect id of the tool call. The asker settles the files. A `store` call works on its chain's store, and `access` is the calling chain's view of that store. A tool's request works on the file system the caller gave the run, and `access` is the call's own file access. A caller performs the operation with `Access::perform`, or with `perform_vfs_op(&access, &op)`, a synchronous function that calls it ([Files and the VFS](files-and-the-vfs.md)).
 
-A run has more than one store when a prompt executes another, so the effect names its store. The `store` field is a `ChainId`: `0`, the id of the root chain, for the store that a run starts with, and the id of an executed prompt's chain, such as `0.0`, for a store that an `execute` made. The view alone would be enough to perform the operation, and the id is there for the record.
+A caller answers a `store` call with `EffectAnswer::Vfs`, the whole `VfsOutcome`, and the `store` call resumes with it. It answers a tool's request with `EffectAnswer::VfsReceipt`, once it has handed the whole outcome to the tool. A `VfsReceipt` is a stat, a bool, a count of entries or paths, a count of bytes, or done, and `VfsReceipt::of` makes one from an outcome. The Engine gets the receipt alone, so it holds no copy of the bytes of a read. The answer to a tool's request resumes no chain, and a failure in it goes to the tool and leaves the run alone, because the chain waits on the tool call and the tool decides what a failed operation means. The Engine reports no event for a tool's file operation: the effect record and the answer record are the view. A `store` call keeps its events.
 
-Lua says `store`, and the names below the Lua layer say `Vfs`, because every one of these operations is a VFS operation made through a view of a store.
+A run has more than one store when a prompt executes another, so the effect of a `store` call names its store. The id is a `ChainId`: `0`, the id of the root chain, for the store that a run starts with, and the id of an executed prompt's chain, such as `0.0`, for a store that an `execute` made. The view alone would be enough to perform the operation, and the id is there for the record.
+
+Lua says `store`, and the names below the Lua layer say `Vfs`, because every one of these operations is a VFS operation: one made through a view of a store, or one made through the access of a tool call.
 
 ### `Effect::record` and `EffectAnswer::record` return JSON for the run log
 
-`Effect::record` returns the effect as a `serde_json::Value`, minus its live handles. A `ToolCall` record omits the file access, a `Vfs` record omits the view and keeps the store's id beside the operation, and a `Timer` record stores seconds, though the effect has a `Duration`. `EffectAnswer::record` returns the answer's outcome, and a failure is an object with a `kind`, the tag of its `ErrorCode` or `VfsError`, and a `message`.
+`Effect::record` returns the effect as a `serde_json::Value`, minus its live handles. A `ToolCall` record omits the file access, and a `Timer` record stores seconds, though the effect has a `Duration`. A `Vfs` record omits the access and keeps who asked beside the operation: the id of the store for a `store` call, as in `{"Vfs":{"store":"0","op":{...}}}`, and the effect id of the tool call for a tool's request, as in `{"Vfs":{"call":7,"op":{...}}}`. A write or an append records its bytes as text when they are UTF-8 and as hex otherwise.
+
+`EffectAnswer::record` returns the answer's outcome, and a failure is an object with a `kind`, the tag of its `ErrorCode` or `VfsError`, and a `message`. A `Vfs` answer records the whole outcome, because a replay resumes Lua with it. A `VfsReceipt` answer records the receipt: a size in place of content, the number of bytes of a read or the number of entries of a listing, and the stat of a stat. The tool's own result is in the record as the answer of its `ToolCall`. The record holds no hash.
 
 ## 5. Inside a step: chains, section VMs, and requests
 
@@ -305,7 +315,7 @@ The owner's goal: "I want as many internal crates as possible and I want maximum
 
 - **An `execute` that returns at once.** A Lua `execute_async` call that starts another prompt as a task and returns its handle. Today `execute` runs a listed prompt as a blocking child chain, and its caller waits for the result.
 - **Replay.** Harness code that runs a recorded run a second time and compares the records of the two runs. Today the Engine attaches a `Provenance` to each effect and event, and `Effect::record` and `EffectAnswer::record` return the JSON that a run log stores.
-- **A tool's file operations as `Vfs` effects.** A `Vfs` effect for each file operation of a tool, on the file system the caller gave the run, under the call's identity ([Files and the VFS](files-and-the-vfs.md)). Today a `Vfs` effect is one `store` operation, and a `ToolCall` effect holds the call's file access.
+- **A `ToolCall` effect with no file access.** A tool call whose every file operation is a `Vfs` effect, so that the `ToolCall` effect holds no access of its own ([Files and the VFS](files-and-the-vfs.md)). Today a `ToolCall` effect holds the call's file access beside the `Vfs` effects of the call's requests, and a tool that uses that access performs an operation outside the run's record.
 - **The round id on `ModelTurnFailed`.** A round id in the `ModelTurnFailed` event, so that a Host can drop exactly the failed round's streamed pieces. Today the Engine writes the round id in a round's thinking, reply, and tool-call events.
 - **Bounds on JSON conversion.** A size budget at every site that converts a Lua table. Today `json.encode` and `var` writes have a size budget, other sites in the Lua crate convert a table of any size, and one encode runs as a single Rust callback between cancel polls.
 - **`#[non_exhaustive]` on the error types.** The attribute on `ErrorCode`, and on `Error` and `ErrorFact` if the owner extends it to them, so that a new code leaves a Host's build intact. Today the three types are closed, and at least one function outside `runvil-types`, `kind_of` in `runvil-lua`, names every code with no catch-all arm, so it would need one or a move into `runvil-types`.

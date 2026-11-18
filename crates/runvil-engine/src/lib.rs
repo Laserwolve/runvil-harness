@@ -6,6 +6,9 @@
 //! prompt it lists with `execute`, inside the same run.
 //! [`Run::step`] returns [`Step::Pending`] with the effects the run waits on.
 //! The caller performs each effect and hands its answer to [`Run::resume`].
+//! A tool whose call is open asks the caller for each file operation it
+//! needs, and the caller reports the request with [`Run::request_file`],
+//! so the run issues that operation as an effect too.
 //! The run ends at [`Step::Done`] with its result: the final text, or the
 //! [`Error`] that ended it. A cancel is the error whose code
 //! is [`ErrorCode::Canceled`].
@@ -64,6 +67,8 @@ pub mod effect {
     pub use runvil_runtime::Round;
     pub use runvil_runtime::ToolCallOrigin;
     pub use runvil_runtime::ToolCaller;
+    pub use runvil_runtime::VfsAsker;
+    pub use runvil_runtime::VfsReceipt;
 }
 
 pub mod event {

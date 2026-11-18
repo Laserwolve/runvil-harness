@@ -495,11 +495,11 @@ impl Driver {
                     .queue(id, provenance.clone(), survives_stop, Box::pin(call));
                 return None;
             }
-            // The effect's record, written before this call, names the
-            // store, and the view reaches no other, so the store's id has
-            // no use here.
+            // The effect's record, written before this call, names who
+            // asked. The loop reports no request of a tool to the run, so
+            // the prompt's Lua asked, and the view reaches its store alone.
             Effect::Vfs {
-                store: _,
+                asker: _,
                 access,
                 op,
             } => return Some((access, op)),

@@ -40,6 +40,14 @@
 //! closes the innermost open call and reports it. An adhoc call never
 //! issues leaf work of its own.
 //!
+//! While a bound call is open, its tool asks for file operations through
+//! the caller, which reports each request to the run. The run-level
+//! `request_file` issues the operation as a `Vfs` effect whose asker is
+//! the call, under the chain that awaits the call and with the call's own
+//! access, which the call's continuation keeps, so the operation runs
+//! under the call's identity. The chain stays parked on the call: the
+//! answer to such an effect resumes nothing.
+//!
 //! A discovery call is decided in full before any preparer runs (the
 //! freeze-before-preparer guarantee). A direct call to a Dynamic Set tool,
 //! and every malformed discovery call, is answered with refusal text that
@@ -603,20 +611,20 @@ impl ChainOps<'_> {
                 prompt_origin(&prompt, &binding.id().to_string(), chain.blocks(&prompt)),
             )
             .map_err(|cause| error::make_files_error(&cause))?;
-        let exec = access.id();
+        let access = Arc::new(access);
         let effect = Effect::ToolCall {
             tool: binding.id().clone(),
             alias: binding.alias().to_owned(),
             args,
             origin,
-            access: Arc::new(access),
+            access: Arc::clone(&access),
             survives_stop: binding.survives_stop(),
         };
         let resume = Continuation::ToolCall(ToolCallContinuation {
             binding,
             report,
             site,
-            exec,
+            access,
         });
         self.issue(effect, resume);
         Ok(())

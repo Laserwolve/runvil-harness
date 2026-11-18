@@ -15,7 +15,10 @@
 //! error, whatever it was parked on; for a render, that is the round's
 //! canceled answer. A tool call's answer, of either kind, also ends the
 //! call's identity: what the tool did is joined back into the chain, and
-//! the call's access refuses every later operation.
+//! the call's access refuses every later operation. The answer to a file
+//! operation that a tool call asked for, a receipt, a failure, or a drop,
+//! resumes no chain and reports nothing: the tool has the outcome, and
+//! the chain still awaits the tool call.
 
 use runvil_types::error::{ErrorCode, place};
 use runvil_types::event_lifecycle::{self as lifecycle, Lifecycle};
@@ -101,11 +104,15 @@ impl Scheduler {
     /// Every answer to a tool call, `Dropped` included, first ends the
     /// call's identity through [`Scheduler::end_tool_call`], so whatever
     /// the tool did happens before the chain's next step and nothing it
-    /// tries after is admitted.
+    /// tries after is admitted. The answer to a file operation that a
+    /// tool call asked for changes nothing, a failure and a drop
+    /// included.
     ///
     /// # Errors
     /// Returns an `Internal` failure when the answer's kind does not match
-    /// the effect's, when a batched call's answer finds no open slot to
+    /// the effect's, a `Vfs` answer for an operation that a tool call
+    /// asked for and a `VfsReceipt` answer for one that Lua asked for
+    /// included, when a batched call's answer finds no open slot to
     /// fill, or when the chain it resumes has no suspended block.
     /// Returns a `Determinism` failure when a store answer reports a
     /// claims-model conflict: the run ends on the spot rather than
@@ -115,7 +122,7 @@ impl Scheduler {
         let Pending { chain, resume } = parked;
         let slot = match &resume {
             Continuation::ToolCall(call) => {
-                self.end_tool_call(chain, call.exec);
+                self.end_tool_call(chain, call.exec());
                 match call.site {
                     CallSite::Batch { slot, .. } => Some(slot),
                     CallSite::Script | CallSite::Model { .. } => None,
@@ -125,10 +132,17 @@ impl Scheduler {
             | Continuation::Chat(_)
             | Continuation::Render(_)
             | Continuation::Vfs(_)
+            | Continuation::ToolVfs
             | Continuation::Timer(_) => None,
         };
         let answer = match (resume, answer) {
             (Continuation::Timer(task), EffectAnswer::Dropped) => return self.drop_timer(&task),
+            // The outcome went to the tool, and so did a failure, so
+            // neither it nor a drop moves a chain: the chain waits on the
+            // tool call.
+            (Continuation::ToolVfs, EffectAnswer::VfsReceipt(_) | EffectAnswer::Dropped) => {
+                return Ok(());
+            }
             (_, EffectAnswer::Dropped) => Err(Error::canceled()),
             (Continuation::Infer(round), EffectAnswer::Chat(result)) => self
                 .with_chain(chain, |ops| ops.accept_infer(round, result))
@@ -155,40 +169,25 @@ impl Scheduler {
                 }
             }
             (Continuation::Timer(task), EffectAnswer::Timer) => return self.fire_timer(&task),
+            // Every pair the arms above left: an answer of another kind
+            // than its effect's, the whole outcome for an operation a tool
+            // asked for and a receipt for one Lua asked for among them.
+            // Both lists name every variant, so a new one fails the build
+            // here.
             (
-                Continuation::Infer(_) | Continuation::Chat(_),
-                EffectAnswer::Render(_)
-                | EffectAnswer::ToolCall(_)
-                | EffectAnswer::Vfs(_)
-                | EffectAnswer::Timer,
-            )
-            | (
-                Continuation::Render(_),
-                EffectAnswer::Chat(_)
-                | EffectAnswer::ToolCall(_)
-                | EffectAnswer::Vfs(_)
-                | EffectAnswer::Timer,
-            )
-            | (
-                Continuation::ToolCall(_),
-                EffectAnswer::Chat(_)
-                | EffectAnswer::Render(_)
-                | EffectAnswer::Vfs(_)
-                | EffectAnswer::Timer,
-            )
-            | (
-                Continuation::Vfs(_),
+                Continuation::Infer(_)
+                | Continuation::Chat(_)
+                | Continuation::Render(_)
+                | Continuation::ToolCall(_)
+                | Continuation::Vfs(_)
+                | Continuation::ToolVfs
+                | Continuation::Timer(_),
                 EffectAnswer::Chat(_)
                 | EffectAnswer::Render(_)
                 | EffectAnswer::ToolCall(_)
+                | EffectAnswer::Vfs(_)
+                | EffectAnswer::VfsReceipt(_)
                 | EffectAnswer::Timer,
-            )
-            | (
-                Continuation::Timer(_),
-                EffectAnswer::Chat(_)
-                | EffectAnswer::Render(_)
-                | EffectAnswer::ToolCall(_)
-                | EffectAnswer::Vfs(_),
             ) => {
                 return Err(error::make_internal_error(
                     "an effect's answer must be of the effect's own kind",

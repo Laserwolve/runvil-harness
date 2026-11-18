@@ -11,7 +11,7 @@ use runvil_types::ids::ChainId;
 use runvil_vfs::Store;
 
 use super::*;
-use crate::execute::run::{AnswerRecord, EffectRecord};
+use crate::execute::run::{AnswerRecord, EffectRecord, VfsAsker};
 use crate::test_support::rig::Rig;
 use crate::test_support::scenario::fresh_store_view;
 
@@ -197,7 +197,13 @@ fn the_vfs_records_of_each_store_id_rebuild_that_store() {
     // new store for each store id the records name.
     let mut rebuilt: BTreeMap<ChainId, Access> = BTreeMap::new();
     for (effect, answer) in trace.effects() {
-        let (EffectRecord::Vfs { store, op }, AnswerRecord::Vfs(Ok(outcome))) = (effect, answer)
+        let (
+            EffectRecord::Vfs {
+                asker: VfsAsker::Lua { store },
+                op,
+            },
+            AnswerRecord::Vfs(Ok(outcome)),
+        ) = (effect, answer)
         else {
             continue;
         };
@@ -349,7 +355,10 @@ fn a_store_made_for_an_execute_names_the_executed_chain_whichever_of_its_chains_
         .effects()
         .iter()
         .filter_map(|(effect, _)| match effect {
-            EffectRecord::Vfs { store, .. } => Some(store.to_string()),
+            EffectRecord::Vfs {
+                asker: VfsAsker::Lua { store },
+                ..
+            } => Some(store.to_string()),
             _ => None,
         })
         .collect();

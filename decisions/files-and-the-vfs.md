@@ -194,7 +194,7 @@ The `store` functions stay in the Engine. A plan to serve them from a tool is dr
 
 ### A `Vfs` effect and its record name the store by a chain id
 
-`Effect::Vfs` has a `store` field, a `ChainId`, and the effect's record holds it beside the operation, as in `{"Vfs":{"store":"0","op":{...}}}`. The id `0`, the root chain's, names the store that the run starts with. A store that an `execute` made has the id of the executed prompt's chain, such as `0.0`, and every operation on that store has this id, whichever chain of the executed prompt made the call.
+The `Vfs` effect of a `store` call names its store in its `asker`, by a `ChainId`, and the effect's record holds that id beside the operation, as in `{"Vfs":{"store":"0","op":{...}}}`. The id `0`, the root chain's, names the store that the run starts with. A store that an `execute` made has the id of the executed prompt's chain, such as `0.0`, and every operation on that store has this id, whichever chain of the executed prompt made the call.
 
 The record names the store because an executed prompt reports under its caller's task, and two stores can each have a file at one path. Without the id, a reader of the log could not tell the caller's `a.md` from the child's, and neither store could be rebuilt. With it, the records of each store rebuild that store. The id is a chain id because a chain id is the same in every run with the same inputs and answers ([Tasks and fanout](tasks-and-fanout.md)), which a replay needs.
 

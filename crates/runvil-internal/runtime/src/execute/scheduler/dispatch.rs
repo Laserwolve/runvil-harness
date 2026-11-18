@@ -22,7 +22,7 @@ use runvil_types::error::place;
 use runvil_types::event::ReplyOrigin;
 use runvil_vfs::VfsOp;
 
-use crate::execute::run::Effect;
+use crate::execute::run::{Effect, VfsAsker};
 use crate::execute::section_context::TaskSeed;
 use crate::lua::{Answer, LibraryKey, Request};
 use crate::model::{Message, ModelBinding};
@@ -369,7 +369,9 @@ impl ChainOps<'_> {
             )
         })?);
         let effect = Effect::Vfs {
-            store: held.made_for.clone(),
+            asker: VfsAsker::Lua {
+                store: held.made_for.clone(),
+            },
             access: view,
             op: op.clone(),
         };

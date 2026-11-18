@@ -16,7 +16,7 @@ use runvil_vfs::VfsOp;
 
 use super::fixtures::echo_tool;
 use super::*;
-use crate::execute::run::{EffectRecord, ToolCallOrigin, ToolCaller};
+use crate::execute::run::{EffectRecord, ToolCallOrigin, ToolCaller, VfsAsker};
 /// A prelude contributed by the Pack `id`.
 pub(super) fn prelude(id: &str, source: &str) -> Prelude {
     Prelude::new(PackId::parse(id).expect("a valid Pack id"), source)
@@ -142,7 +142,7 @@ fn a_prelude_that_catches_its_store_call_installs_and_leaves_the_store_untouched
     assert_eq!(
         records(&trace),
         vec![EffectRecord::Vfs {
-            store: ChainId::root(),
+            asker: root_store(),
             op: VfsOp::Exists {
                 path: "seeded.txt".to_owned(),
             },
@@ -281,19 +281,26 @@ fn a_library_a_fanout_arm_and_a_spawned_task_all_see_a_prelude_global() {
     );
 }
 
+/// The asker of a `store` call on the store the run starts with.
+fn root_store() -> VfsAsker {
+    VfsAsker::Lua {
+        store: ChainId::root(),
+    }
+}
+
 /// The two store effects of a prelude function that writes `text` to
 /// `path` and reads it back.
 fn write_then_read(path: &str, text: &str) -> Vec<EffectRecord> {
     vec![
         EffectRecord::Vfs {
-            store: ChainId::root(),
+            asker: root_store(),
             op: VfsOp::Write {
                 path: path.to_owned(),
                 contents: text.as_bytes().to_vec(),
             },
         },
         EffectRecord::Vfs {
-            store: ChainId::root(),
+            asker: root_store(),
             op: VfsOp::Read {
                 path: path.to_owned(),
                 start: None,

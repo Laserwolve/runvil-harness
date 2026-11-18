@@ -11,7 +11,9 @@
 //! and *what it means*; the Harness performs it. A section entry's first
 //! model round that offers catalog tools first issues a render, whose
 //! answer the Engine merges into the entry's frozen sets before it issues
-//! the round.
+//! the round. A file operation that an open tool call asks for is an
+//! effect too: the caller reports the request, and the run issues it as a
+//! `Vfs` effect whose [`VfsAsker`] is the call.
 //!
 //! An [`Effect`] may hold a live handle (a filesystem access) and so does
 //! not serialize itself. [`Effect::record`] projects it onto a JSON value,
@@ -31,7 +33,7 @@ use runvil_types::ids::{ChainId, RoundId};
 use runvil_types::packs::PackId;
 use runvil_types::tools::{OutputTrust, ToolId, ToolInfo, ToolOutput};
 pub use runvil_types::tools::{ToolCallOrigin, ToolCaller};
-use runvil_vfs::{Access, VfsError, VfsOp, VfsOutcome};
+use runvil_vfs::{Access, Stat, VfsError, VfsOp, VfsOutcome};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -121,6 +123,83 @@ impl<T> PackToolSets<T> {
     }
 }
 
+/// Who asked for the operation of an [`Effect::Vfs`]. The asker settles
+/// the files the operation works on: the prompt's Lua works on its
+/// chain's store, and a tool call works on the filesystem the caller gave
+/// the run.
+///
+/// The enum is `#[non_exhaustive]`, so a `match` on it outside this crate
+/// needs a wildcard arm.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum VfsAsker {
+    /// A `store` call of the prompt's Lua, on the store made for this
+    /// chain.
+    Lua {
+        /// Which store the operation is on: the id of the chain the store
+        /// was made for. That is the root chain's id, `0`, for the store
+        /// the run starts with, and for a store an `execute` made, the id
+        /// of the chain that runs the executed prompt. Two operations on
+        /// one path are on the same file only when this id is the same.
+        store: ChainId,
+    },
+    /// The open tool call with this id, on the filesystem the caller gave
+    /// the run.
+    Tool {
+        /// The id of the tool call's [`ToolCall`](Effect::ToolCall)
+        /// effect.
+        call: EffectId,
+    },
+}
+
+/// What a run's record keeps of the outcome of a file operation that a
+/// tool call asked for: a count where the outcome holds content.
+///
+/// The caller hands the tool the whole [`VfsOutcome`] and answers the
+/// effect with the receipt, so the run holds no copy of the bytes of a
+/// read. The tool's own result is the answer of its
+/// [`ToolCall`](Effect::ToolCall) effect.
+///
+/// The enum is `#[non_exhaustive]`, so a `match` on it outside this crate
+/// needs a wildcard arm.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum VfsReceipt {
+    /// The operation succeeded and returned nothing.
+    Done,
+    /// The operation returned this many bytes: the text of a `Read` or a
+    /// `ReadNumbered`, or the bytes of a `ReadRange`.
+    Bytes(u64),
+    /// The operation returned this many items: the entries of a `List`,
+    /// or the paths of a `Glob`.
+    Count(u64),
+    /// Whether the path of an `Exists` exists.
+    Bool(bool),
+    /// The metadata of the path of a `Stat`.
+    Stat(Stat),
+}
+
+impl VfsReceipt {
+    /// Returns the receipt of `outcome`: the outcome itself where it is a
+    /// stat, a bool, or nothing, and the count of its bytes, entries, or
+    /// paths otherwise.
+    #[must_use]
+    pub fn of(outcome: &VfsOutcome) -> VfsReceipt {
+        let count = |len: usize| u64::try_from(len).unwrap_or(u64::MAX);
+        match outcome {
+            VfsOutcome::Text(text) => VfsReceipt::Bytes(count(text.len())),
+            VfsOutcome::Bytes(bytes) => VfsReceipt::Bytes(count(bytes.len())),
+            VfsOutcome::Paths(paths) => VfsReceipt::Count(count(paths.len())),
+            VfsOutcome::Entries(entries) => VfsReceipt::Count(count(entries.len())),
+            VfsOutcome::Bool(flag) => VfsReceipt::Bool(*flag),
+            VfsOutcome::Stat(stat) => VfsReceipt::Stat(stat.clone()),
+            // `Unit`, and any outcome `runvil-vfs` adds behind its
+            // `#[non_exhaustive]` `VfsOutcome` before this crate names it.
+            _ => VfsReceipt::Done,
+        }
+    }
+}
+
 /// One piece of work the Engine asks the caller to perform.
 ///
 /// The enum is closed on purpose: it has no `#[non_exhaustive]`, so the
@@ -200,34 +279,40 @@ pub enum Effect {
         /// sees.
         survives_stop: bool,
     },
-    /// One operation on a store of the run, issued for one of the eight
-    /// `store.*` calls a prompt can make.
+    /// One file operation, which the caller performs with
+    /// `Access::perform` on `access`. `asker` says who asked for it, and
+    /// with that which files it works on and which answer it takes.
     ///
-    /// A store is the run's own: the Engine makes it empty, in memory.
-    /// The run starts with one, which is gone when the run ends, and each
-    /// `execute` makes one more for the prompt it runs, which is gone
-    /// when that prompt's chain ends. A store is no part of the
-    /// filesystem the caller gave the run, so no path of that filesystem
-    /// reaches it, and a tool, which reaches files through the access of
-    /// its [`ToolCall`](Effect::ToolCall) effect, sees none of it.
-    /// `access` is a view of the calling chain's store under the chain's
-    /// identity, which the Engine makes at dispatch, and it is the
-    /// caller's one way to that store.
+    /// The prompt's Lua asks with one of the eight `store.*` calls, and
+    /// the operation works on a store of the run. A store is the run's
+    /// own: the Engine makes it empty, in memory. The run starts with
+    /// one, which is gone when the run ends, and each `execute` makes one
+    /// more for the prompt it runs, which is gone when that prompt's
+    /// chain ends. A store is no part of the filesystem the caller gave
+    /// the run, so no path of that filesystem reaches it, and a tool sees
+    /// none of it. `access` is then a view of the calling chain's store
+    /// under the chain's identity, which the Engine makes at dispatch,
+    /// and it is the caller's one way to that store. The caller answers
+    /// with [`EffectAnswer::Vfs`], the whole outcome.
+    ///
+    /// An open tool call asks through the caller: the caller reports the
+    /// tool's request with `Run::request_file`, and the operation works
+    /// on the filesystem the caller gave the run. `access` is then the
+    /// call's own, the one its [`ToolCall`](Effect::ToolCall) effect
+    /// holds. The caller hands the whole outcome to the tool and answers
+    /// with [`EffectAnswer::VfsReceipt`].
     ///
     /// The caller must use the access exactly as given, for this one
     /// operation. When the caller drops the access does not affect
     /// the run's correctness. Store claims follow happens-before order
     /// within the run's scope. The run ends that scope at `Done` or when
-    /// the run is dropped, and after that the view refuses every operation.
+    /// the run is dropped, and after that the access refuses every
+    /// operation.
     Vfs {
-        /// Which store the operation is on: the id of the chain the store
-        /// was made for. That is the root chain's id, `0`, for the store
-        /// the run starts with, and for a store an `execute` made, the id
-        /// of the chain that runs the executed prompt. Two operations on
-        /// one path are on the same file only when this id is the same.
-        store: ChainId,
-        /// The chain's store view: an access with the chain's identity
-        /// that reaches only that store.
+        /// Who asked for the operation.
+        asker: VfsAsker,
+        /// The access the operation runs on: the chain's view of its
+        /// store, or the tool call's own access.
         access: Arc<Access>,
         /// The validated operation.
         op: VfsOp,
@@ -336,8 +421,8 @@ impl Effect {
                 args: args.clone(),
                 origin: origin.clone(),
             },
-            Effect::Vfs { store, op, .. } => EffectRecord::Vfs {
-                store: store.clone(),
+            Effect::Vfs { asker, op, .. } => EffectRecord::Vfs {
+                asker: asker.clone(),
                 op: op.clone(),
             },
             Effect::Timer { duration } => EffectRecord::Timer {
@@ -412,13 +497,21 @@ pub(crate) enum EffectRecord {
         /// section's script or the model whose round asked for it.
         origin: ToolCallOrigin,
     },
-    /// One operation on a store of the run.
+    /// One file operation.
     Vfs {
-        /// Which store the operation is on: the id of the chain the store
-        /// was made for, `0` for the store the run starts with. The
-        /// records that name one store, in order, are every operation on
-        /// that store.
-        store: ChainId,
+        /// Who asked, written as one key beside the operation. A `store`
+        /// call of the prompt's Lua writes `store`, the id of the chain
+        /// the store was made for, `0` for the store the run starts with:
+        /// the records that name one store, in order, are every operation
+        /// on that store. A tool call writes `call`, the id of its
+        /// `ToolCall` effect, and its operation worked on the filesystem
+        /// the caller gave the run.
+        #[serde(
+            flatten,
+            serialize_with = "super::vfs_record::serialize_asker",
+            deserialize_with = "super::vfs_record::deserialize_asker"
+        )]
+        asker: VfsAsker,
         /// The validated operation, written in its record form: one
         /// object keyed by the operation's name. The bytes of a write or
         /// an append are text under `contents` when they are UTF-8, and
@@ -436,7 +529,8 @@ pub(crate) enum EffectRecord {
     },
 }
 
-/// The answer to one [`Effect`]: one variant per effect kind, plus
+/// The answer to one [`Effect`]: one variant per effect kind, a second
+/// one for a `Vfs` effect that a tool call asked for, plus
 /// [`Dropped`](EffectAnswer::Dropped) for an effect the caller gave up on.
 /// Every effect receives exactly one answer.
 ///
@@ -460,9 +554,15 @@ pub enum EffectAnswer {
     /// The tool's own output or its own failure, before the Engine applies
     /// its trust rule.
     ToolCall(std::result::Result<ToolOutput, runvil_types::error::Error>),
-    /// The outcome of the operation on the effect's store view, or the
-    /// store's own structured failure.
+    /// The answer to a `Vfs` effect that the prompt's Lua asked for: the
+    /// whole outcome of the operation on the effect's store view, or the
+    /// store's own structured failure. The `store` call resumes with it.
     Vfs(std::result::Result<VfsOutcome, VfsError>),
+    /// The answer to a `Vfs` effect that a tool call asked for: the
+    /// receipt of the operation's outcome, or the operation's failure.
+    /// It resumes no chain: the caller has handed the outcome, or the
+    /// failure, to the tool, whose call stays open.
+    VfsReceipt(std::result::Result<VfsReceipt, VfsError>),
     /// The timer fired.
     Timer,
     /// The caller gave up on the effect and dropped it, for example
@@ -482,11 +582,13 @@ impl EffectAnswer {
     /// `"Dropped"`, and it round-trips exactly through `serde_json`. A
     /// failure is recorded as `{"kind":..,"message":..}`: its stable tag and
     /// its text, which is the prose of a model or tool failure and the
-    /// display text of a store failure. A completion is recorded as its reply or
-    /// its requested tool names beside the model and finish reason, and a
-    /// render as its rendered tools whole. The round's request and response
-    /// bodies travel as debug events, and its metrics travel in the turn's
-    /// event.
+    /// display text of a file operation's failure. A completion is recorded
+    /// as its reply or its requested tool names beside the model and finish
+    /// reason, and a render as its rendered tools whole. A `Vfs` answer is
+    /// recorded as the whole outcome, and a `VfsReceipt` answer as the
+    /// receipt, such as `{"VfsReceipt":{"Ok":{"Bytes":12}}}`. The round's
+    /// request and response bodies travel as debug events, and its metrics
+    /// travel in the turn's event.
     #[must_use]
     pub fn record(&self) -> Value {
         wire_value(&self.to_record())
@@ -507,6 +609,10 @@ impl EffectAnswer {
             }),
             EffectAnswer::Vfs(result) => AnswerRecord::Vfs(match result {
                 Ok(outcome) => Ok(outcome.clone()),
+                Err(error) => Err(FailureRecord::new(error.tag(), error.to_string())),
+            }),
+            EffectAnswer::VfsReceipt(result) => AnswerRecord::VfsReceipt(match result {
+                Ok(receipt) => Ok(receipt.clone()),
                 Err(error) => Err(FailureRecord::new(error.tag(), error.to_string())),
             }),
             EffectAnswer::Timer => AnswerRecord::Timer,
@@ -541,6 +647,17 @@ pub(crate) enum AnswerRecord {
         )]
         std::result::Result<VfsOutcome, FailureRecord>,
     ),
+    /// The outcome of an operation that a tool call asked for, as its
+    /// receipt: `"Done"`, or a one-key object such as `{"Bytes":12}`,
+    /// `{"Count":3}`, `{"Bool":true}`, or `{"Stat":{..}}`. A failure is
+    /// its record.
+    VfsReceipt(
+        #[serde(
+            serialize_with = "super::vfs_record::serialize_receipt",
+            deserialize_with = "super::vfs_record::deserialize_receipt"
+        )]
+        std::result::Result<VfsReceipt, FailureRecord>,
+    ),
     /// The timer fired.
     Timer,
     /// The caller gave up on the effect and dropped it.
@@ -553,7 +670,7 @@ pub(crate) enum AnswerRecord {
 /// `kind` is the stable tag of the failure's kind: the model code's tag for
 /// a model round (such as `malformed_response`), the tool code's tag for a
 /// tool call (such as `tool_invalid_arguments`), or the `VfsError` tag for a
-/// store operation (such as `not_found`). `message` is the failure's
+/// file operation (such as `not_found`). `message` is the failure's
 /// display text, which for a model round or a tool call is the prose the
 /// model read.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
