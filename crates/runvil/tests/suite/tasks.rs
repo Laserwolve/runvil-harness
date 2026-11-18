@@ -3,7 +3,11 @@
 //! beside it. The plan `plan/2026-11-18-1-tasks-golden-tests.plan.md`
 //! lists what each prompt does and what its log must show.
 
-use crate::golden::check;
+use std::collections::BTreeSet;
+
+use serde_json::Value;
+
+use crate::golden::{blessing, check, folder};
 
 #[tokio::test(start_paused = true)]
 async fn a_spawned_task_is_joined() {
@@ -118,4 +122,106 @@ async fn a_task_that_cancels_itself_or_a_made_up_id_is_refused_as_not_the_owner(
 #[tokio::test(start_paused = true)]
 async fn a_task_reads_its_own_status() {
     check("23-own-status").await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_chain_that_returns_with_a_live_task_fails_and_the_task_is_abandoned() {
+    check("24-return-with-live-task").await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_chain_that_fails_with_a_live_task_keeps_its_own_error() {
+    check("25-error-with-live-task").await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_chain_that_returns_with_a_task_waiting_after_a_reply_ends_normally() {
+    check("26-return-with-waiting-task").await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_tasks_task_is_numbered_under_it() {
+    check("27-nested-ids").await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_call_an_execute_and_a_timed_wait_each_take_a_child_number() {
+    check("28-ids-skip-other-children").await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn two_runs_of_one_prompt_give_the_same_log() {
+    let first = check("29-same-log-twice").await;
+    let second = check("29-same-log-twice").await;
+    assert_eq!(first, second, "the second run's log differs from the first");
+}
+
+/// The task events of `log`, in order, each without its provenance: the
+/// starts and endings of tasks, apart from where their chains stood.
+fn task_events(log: &str) -> Vec<Value> {
+    log.lines()
+        .filter_map(|line| line.splitn(5, ' ').nth(4))
+        .filter_map(|payload| serde_json::from_str::<Value>(payload).ok())
+        .filter(|payload| {
+            payload["kind"]
+                .as_str()
+                .is_some_and(|kind| kind.starts_with("task_"))
+        })
+        .map(|mut payload| {
+            if let Some(fields) = payload.as_object_mut() {
+                fields.remove("provenance");
+            }
+            payload
+        })
+        .collect()
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_fanout_reports_the_task_events_of_the_same_spawns_made_by_hand() {
+    let fanout = task_events(&check("30a-fanout").await);
+    let by_hand = task_events(&check("30b-spawns-by-hand").await);
+    assert_eq!(
+        fanout.len(),
+        6,
+        "three starts and three endings: {fanout:?}"
+    );
+    assert_eq!(fanout, by_hand);
+}
+
+/// The stems of the files in the golden folder with the extension
+/// `extension`.
+fn stems(extension: &str) -> BTreeSet<String> {
+    let entries = match std::fs::read_dir(folder()) {
+        Ok(entries) => entries,
+        Err(error) => panic!("the golden folder is listed: {error}"),
+    };
+    entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|found| found == extension))
+        .filter_map(|path| Some(path.file_stem()?.to_str()?.to_owned()))
+        .collect()
+}
+
+#[test]
+fn every_golden_prompt_has_a_stored_log_and_a_test_that_names_it() {
+    let prompts = stems("md");
+    // While the tests beside this one are storing their logs, the folder
+    // holds only the logs stored so far.
+    let logs = if blessing() {
+        prompts.clone()
+    } else {
+        stems("log")
+    };
+    assert_eq!(
+        prompts, logs,
+        "each prompt has one stored log, and each stored log one prompt"
+    );
+    let tests = include_str!("tasks.rs");
+    for stem in &prompts {
+        assert!(
+            tests.contains(&format!("check(\"{stem}\")")),
+            "no test in tasks.rs runs {stem}.md"
+        );
+    }
 }

@@ -10,7 +10,8 @@
 //!
 //! Every golden run has the same Host and the same setup, so a test
 //! differs from another only in its prompt: the Host finds prompts by file
-//! name in the tests' folder, holds the built-in
+//! name in the tests' folder and in its `helpers/` folder, which holds the
+//! prompts a test executes, holds the built-in
 //! Packs and [`ECHO`], sleeps on tokio's clock, which each test pauses, and
 //! stamps every run's start as the Unix epoch. The model is the
 //! [`MockModel`]. The Harness draws a new seed for every run, so a golden
@@ -96,6 +97,12 @@ impl Timer for PausedClock {
     }
 }
 
+/// Whether [`BLESS`] is set, so this process stores logs and compares
+/// none.
+pub(crate) fn blessing() -> bool {
+    std::env::var_os(BLESS).is_some()
+}
+
 /// The folder that holds the golden prompts and their logs.
 pub(crate) fn folder() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden/tasks")
@@ -108,8 +115,13 @@ fn host() -> Arc<Host> {
         panic!("the registry takes the echo Pack: {error}");
     }
     let mut prompts = PromptSet::new();
-    if let Err(error) = prompts.insert_dir(folder()) {
-        panic!("the golden folder is listed: {error}");
+    for directory in [folder(), folder().join("helpers")] {
+        if let Err(error) = prompts.insert_dir(&directory) {
+            panic!(
+                "the golden folder {} is listed: {error}",
+                directory.display()
+            );
+        }
     }
     Arc::new(Host {
         packs: Packs::new(registry),
@@ -192,7 +204,7 @@ fn difference(expected: &str, actual: &str) -> Option<String> {
 pub(crate) async fn check(stem: &str) -> String {
     let actual = run(stem).await;
     let path = folder().join(format!("{stem}.log"));
-    if std::env::var_os(BLESS).is_some() {
+    if blessing() {
         if let Err(error) = std::fs::write(&path, &actual) {
             panic!("cannot store {}: {error}", path.display());
         }
