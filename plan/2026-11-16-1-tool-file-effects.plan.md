@@ -4,61 +4,61 @@ overview: Make every file operation of a tool an effect that the Harness perform
 todos:
   - id: plan-copy
     content: "Package 0: copy this plan to runvil-harness/plan/2026-11-16-1-tool-file-effects.plan.md, commit it alone, and push"
-    status: pending
+    status: completed
   - id: bash-shell-per-call
     content: "bashkit: give each Shell call a new shell, remove the session, and update shell.json, EDITS.md, the docs, and the tests (Step 1)"
-    status: pending
+    status: completed
   - id: contract-reads
     content: "plugin-api: contract 0.5 with a request and an answer for stat, list, and read; SDK file methods as futures; fake Host that answers across steps; header, C layout, example, README (Step 2)"
-    status: pending
+    status: completed
   - id: contract-changes
     content: "plugin-api: write, append, mkdir, remove, rename, copy; the changes-files flag; two new error kinds; a test tree that calls can change (Step 3)"
-    status: pending
+    status: completed
   - id: contract-stop
     content: "Push plugin-api to origin. The owner merges it into cppalliance/runvil-plugin-api right after Phase 2; note the merged commit for the pins"
-    status: pending
+    status: completed
   - id: vfs-op-list
     content: "harness: one VfsOp with fifteen operations, VfsOutcome, and Access::perform in runvil-vfs, moved from runvil-lua with the store's line logic (Step 4)"
-    status: pending
+    status: completed
   - id: engine-vfs-asker
     content: "harness: Effect::Vfs says who asked, Run::request_file, the receipt answer for a tool, the records, and the facade listings (Step 5, Engine)"
-    status: pending
+    status: completed
   - id: runner-files
     content: "harness: ToolFiles and ToolContext::files(), the per-call desk, the loop's new arm, inline performing, and tests with a Rust fixture Pack (Step 5, runner)"
-    status: pending
+    status: completed
   - id: engine-ordered
     content: "harness: ToolInfo::changes_files and the batch rule that runs a file-changing tool by itself, with tests (Step 6)"
-    status: pending
+    status: completed
   - id: host-files-unchecked
     content: "harness: a handle that a Host builds makes and checks no claims, a store keeps its claims, and the tests of a conflict on the Host's files change with the rule (Step 7)"
-    status: pending
+    status: completed
   - id: loader-05
     content: "harness: pin contract 0.5 at the merged commit; loader file functions, Steps, and session; the test Plugin on 0.5; end-to-end tests; the measurement of 100,000 reads through the test Plugin, written into the plan (Step 8, after the merge)"
-    status: pending
+    status: completed
   - id: remove-access
     content: "harness: remove access from Effect::ToolCall, ToolContext, and ToolPerformer, and rewrite the tests that used it (Step 9)"
-    status: pending
+    status: completed
   - id: pages
     content: "harness: update the decision pages and the Engine definition in AGENTS.md in the commits that change the code they describe, and record the owner's reasons for where the conflict check applies and for the one list of operations"
-    status: pending
+    status: completed
   - id: std-async
     content: "std: pin SDK 0.5, make Source async, convert Read, ListDir, and Grep, and update the rule on long jobs in AGENTS.md (Step 10, after the merge)"
-    status: pending
+    status: completed
   - id: std-writes
     content: "std: implement Write, StrReplace, and Delete with the changes-files flag, schemas, EDITS.md, AGENTS.md, and tests (Steps 11 to 13)"
-    status: pending
+    status: completed
   - id: bash-futures
     content: "bashkit: pin SDK 0.5 and rebuild the driver over file futures, dropping requests whose asker is gone and settling before a call ends (Step 14, after the merge)"
-    status: pending
+    status: completed
   - id: bash-writes
     content: "bashkit: forward the six changes, answer chmod and set-time in the Plugin, refuse writes under /dev/, flag Shell, and update schema, docs, and tests (Step 15)"
-    status: pending
+    status: completed
   - id: pack-entries
     content: "Package G: update the bash and std entries of the tools page in runvil-harness, after Packages E and F"
-    status: pending
+    status: completed
   - id: findings
     content: "Package G: complete What the build found in the plan copy from the package reports, and mark the todos done"
-    status: pending
+    status: completed
 isProject: false
 ---
 
@@ -120,8 +120,41 @@ Packages D, E, and F each start by confirming the merged hash: `git fetch upstre
 
 Whoever hands out the packages keeps this section current in the plan copy.
 
+The plan is built, and this section is its state on 2026-11-18. The rest of this file is the plan as it was handed out, so "Start here" describes the repositories before the work began. "What the build found", at the end, says where the build differs from the plan and lists the open questions.
+
 - Merged contract commit on `cppalliance/runvil-plugin-api`: `52a4905aca0a9c945a93dc4ee7ea815db85612e4`
-- Packages finished: 0, A, B, C
+- Packages finished: 0, A, B, C, D, E, F, G. The commit that "Decided on 2026-11-17" places after Step 9 is finished too.
+
+Where each repository stands:
+
+- `runvil-plugin-api`. `master` of `cppalliance/runvil-plugin-api` and `master` of the fork `vinniefalco/runvil-plugin-api` are both at the merged contract commit, and the CI of `cppalliance/runvil-plugin-api` passed for it on Linux, Windows, and macOS. The tag `api-v0.5.0`, which the README names in its dependency lines, is not made.
+- `runvil-plugin-bashkit`. Its three commits are on `master` of `cppalliance/runvil-plugin-bashkit`, which has no fork. `54746e0a7408f88e64fade193edcfdc201aa46e9` gives each call a shell (Step 1), `1c26d0485b003ddeab053915228a1282ef3e8be8` moves the driver to file futures (Step 14), and `f348f7a67b9087bcbc55ea7cb61c8de3fc409c82` lets the shell change files (Step 15). CI passed on Linux, Windows, and macOS for each.
+- `runvil-plugin-std`. Its four commits are on `master` of the fork `vinniefalco/runvil-plugin-std`, one for each of Steps 10 to 13: `c7ee62cb29e359a3da57a28b90c000fda2fbd381`, `2ea8f8d0998e1189df73ac90841edcb7451ebe6e`, `caad57df163096fc136fbeb3285501a72764c796`, and `8f4d6c1c4fd35eb27ff2d30ca884a2e316d4b1b3`. `master` of `cppalliance/runvil-plugin-std` gets them with pull request 2.
+- `runvil-harness`. Its commits are on `master` of the fork `vinniefalco/runvil-harness`. They are listed here by subject and in order, because a rebase merge gives each a new hash:
+  - "Add the plan for tool file operations as effects" (Package 0)
+  - "Move `VfsOp` to `runvil-vfs` as one list of operations" (Step 4)
+  - "Issue a tool's file request as a `Vfs` effect" (Step 5, the Engine)
+  - "Let a Pack ask for files through `ToolContext::files`" (Step 5, the runner)
+  - "Run each call that changes files alone and in order" (Step 6)
+  - "Check claims in a store only, not on the Host's files" (Step 7)
+  - "Move the loader and the test Plugin to contract 0.5" (Step 8)
+  - "Remove the access from `ToolCall` and `ToolContext`" (Step 9)
+  - "Close the enums `VfsAsker`, `VfsOp`, and `VfsOutcome`" (after Step 9)
+  - The commit of Package G, which holds this section.
+- `runvil-workshop`. Unchanged, as the plan says. It pins the Harness, the SDK, and both Packs at commits from before this plan.
+
+The two pull requests:
+
+- https://github.com/cppalliance/runvil-plugin-std/pull/2, from `vinniefalco:master`, is open, and its CI passed on Linux, Windows, and macOS.
+- The pull request from `vinniefalco:master` to `master` of `cppalliance/runvil-harness` is opened after the commit of Package G, so this file does not name its number. It holds the ten commits above and one older commit, "Record the decisions on file operations and tool state", from 2026-11-15.
+- `master` of `cppalliance/runvil-harness` has one commit that the fork lacks: `db4cf1f4`, "Make existing Engine tests fail when the code they run is broken", merged there on 2026-11-16 from its pull request 1. A trial merge of it into the fork's `master`, made with `git merge-tree` on 2026-11-18, found no conflict. No one has run the tests of the two together, so the CI of the pull request is their first run. That repository takes rebase merges only.
+
+Left for the owner:
+
+- Merge the two pull requests, best together. The `std` Pack of pull request 2 loads only in a Harness that speaks contract 0.5, and `master` of `cppalliance/runvil-harness` speaks 0.4 until its pull request is merged. `master` of `cppalliance/runvil-plugin-bashkit` speaks 0.5 already.
+- Make the tag `api-v0.5.0` on `cppalliance/runvil-plugin-api`.
+- Move the four pins of `runvil-workshop` in one later change.
+- Answer the open questions at the end of "What the build found".
 
 ## What this plan builds
 
@@ -459,7 +492,7 @@ The section "Work packages" maps this order onto packages.
 
 ## What the build found
 
-This section starts empty. Step 8 adds its numbers to it in the plan copy, and Package G completes it from the reports of the packages.
+The design held. Every step is built, and no package found a fault in the contract or the SDK, so the commit that the owner merged right after Phase 2 is the contract that every later package pinned. The measurement of Step 8 comes first. After it, this section lists the other numbers that were measured, each place where the build differs from the plan, each choice made where the plan was silent, what is known and not tested, and the open questions for the owner.
 
 ### Step 8: the measurement of 100,000 reads
 
@@ -473,3 +506,146 @@ One call of the test Plugin's `read_many` tool read 100,000 files of 15 bytes ea
 - The test: `measure_100_000_reads_of_one_library_tool_call_under_the_harness` in `crates/harness-internal/test-plugin/tests/it/run.rs`. It is ignored by default. `cargo nextest run -p harness-test-plugin --run-ignored ignored-only --no-capture` runs it in a debug build, and the same command with `--release` runs it in a release build.
 
 A Grep over 100,000 files therefore spends under one second of a release build on its file requests, and its run holds two records for each file it reads. Whether that count of records calls for a coarser operation is the owner's decision.
+
+### Other numbers that were measured
+
+- **Tests in `runvil-harness`.** The workspace runs 4,023 tests, all passing, and skips 25, one of which is the measurement. It ran 3,928 before Step 4 and skipped 24. After the five commits of Steps 4 to 7 it ran 3,944, 3,961, 3,975, 3,981, and 3,993. The structural checks run 204 tests and ignore 21.
+- **Tests in `runvil-plugin-api`.** 201 after Step 3: 170 in the SDK, 19 in `runvil-plugin-sys`, 7 in the xtask, 3 in `c-layout`, and 2 in `hello-plugin`. After Step 2 the SDK had 137 and `runvil-plugin-sys` had 18.
+- **Tests in `runvil-plugin-std`.** 497 after Step 13: 10 in `build-checks`, 445 unit tests, and 42 integration tests. It ran 419 before Step 10.
+- **Tests in `runvil-plugin-bashkit`.** 87 after Step 15: 10 in `build-checks`, 76 unit tests, and 1 integration test. The unit tests were 48 before Step 1, 46 after it, and 52 after Step 14.
+- **Requests of the `std` tools.** Each file request ends a step of its call. Write makes one request, Delete two, and StrReplace three. A Grep over 1,000 files in one directory takes 1,033 steps before the one that answers: the stat of the root, its listing, one read for each file, and a pause after each 32 files.
+- **Steps of a Shell call.** Counting the last step, `echo hi` takes 1 step, a `cd` 2, `cat f` 2, `ls dir` 3, `grep -rn` over three files 7, and `cat` of 40 files 42. A new shell makes no file request of its own. `chmod` costs one stat, and a `mkdir -p` of a directory that is there costs a stat after its `mkdir`.
+- **bashkit's limits, read in bashkit 0.21.0.** A shell allows 1,000 scripts and 100,000 commands, and one script allows 10,000 commands. A shell for one call runs two scripts at most, so it cannot reach the limits of a shell.
+- **Tests that hold a rule fail without it.** With the batch arm of Step 6 off, the order tests fail. With the claims check back on for a handle that a Host builds, exactly the 14 tests that Step 7 added or changed fail. In the bash Pack, tests fail when any one of these rules is off: the drop of a request whose asker is gone, the wait at a script's end, the cap on polls, the refusal under `/dev/`, the write limit, the `mkdir -p` rule, and `chmod`.
+
+### Where the build differs from the plan
+
+The contract and the SDK, Steps 2 and 3:
+
+- **`examples/hello-plugin` is unchanged.** Step 2 lists it, and it names no contract version and calls no file function.
+
+The Engine and the runner, Steps 4 to 7:
+
+- **The `runvil` facade re-exports `VfsOp` and `VfsOutcome` from Step 4 on.** The plan puts these re-exports in Step 5. `Access::perform` names both types, and the surface check refuses a listing that names an item its facade does not re-export.
+- **`perform_vfs_op` takes `&VfsOp`, where it took the operation by value.** The plan does not name this change to the facade. `Access::perform` borrows the operation, and clippy refuses a function that takes by value what it only reads.
+- **More `Vfs` effects of a tool are answered `Dropped` unperformed than the plan names.** The plan names a withdrawn effect. The loop answers the same way for an effect whose call has landed or was dropped, because that call has no desk to take the outcome.
+- **A stop and a cancel are tested at two moments each**, because the loop handles a request inside one poll. Raised as the call asks, either one drops the call, and the loop answers the call's file effect `Dropped` unperformed. Raised as the record of the effect is written, the operation is still performed and recorded, then the call is dropped, and its next request is never issued.
+- **On a handle that checks no claims, `admit` refuses an ended identity as well as an ended scope.** The plan names the scope alone. The Engine relies on the refusal of an ended identity when a tool call ends.
+- **Two tests outside `runvil-vfs` asserted a conflict on the Host's files**, one each in the suites of `runvil` and `runvil-engine`, and both now expect both operations to run. In `tool_call_access.rs`, where the plan says to start, no test asserted a conflict, and several used one to show the order of identities. Their driver now notes each call in a `Store` under the identity of the call, so a missing fork or join still fails them.
+- **One claims test of `runvil-vfs` shows its point through a store view.** It needs a backend that `VfsRef::new` wraps directly, which the private setting of the builder cannot give.
+
+The loader and the old access, Steps 8 and 9:
+
+- **`TestCall` lends no access.** A test of a Plugin crate seeds a file and reads it back with a request through the files of `context()`. `plugin-web` and `plugin-mcp` needed no change.
+- **Step 9 fixed two doc comments outside its list**, in `params.rs` of the runtime and in `scope_handle.rs` of `runvil-vfs`. Each said that a tool call has an access.
+
+The pages:
+
+- **More sentences changed than the "Pages" section lists.** Step 7 changed the determinism entry of `tasks-and-fanout.md`, which said that the file system decides a conflict and now says that a store does. Step 9 changed two sentences in `harness-and-host.md` and one in `testing-and-debugging.md`, which said that a tool call or the test helper has an access. The commit that closed the three enums took the date out of the entry on the error types in `engine.md`, because the rule that the entry cites now names six closed enums.
+- **The planned-work items that this plan built are gone.** Step 9 removed three, on the engine, files, and tools pages, and Package G removed two on the tools page. Open question 4 of the files page and open question 7 of the tools page are gone too, and the later questions of the tools page have new numbers.
+
+The `std` Pack, Steps 10 to 13:
+
+- **StrReplace asks for a stat before its read, so an edit is three requests.** The plan gives a read and a write. StrReplace loads the file with the function that Read uses, so both tools refuse the same paths in the same sentences, and neither opens a pipe or a device, whose read can block the run.
+- **The line of `AGENTS.md` on what the three tools wait for changed from Step 10 on.** The plan has Steps 11 to 13 remove it. It was false once `Source` was async, so Step 10 reworded it, and Step 13 removed it.
+
+The bash Pack, Steps 14 and 15:
+
+- **The test of a request whose asker is gone is in `relay`, in `files.rs`.** The plan puts it in `drive`. The reply sender moves into the future of `serve`, so `drive` cannot reach it. `relay` asks `reply.is_closed()` before each poll of the SDK's future, and `drive` drops each operation that ended.
+- **Everything that is not a directory shows mode 644**, a link included. The plan names a file and a directory alone.
+- **The test of `sed -i` on a write that fails uses a file under `/dev/`.** The SDK's fake Host cannot refuse a write to a path while it allows the read of that path, so in a test the Host by itself never refuses the write of `sed -i`. `tee` is tested on a path that the Host denies.
+- **The low-confidence choice on `chmod` and `set_modified_time` held.** bashkit does ask for both: `sed -i` sets its temporary file to the mode of its target, `cp -r` sets the mode of a new directory and ignores the result, and `touch` sets a time.
+
+The workspace:
+
+- **Local `master` of `runvil-plugin-api` tracks `origin/master`.** "Start here" says `upstream/master`. Both are at the merged contract commit.
+
+### Choices made where the plan was silent
+
+The contract:
+
+- **The unused fields of an answer are zero.** Every field of an `RvFileAnswer` that the request does not name is zero, and the SDK depends on it.
+- **A write makes the missing directories.** `file_write`, `file_append`, `file_rename`, and `file_copy` make each absent directory on the way to their path, as both backends of the Harness do. Write in `std` as one `write` assumes it.
+- **Links.** `file_mkdir`, `file_remove`, and `file_rename` act on a link itself, and the other functions act on what it leads to, as the real backend does.
+- **`file_mkdir` on a path that exists fails as `RV_FILE_ERROR_ALREADY_EXISTS`**, with `recursive` 1 too, as both backends do.
+- **The flag has a type and a stated meaning.** `RvToolFlags` is the type of `RvToolInfo.flags`, and the contract says that the Host runs a call of a flagged tool by itself among the calls of one model reply.
+- **A request in a step that does not return `RV_PENDING` is not performed.** The call fails, as a call with such a step did before, in the fake Host and in the loader. The comment of the contract has no sentence on this case.
+
+The SDK and its fake Host:
+
+- **The file methods return one future type, `FileFuture<'a, T>`**, which is exported, `Send`, and `Unpin`. A request joins the queue at the first poll of its future, so the requests of a call go out in the order of first polls.
+- **Two failures never reach the Host.** A path over 4,096 bytes, or bytes over `RV_MAX_WRITE`, fails the future in the SDK. An answer that breaks the contract fails the waiting future with a `FileError` that says what was wrong, and the call goes on.
+- **The fake Host performs a request once the step that made it has returned `RV_PENDING`.** The operations of calls that take turns happen in the order asked, and the request of a call that a test then abandons has happened.
+- **`Files::fails` covers what would be made under its path.** A change that would make something under a failing path fails with the same error, and a read under it answers not found.
+- **The fake Host words a change to the root by itself.** It says "the root / cannot be removed or moved, and nothing can be moved onto it". The Harness's sentence has two words that the word scan of "Rules for all work" lists.
+- **The fake Host does not check the flag.** It takes a change from a tool that does not set `RV_TOOL_CHANGES_FILES`.
+- **The loader's words for each misuse are the fake Host's.** The sentences about a NULL or misaligned pointer that the three read functions had are gone, because a file function fills nothing.
+
+The Engine and the Harness:
+
+- **What a record holds beyond the list under "Choices this plan makes".** A write or an append records UTF-8 bytes as text under `contents` and other bytes as hex under `contents_hex`. A stat records each time as whole seconds and nanoseconds from the Unix epoch. The asker is one key beside `op`: `store` with a chain id, or `call` with the effect id of the tool call. The record of a `store` call is the same JSON as before.
+- **The record code has no fallback.** With the three enums closed, every operation and every outcome has a record form, and a recorded `null` in the place of one fails to read with serde's own error. A kind of file that has no name records as `other`.
+- **`VfsReceipt` keeps `#[non_exhaustive]`.** Its own crate is the one place that matches on it, and the attribute asks no wildcard arm there.
+- **One catch-all stays in production code.** In the loader, an outcome that the request did not ask for becomes a failed answer, so a step never reads a field that the operation did not fill. A new outcome is such an outcome there.
+- **`ToolInfo::changes_files` has no serde default**, like the other flags, so the JSON of a `ToolInfo` without the key does not read back. A render cannot change the flag of a catalog tool, and a tool that only a render names keeps the flag that the render gives it.
+- **A handle that checks no claims keeps its claims table empty.** It registers no scope there, so a handle that many runs share does not grow by one entry for each run. An overlay takes the setting from its base.
+- **`Steps::poll` sends one step at most.** A request that is ready at its first poll wakes the task, and the next poll sends the step with the answer. A call that is dropped while its request waits gets `RV_TOOL_CANCEL` and no further step.
+- **A conflict from a Host's own backend reads as `RV_FILE_ERROR_OTHER`.** The loader's `describe` has no arm for `VfsError::Conflict`, because the files that a tool reaches produce none, and a test holds the answer.
+- **The test Plugin's copy of the call arguments keeps two sub-structs.** With nine file functions the copy has 16 fields, and the structural check allows 12. The functions are in `RvFileReads` and `RvFileChanges`, each `#[repr(C)]`, so every field is at the contract's offset, which the layout tests hold. The size allowlist has no new entry.
+- **The loop's guard covers a tool's operation alone.** A panic in a backend during a tool's operation is `VfsError::Backend` with the text "the file operation panicked". A `store` call is performed without the guard, as before.
+- **The measurement calls for no coarser operation.** 7.3 microseconds for each read in a release build is no reason for one. The open cost is the two records for each read.
+
+The `std` Pack:
+
+- **The three answers are fixed text and counts with no path**, so they are trusted output: "Wrote N bytes.", "Made N replacements.", "Deleted the file.", and for a link "Deleted the link. What it leads to stays."
+- **A write under a file has a sentence of its own**, "Path has a parent that is not a directory", because the shared sentence would say that the path itself is not a directory.
+- **StrReplace refuses an edit whose result is over 16 MiB**, the most that one write takes. It does not run Read's check for binary data, so it edits a file of valid UTF-8 that Read refuses as binary.
+- **`AGENTS.md` has one rule more**: a tool that changes files says so with `ToolInfo::changes_files`. No check ties the flag to what a call does, so a test holds the list of flagged tools.
+- **The texts about a conflict stay**, in the refusal sentences and in Grep's skip line, because the contract keeps that error kind.
+
+The bash Pack:
+
+- **A write or an append over 16 MiB is refused and not split into parts.** It fails before any request goes out, with a sentence that names the limit, as the plan gives Write in `std`.
+- **The refusal under `/dev/` covers a write and an append alone, on every platform.** A `cp`, an `mv`, or a `mkdir` to a path under `/dev/` goes to the Host, so `cp x /dev/null` makes a file. A read under `/dev/` is a read of the run's files, so `cat /dev/null` fails unless the run has that file. The upstream issue beside the workaround is https://github.com/everruns/bashkit/issues/2933.
+- **`shell.json` has three things that the plan does not give.** The sentence "No file has an execute bit: run a script with `bash script.sh`." was kept. "Chain dependent commands with `&&` in one call." is a bullet of its own. Cursor's line about parallel Shell calls stays out, because the Shell calls of one reply run one at a time. `EDITS.md` records each.
+- **`Shell::new` leaves bashkit's limits on a shell at their defaults.** It lifted them while a shell lasted for a run.
+- **`session.rs` and `session-tests.rs` keep their names**, because Phase 5 names `session.rs`. The module holds one call's shell and its driver.
+- **The driver settles what a script leaves.** Requests that the last poll of a script left in the channel are taken up and settled, so nothing waits there for the next script of the call. The wait is for each script: a call with a working directory runs the `cd` and then the command, and each waits for its own operations.
+- **A script reads a real shell's words for the two new error kinds**, `File exists` and `Directory not empty`.
+- **`mkdir -p` of a directory that is there succeeds.** The Host fails a `mkdir` of a path that is taken, with `recursive` too, so the shell follows that failure with one stat and succeeds for a directory.
+
+The tools page, Package G:
+
+- **The planned work keeps one item on the shell.** The item on a shell for each call ended with a later step: a shell that saves its state to a file of the run and loads it at its next call. That step is not built, so it is an item of its own. The item on the stubs of `std` is the item on Glob.
+- **Sentences beyond the two entries changed.** The page said that Grep also ends a step after 2 MiB read, that the shell keeps state between calls, and that the shipped tools read files only, and its sentence on the trusted answers of `std` left out the three new ones. No other decision page had a sentence about the two Packs that the work made false.
+
+### Known and not tested
+
+- **The Harness commits ran on Windows alone.** The fork has no CI, so the CI of the pull request is their first run on Linux and macOS, and their first run together with the one commit that the fork lacks.
+- **No test runs a Pack that is built on the SDK under the Harness.** The loader's end-to-end tests load the test Plugin, which has a private copy of the C types, and the tests of `std` and `bash` run against the SDK's fake Host. A Host is where the two meet, and Workshop's pins have not moved.
+- **No test under the Harness sends two calls of a flagged tool of a library Pack in one model reply.** A Rust fixture Pack shows the order rule, and the loader's tests show that the flag reaches `ToolInfo`. No test has a flagged tool in the Dynamic Set.
+- **The lost edit has no test.** A tool that edits a file as a read and a later write can lose an edit that another task makes between the two. The docs of `std` state it for StrReplace.
+- **Three cases of a request have no test where it counts.** No test under `Harness::run` has a call of a Rust Pack that returns with a request still out, or a request whose future the tool drops. The unit tests of the runner's desk and of the Engine cover each part, and the loader has a test that the request of a step that ends its call is not performed. The Engine has no test of a request on a run before its first `step`.
+- **The commit that closed the three enums added no test.** An attribute that came back would fail the check of both listings, and it would fail the build at each `match` outside the crate of the enum.
+- **The real backend's answer for a write under a file was read and not run.** As read in `real.rs` and in the `create_dir_all` of the standard library, a write to a path directly under a file fails there as already-exists for the written path, where the memory backend answers not-a-directory for the parent. Write in `std` has a sentence for not-a-directory alone, so on a real folder the model would read the Host's words.
+- **In `std`, no test changes a file through a link**, because neither tree of the tests holds a link that takes a change. No test counts the steps of Read or ListDir.
+- **In the bash Pack, both tests of a dropped request use `kill`.** The `timeout` builtin and a failed pipeline drop a request too, as the plan says, and that was seen by hand. A test of `timeout` would depend on the clock.
+- **Three behaviors of the shell are known and stay.** bashkit lets go of a killed job when it next polls its jobs, so an operation of that job can still go to the Host, and a test holds that. At the time limit bashkit drops the script and keeps its `&` jobs until the shell goes, so their changes in progress complete before the call fails, and a test holds that too. `source` and `bash -c` add steps in which the call waits with no request.
+- **One fault of bashkit's was seen and left.** In `cmd | while read x; do cat FILE; done`, the inner `cat FILE` takes the rest of the pipe as its standard input, so the loop runs once.
+
+### Open questions for the owner
+
+1. **A contract function that replaces text in one step.** It would close the known gap of StrReplace, which is a read and then a write and can lose an edit that another task makes between the two. The VFS has `StrReplace`, a Rust Pack can ask for it through `ToolFiles`, and the C contract has no function for it.
+2. **A coarser operation for Grep.** A run holds two records for each file that a Grep reads, so 200,000 records for 100,000 files. The time of the measurement does not call for a coarser operation, and the count of records may, once a recorder writes each one to a database. The measurement cannot say (confidence: medium, the recorder in memory hides what a record costs a Host).
+3. **The reach of the refusal under `/dev/`.** It covers a write and an append, as the plan words it. Whether it should cover every change, so that `cp x /dev/null` makes no file. The report of the bash Pack recommends that it stay narrow (confidence: medium, the narrow rule matches the plan's words and its reason, and the wide rule would make the sentence of the refusal true in every case).
+4. **`mktemp` and `/tmp`.** `mktemp` makes its file under `/tmp` among the run's files and makes that directory when it is absent, so a real folder that a Host mounts gains a `tmp` directory.
+5. **The real backend's answer for a write under a file.** Whether it should answer not-a-directory, as the memory backend does. The report of `std` recommends that it does (confidence: medium, the present answer was read in the code and not run).
+6. **Two closed facade enums that no page entry covers.** `RosterEntry` in the facade of the Engine and `RecordKind` in the facade of `runvil` have no `#[non_exhaustive]`, and the engine page says that the owner's rule marks every facade type but the closed ones. Which of the two is right.
+7. **`store.mount`.** This plan left it out, on the owner's words: "I am not sure about the store.mount feature." A tool's file operations reach the Host's files alone, and a store stays Lua's.
+8. **The pins of `runvil-workshop`.** The Harness, the SDK, and both Packs move in one later change.
+9. **The two pull requests and the tag.** The pull requests are best merged together, and the tag `api-v0.5.0` is still to be made.
+10. **A stop or a cancel after the record of a tool's file effect.** The loop still performs that one operation and records it, and then drops the call. A store effect behaves the same way. Whether that is the rule the owner wants.
+11. **A serde default for `ToolInfo::changes_files`.** Without one, the JSON of a `ToolInfo` that lacks the key does not read back, as with the other flags.
+12. **One reworded reason on the files page.** In the entry on a tool call's identity, "a call that it aborted could otherwise still write" became "a file operation of a call that it aborted could otherwise still run", because a tool has no way to write by itself. No quote of the owner changed, and the sentence is the owner's to check.
+13. **The name of `session.rs` in the bash Pack.** The module holds one call's shell and its driver, and no session.
+14. **A sentence in the contract's comment** for a request in a step that does not return `RV_PENDING`. The fake Host and the loader both fail the call and leave the request unperformed, and the comment does not say so.
