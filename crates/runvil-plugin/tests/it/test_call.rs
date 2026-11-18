@@ -1,6 +1,6 @@
 //! `TestCall`: the context a Plugin crate's own test lends a call it makes
 //! directly, whose files answer each request at once from the call's own
-//! filesystem.
+//! filesystem, at the request's first poll and not before.
 
 use std::task::{Context, Poll, Waker};
 
@@ -63,6 +63,25 @@ fn a_test_calls_files_answer_each_request_at_once_from_the_calls_own_filesystem(
         Err(VfsError::NotFound {
             path: "/gone.md".to_owned(),
         })
+    );
+}
+
+#[test]
+fn a_request_that_is_dropped_unpolled_changes_no_file() {
+    let call = TestCall::new(inspect());
+    // The write is built and dropped, and nothing polls it in between.
+    drop(
+        call.context()
+            .files()
+            .request(write("/notes.md", "never asked for")),
+    );
+    let exists = VfsOp::Exists {
+        path: "/notes.md".to_owned(),
+    };
+    assert_eq!(
+        asked(&call, exists),
+        Ok(VfsOutcome::Bool(false)),
+        "a request that was never polled was never performed"
     );
 }
 

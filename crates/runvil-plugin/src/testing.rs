@@ -13,7 +13,8 @@ use crate::{ToolContext, ToolFiles};
 /// section `Test` and a caller that is the script unless
 /// [`with_caller`](TestCall::with_caller) names another. The context's
 /// files reach that one filesystem, and a request through them is
-/// answered at once: its future is ready at its first poll. So a test
+/// answered at once: its future performs the operation at its first poll
+/// and is ready then. So a test
 /// seeds a file with a write through the files before the call, and
 /// reads what the call left with a read through them after it. A test
 /// calls the Pack's factory for the instance it calls.
@@ -24,14 +25,15 @@ pub struct TestCall {
     origin: ToolCallOrigin,
 }
 
-/// The files of a [`TestCall`]: each request is performed where it is
-/// made, on the call's own in-memory filesystem.
+/// The files of a [`TestCall`]: each request is performed at the first
+/// poll of its future, on the call's own in-memory filesystem. A request
+/// that is never polled is never performed, as under the Harness.
 #[derive(Debug)]
 struct AnsweredAtOnce(Access);
 
 impl ToolFiles for AnsweredAtOnce {
     fn request(&self, op: VfsOp) -> BoxFuture<'_, Result<VfsOutcome, VfsError>> {
-        Box::pin(std::future::ready(self.0.perform(&op)))
+        Box::pin(async move { self.0.perform(&op) })
     }
 }
 
