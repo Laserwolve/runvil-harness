@@ -1,6 +1,9 @@
 //! Tests for the handle, the capability, the claims ledger, and the
 //! store, split by topic. The flipping policy and the conflict helper
-//! live here because every topic module uses them.
+//! live here because every topic module uses them. A test of the claims
+//! code builds its handle with the crate's own setting that makes a
+//! handle check claims, as `test_support::handle` does, because a handle
+//! from a public constructor checks none.
 
 use std::fmt;
 use std::sync::atomic::Ordering;
@@ -26,6 +29,7 @@ mod regions;
 mod semantics;
 mod sink;
 mod store;
+mod unchecked;
 
 /// A policy whose verdict flips through shared state mid-run.
 struct FlipPolicy {

@@ -1,12 +1,12 @@
-//! A run's start: real-file claims, the caller's tool catalog, and model
-//! roles, whose requirements the run's first step checks. The start-check
-//! refusals that reach Engine-only items sit in `runvil-runtime`'s own
-//! suite.
+//! A run's start: a real file two runs share, the caller's tool catalog,
+//! and model roles, whose requirements the run's first step checks. The
+//! start-check refusals that reach Engine-only items sit in
+//! `runvil-runtime`'s own suite.
 
 use runvil_engine::ErrorCode;
 use runvil_engine::event::Event;
 use runvil_engine::model::{ModelRole, ThinkingMode};
-use runvil_engine::vfs::{Origin, RealBackend, VfsError, VfsRef};
+use runvil_engine::vfs::{Origin, RealBackend, VfsRef};
 use runvil_engine::{ToolCatalog, ToolInfo, ToolOutput};
 
 use super::support::{Scenario, TempRoot, TestResult, Tool, Trace, model, prompt, text, tool_info};
@@ -40,26 +40,25 @@ fn refusal_under(front: &str, context: u32, thinking: ThinkingMode) -> TestResul
 }
 
 #[test]
-fn two_runs_writing_the_same_real_file_through_the_shared_base_conflict() -> TestResult {
-    let temp =
-        TempRoot::new("two_runs_writing_the_same_real_file_through_the_shared_base_conflict");
+fn two_runs_writing_the_same_real_file_through_one_handle_both_write_and_the_later_write_stays()
+-> TestResult {
+    let temp = TempRoot::new("two_runs_writing_the_same_real_file_through_one_handle_both_write");
     let vfs = VfsRef::builder()
         .mount("/", RealBackend::rooted(temp.path())?)
         .build();
     let (run_a, run_b) = (vfs.clone(), vfs);
+    // Both accesses are live at once, each in a scope of its own, as the
+    // accesses of two runs over one handle are. The handle checks no
+    // claims, so each writes the file and reads what the other wrote.
     let access_a = run_a.acquire(Origin::new("run-a"))?;
     access_a.write("/shared.txt", b"from a")?;
     let access_b = run_b.acquire(Origin::new("run-b"))?;
-    let error = access_b
-        .write("/shared.txt", b"from b")
-        .expect_err("run b conflicts with run a's live claim");
-    assert!(
-        matches!(error, VfsError::Conflict { .. }),
-        "a determinism violation, not a backend error: {error}"
-    );
+    assert_eq!(access_b.read("/shared.txt")?, b"from a");
+    access_b.write("/shared.txt", b"from b")?;
+    assert_eq!(access_a.read("/shared.txt")?, b"from b");
     let shared = temp.path().join("shared.txt");
     let bytes = std::fs::read(&shared).map_err(|e| format!("read {}: {e}", shared.display()))?;
-    assert_eq!(bytes, b"from a");
+    assert_eq!(bytes, b"from b", "the later write is the content");
     Ok(())
 }
 

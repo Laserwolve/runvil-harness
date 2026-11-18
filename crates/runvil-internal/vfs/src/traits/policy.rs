@@ -70,7 +70,7 @@ pub enum Verdict {
 /// A hook that decides whether each filesystem operation may proceed.
 ///
 /// Each `VfsRef` has one policy. `Access` consults it on every
-/// operation, before checking for conflicting claims. A policy can
+/// operation, before any other check of the operation. A policy can
 /// change its answers during a run through shared state: the
 /// application holds the same `Arc` and changes the state mid-run.
 pub trait Policy: Send {

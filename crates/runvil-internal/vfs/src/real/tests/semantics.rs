@@ -111,9 +111,12 @@ fn glob_refuses_control_characters_and_bad_grammar_with_their_reasons() -> Resul
 #[test]
 fn two_spellings_of_one_file_conflict_where_the_file_system_folds_case() -> Result<(), VfsError> {
     let temp = TempRoot::new("two_spellings_of_one_file_conflict_where_the_file_system_folds_case");
+    // The handle checks claims, as a store's does, so the claim keys
+    // show.
     let vfs = VfsRef::builder()
         .mount("/", MemoryBackend::new())
         .mount("/Real", RealBackend::rooted(temp.path())?)
+        .checking_claims()
         .build();
     let first = vfs.acquire(Origin::new("first spelling"))?;
     let second = vfs.acquire(Origin::new("second spelling"))?;

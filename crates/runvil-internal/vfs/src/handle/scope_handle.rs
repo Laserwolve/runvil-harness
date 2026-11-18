@@ -62,8 +62,9 @@ impl ScopeHandle {
 
     /// Merges `child`'s final clock into `owner`'s: the join, the matching
     /// edge of [`ScopeHandle::spawn`]'s fork. Everything `child` did - its
-    /// writes included - happens before `owner`'s next step, so the owner's
-    /// reads of the child's files no longer conflict. A child whose identity
+    /// writes included - happens before `owner`'s next step, so where
+    /// claims are checked the owner then reads what the child wrote
+    /// without a conflict. A child whose identity
     /// is still live contributes its current clock; a child whose last
     /// access dropped contributes its final clock, which the scope keeps for
     /// exactly this. A child ended through [`ScopeHandle::end_access`] keeps

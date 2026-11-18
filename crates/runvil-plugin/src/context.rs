@@ -46,12 +46,12 @@ pub trait ToolFiles: Send + Sync {
 /// who made the call.
 ///
 /// The files and the access reach one filesystem under one identity, the
-/// call's own, forked from the calling chain's, so the chain's earlier
-/// work happens before the call's operations and the call's operations
-/// before the chain's next step. Calls a model asks for in one round fork
-/// their identities from the chain together, so they are concurrent with
-/// each other: one call's write to a path conflicts with a sibling's read
-/// or write of it, as between fanout arms. Both are rooted at `/`. An
+/// call's own, which ends with the call. The filesystem checks no
+/// conflicts: an operation runs whatever another call or task has read or
+/// written, and the later write to a path is its content. A tool that
+/// edits a file as a read and a later write can therefore lose a change
+/// that another task makes between the two, where one
+/// [`VfsOp::StrReplace`] cannot. Both are rooted at `/`. An
 /// operation asked for through [`files`](ToolContext::files) is in the
 /// run's record, and one made through [`access`](ToolContext::access) is
 /// outside it. The context borrows everything for the call alone, so a

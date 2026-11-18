@@ -2,14 +2,18 @@
 //! identity, forked from the calling chain when the call is issued and
 //! ended when its answer is applied or the call is aborted, and rooted at
 //! `/` of the handle the caller gave the run. The driver performs each
-//! call through that access, and a claims conflict fails the call and so
-//! the run, so a run that succeeds touched every file with no conflict.
+//! call through that access. The run's handle checks no claims, so a
+//! test of the order of identities has the driver note each call in a
+//! store of the test's own first, through a view under the call's
+//! identity: a store checks claims, and a note that nothing orders after
+//! an earlier note of its file fails the call and so the run.
 //! One call hands a file to a later call: the end joins the first call's
 //! work into the chain before the chain's next step, and the fork orders
 //! the chain's earlier work before the later call's. An executed prompt's
 //! calls fork from its caller's identity, so a call of each hands a file
 //! to a call of the other. A task's calls fork
-//! from the task, a dropped answer and a canceled task's call are joined
+//! from the task, the calls of two tasks are unordered, a dropped answer
+//! and a canceled task's call are joined
 //! like any other, and an access used after its call has ended refuses
 //! every operation. A call's access reaches no store: a call sees no file
 //! the chain wrote with `store.write`, and `store.read` sees no file a
@@ -17,7 +21,7 @@
 
 use std::fmt;
 
-use runvil_vfs::{ExecId, Origin, VfsRef};
+use runvil_vfs::{ExecId, Origin, Store, VfsRef};
 
 use super::models_loop::loop_models;
 use super::*;
@@ -69,6 +73,36 @@ fn use_access(
     let text = args["text"].as_str().unwrap_or_default();
     access.write(path, text.as_bytes()).map_err(failed)?;
     Ok(ToolOutput::trusted("written"))
+}
+
+/// Notes one files call in `ledger`, a store the test keeps beside the
+/// run: the call's write or read of its file, made through a view under
+/// the call's own identity. A store checks claims, which the run's handle
+/// does not, so the note fails with a conflict unless every earlier note
+/// of the file is ordered before this call.
+fn note_in(ledger: &Store, access: &Access, args: &Value) -> std::result::Result<(), VfsError> {
+    let view = ledger.view(access)?;
+    let name = |path: &str| path.trim_start_matches('/').to_owned();
+    if let Some(path) = args["write"].as_str() {
+        return view.write(&name(path), b"noted");
+    }
+    if let Some(path) = args["read"].as_str() {
+        return view.exists(&name(path)).map(drop);
+    }
+    Ok(())
+}
+
+/// Performs one files call through `access` once its note in `ledger` is
+/// made, or fails the call with the note's conflict and leaves the file
+/// alone.
+fn use_noted(
+    ledger: &Store,
+    access: &Access,
+    args: &Value,
+) -> std::result::Result<ToolOutput, runvil_types::error::Error> {
+    note_in(ledger, access, args)
+        .map_err(|error| make_tool_error(ErrorCode::ToolOther, error.to_string()))?;
+    use_access(access, args)
 }
 
 /// The identities a driven run's effects held, in issue order: each tool
@@ -182,6 +216,25 @@ fn files_answers(seen: &mut Identities) -> impl FnMut(EffectId, &Effect) -> Effe
     }
 }
 
+/// [`files_answers`] for a test of the order of identities: each files
+/// call is first noted in a store the performer keeps, and a call whose
+/// note conflicts fails with the conflict.
+fn ordered_answers(seen: &mut Identities) -> impl FnMut(EffectId, &Effect) -> EffectAnswer + '_ {
+    let ledger = Store::new();
+    move |_, effect| match effect {
+        Effect::ToolCall { access, args, .. } => {
+            seen.tools.push(access.id());
+            EffectAnswer::ToolCall(use_noted(&ledger, access, args))
+        }
+        other => {
+            if let Effect::Vfs { access, .. } = other {
+                seen.stores.push(access.id());
+            }
+            perform_store(other)
+        }
+    }
+}
+
 #[test]
 fn one_tool_call_hands_a_file_to_a_later_tool_call() -> std::result::Result<(), VfsError> {
     // Both accesses are rooted at `/` of the run's handle: the first call
@@ -189,7 +242,8 @@ fn one_tool_call_hands_a_file_to_a_later_tool_call() -> std::result::Result<(), 
     // `/handoff.txt`, and the caller's own access finds the file there
     // once the run has ended. The first call's end joins its write into
     // the chain, and the second call forks from the chain after that, so
-    // the write is ordered before the read.
+    // the write is ordered before the read, and the read's note meets no
+    // conflict.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
         ## Only\n\n\
         ```lua\n\
@@ -199,7 +253,7 @@ fn one_tool_call_hands_a_file_to_a_later_tool_call() -> std::result::Result<(), 
     let vfs = VfsRef::default();
     let (result, _) = drive(
         files_run(md, &vfs),
-        files_answers(&mut Identities::default()),
+        ordered_answers(&mut Identities::default()),
     );
     assert_eq!(text_of(result), "first call wrote this");
     assert_eq!(
@@ -241,7 +295,7 @@ fn a_tool_call_of_an_executed_prompt_and_one_of_its_caller_hand_files_to_each_ot
         .vfs(vfs.clone())
         .into_run();
     let mut seen = Identities::default();
-    let (result, _) = drive(run, files_answers(&mut seen));
+    let (result, _) = drive(run, ordered_answers(&mut seen));
     assert_eq!(
         text_of(result),
         "the caller wrote this | the child wrote this"
@@ -267,8 +321,9 @@ fn a_tool_call_of_an_executed_prompt_and_one_of_its_caller_hand_files_to_each_ot
 
 #[test]
 fn a_tool_calls_work_is_ordered_after_its_chains_earlier_work_and_before_its_chains_next_step() {
-    // Two writes of one file by two identities conflict unless one is
-    // ordered before the other, and a conflict fails the call. The first
+    // The notes of two writes of one file by two identities conflict
+    // unless one is ordered before the other, and a conflict fails the
+    // call. The first
     // call's end joins its write into the chain, so it is ordered before
     // the chain's next step; the second call forks from the chain at that
     // step, so the chain's earlier work, the first call's included, is
@@ -283,9 +338,51 @@ fn a_tool_calls_work_is_ordered_after_its_chains_earlier_work_and_before_its_cha
         ```\n";
     let (result, _) = drive(
         files_run(md, &VfsRef::default()),
-        files_answers(&mut Identities::default()),
+        ordered_answers(&mut Identities::default()),
     );
     assert_eq!(text_of(result), "second call");
+}
+
+#[test]
+fn the_tool_calls_of_two_tasks_are_unordered_and_both_reach_the_runs_files()
+-> std::result::Result<(), VfsError> {
+    // Nothing orders one task's call and the other's, so the note of the
+    // second write of the file conflicts with the first, which fails that
+    // call before it writes.
+    let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
+        ## Main\n\n\
+        ```lua\n\
+        local left = tasks.spawn('../Left')\n\
+        local right = tasks.spawn('../Right')\n\
+        local done = tasks.join({ left, right })\n\
+        return done[1].result .. '|' .. done[2].result\n\
+        ```\n\n\
+        ## Left\n\n\
+        ```lua\n\
+        return tostring(pcall(tools.call, 'test/tools/files', { write = 'same.txt', text = 'left' }))\n\
+        ```\n\n\
+        ## Right\n\n\
+        ```lua\n\
+        return tostring(pcall(tools.call, 'test/tools/files', { write = 'same.txt', text = 'right' }))\n\
+        ```\n";
+    let vfs = VfsRef::default();
+    let (result, _) = drive(
+        files_run(md, &vfs),
+        ordered_answers(&mut Identities::default()),
+    );
+    assert_eq!(text_of(result), "true|false");
+    assert_eq!(files_in(&vfs)?, one_file("/same.txt", "left"));
+
+    // With no note to conflict, both calls write the file through the
+    // run's handle, which checks no claims, and the later write stays.
+    let vfs = VfsRef::default();
+    let (result, _) = drive(
+        files_run(md, &vfs),
+        files_answers(&mut Identities::default()),
+    );
+    assert_eq!(text_of(result), "true|true");
+    assert_eq!(files_in(&vfs)?, one_file("/same.txt", "right"));
+    Ok(())
 }
 
 #[test]
@@ -322,7 +419,8 @@ fn a_tasks_tool_calls_fork_from_the_task_and_the_owners_call_reads_their_file_af
     // The task's second call reads the file its first call wrote, which
     // only the task's identity orders before it; the owner's call reads
     // the file the task's last call wrote once the task is joined, which
-    // joins the task's calls with it.
+    // joins the task's calls with it. A note out of that order would
+    // conflict and fail its call.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
         ## Main\n\n\
         ```lua\n\
@@ -338,7 +436,10 @@ fn a_tasks_tool_calls_fork_from_the_task_and_the_owners_call_reads_their_file_af
         return 'done'\n\
         ```\n";
     let mut seen = Identities::default();
-    let (result, _) = drive(files_run(md, &VfsRef::default()), files_answers(&mut seen));
+    let (result, _) = drive(
+        files_run(md, &VfsRef::default()),
+        ordered_answers(&mut seen),
+    );
     assert_eq!(text_of(result), "later call saw: task call wrote this");
     assert_eq!(
         seen.tools.len(),
@@ -355,7 +456,8 @@ fn a_tasks_tool_calls_fork_from_the_task_and_the_owners_call_reads_their_file_af
 fn a_tool_call_answered_dropped_is_still_joined_and_its_access_refuses_every_operation()
 -> std::result::Result<(), VfsError> {
     // The driver performs the first call, answers it `Dropped`, and keeps
-    // its access. The second call reads what the first wrote, so the
+    // its access. The second call reads what the first wrote, and its
+    // note meets no conflict, so the
     // dropped call was joined into the chain; while the driver performs
     // the second call, with the run's scope still open, it tries the
     // first call's access.
@@ -366,11 +468,12 @@ fn a_tool_call_answered_dropped_is_still_joined_and_its_access_refuses_every_ope
         return tostring(ok) .. ':' .. err.kind .. '|' .. tools.call('test/tools/files', { read = 'dropped.txt' })\n\
         ```\n";
     let vfs = VfsRef::default();
+    let ledger = Store::new();
     let mut dropped: Option<Arc<Access>> = None;
     let mut late = None;
     let (result, _) = drive(files_run(md, &vfs), |_, effect| match effect {
         Effect::ToolCall { access, args, .. } => {
-            let output = use_access(access, args);
+            let output = use_noted(&ledger, access, args);
             if let Some(earlier) = &dropped {
                 late = Some(every_operation(earlier, "dropped.txt"));
                 EffectAnswer::ToolCall(output)
@@ -430,7 +533,8 @@ fn a_canceled_tasks_tool_call_is_joined_and_its_access_refuses_every_later_opera
 -> std::result::Result<(), VfsError> {
     // The driver performs the task's call at once but holds its answer, so
     // the cancel finds the task parked on it. The owner's call reads what
-    // the task's call wrote before the cancel; what the driver tries
+    // the task's call wrote before the cancel, and its note meets no
+    // conflict, so the canceled call was joined; what the driver tries
     // through the task's call once the owner has returned, while the run
     // waits only on the held answer, is refused.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
@@ -448,6 +552,7 @@ fn a_canceled_tasks_tool_call_is_joined_and_its_access_refuses_every_later_opera
         return tools.call('test/tools/files', { write = 'tool.txt', text = 'tool wrote this' })\n\
         ```\n";
     let vfs = VfsRef::default();
+    let ledger = Store::new();
     let mut run = files_run(md, &vfs);
     let mut held: Option<(EffectId, Arc<Access>, EffectAnswer)> = None;
     let mut late = None;
@@ -474,11 +579,12 @@ fn a_canceled_tasks_tool_call_is_joined_and_its_access_refuses_every_later_opera
         for IssuedEffect { id, effect, .. } in effects {
             match &effect {
                 Effect::ToolCall { access, args, .. } if args["write"].is_string() => {
-                    let answer = EffectAnswer::ToolCall(use_access(access, args));
+                    let answer = EffectAnswer::ToolCall(use_noted(&ledger, access, args));
                     held = Some((id, Arc::clone(access), answer));
                 }
                 Effect::ToolCall { access, args, .. } => {
-                    run.resume(id, EffectAnswer::ToolCall(use_access(access, args)));
+                    let answer = EffectAnswer::ToolCall(use_noted(&ledger, access, args));
+                    run.resume(id, answer);
                 }
                 _ => run.resume(id, perform_store(&effect)),
             }

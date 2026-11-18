@@ -16,7 +16,8 @@
 //! executes a prompt it lists in the `execute` child module, the file
 //! operations a tool call asks for through its files in the `files` child
 //! module, the order of one reply's calls when a tool changes files in
-//! the `files_order` child module, and the runs that end before they
+//! the `files_order` child module, one path used by two parties of a run
+//! in the `files_shared` child module, and the runs that end before they
 //! start and the one error `run` returns in the `errors` child module.
 
 use std::future::Future;
@@ -46,6 +47,8 @@ mod execute;
 mod files;
 #[path = "harness-files-order.rs"]
 mod files_order;
+#[path = "harness-files-shared.rs"]
+mod files_shared;
 #[path = "harness-inbox.rs"]
 mod inbox;
 #[path = "harness-stop.rs"]

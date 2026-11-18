@@ -68,7 +68,7 @@ An arm is normal flow: its chain follows the rules of every other chain.
 
 `tasks.fanout` makes a `spawn` request for every member before its first `join_any`.
 
-Under the rule that every delivery is a join (see Determinism), an arm spawned after a join would be ordered after the arm that the join returned and could read that arm's files, so its result would depend on timing. With every arm spawned before the first join, the arms are unordered among themselves.
+Under the rule that every delivery is a join (see Determinism), an arm spawned after a join would be ordered after the arm that the join returned and could read that arm's store files, so its result would depend on timing. With every arm spawned before the first join, the arms are unordered among themselves.
 
 ### Results return in collection order, each with `text`, `ok`, `item`, and `exhausted`
 
@@ -100,7 +100,7 @@ The value 8 is arbitrary, here and for `max_idle_tasks` ([The Engine](engine.md)
 
 A spawn forks the file identity, assigns the task id, and queues the chain. Admission is the moment the scheduler starts a queued chain. The chain gets its Lua VM then, and until then `tasks.status` reports `blocked` as `queued`. The scheduler runs an admission pass each time its queue of ready chains is empty. The pass admits chains that resume from a wait first, then spawned chains in spawn order.
 
-A queued task costs very little, so the arms of a fanout over 500 members have at most as many Lua VMs at one time as the limit allows. The pass admits resumed chains first, which protects a resume from starving behind a long queue of spawns. Admission order affects timing only: the ids and the file system's decisions on conflicts (see Determinism) are the same under every admission order. A collection may be as large as the author likes, because a large collection only takes longer, and whether that is worth it is the author's call.
+A queued task costs very little, so the arms of a fanout over 500 members have at most as many Lua VMs at one time as the limit allows. The pass admits resumed chains first, which protects a resume from starving behind a long queue of spawns. Admission order affects timing only: the ids and each store's decisions on conflicts (see Determinism) are the same under every admission order. A collection may be as large as the author likes, because a large collection only takes longer, and whether that is worth it is the author's call.
 
 ### A task that waits on tasks or on its inbox releases its slots
 
@@ -138,9 +138,9 @@ An id is a path of numbers, and paths can name any number of arms. The number of
 
 ### A spawn is a fork, and every delivery is a join
 
-Each task has a file identity, an `ExecId`, under which the file system records its reads and writes. A spawn orders everything the parent did before it ahead of the child's first step. A delivery orders everything the task did ahead of the owner's next step: `join_any` joins the task it returns, `join` joins each member, and a chain's end joins every task that the chain owns. The file system uses this order to decide whether two accesses conflict ([Files and the VFS](files-and-the-vfs.md)).
+Each task has a file identity, an `ExecId`, under which a store records the task's reads and writes. A spawn orders everything the parent did before it ahead of the child's first step. A delivery orders everything the task did ahead of the owner's next step: `join_any` joins the task it returns, `join` joins each member, and a chain's end joins every task that the chain owns. A store uses this order to decide whether two accesses conflict ([Files and the VFS](files-and-the-vfs.md)).
 
-The result is one rule: after a join, a chain can read what the task wrote. A wait that returned a task unjoined would be a second concept, and a trap: a caller could take a task's result and leave the task unjoined. Determinism here means that the file system's decisions on conflicts and the contents of the files depend only on program order and on explicit points of synchronization, and are independent of scheduling.
+The result is one rule: after a join, a chain can read what the task wrote to the store. A wait that returned a task unjoined would be a second concept, and a trap: a caller could take a task's result and leave the task unjoined. Determinism here means that a store's decisions on conflicts and the contents of its files depend only on program order and on explicit points of synchronization, and are independent of scheduling. The Host's files have no conflict check: two tasks may write one of them through their tool calls, and the later write is the content.
 
 ## 6. Inboxes
 

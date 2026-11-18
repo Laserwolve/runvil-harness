@@ -190,13 +190,13 @@ Two failures raise at `models.loop` itself. A model call to a name outside both 
 
 When one model reply asks for several Pack tools, the Engine issues the calls in one step, so they run at the same time. The loop appends the round to the messages as a whole, in the order the model listed the calls. An adhoc tool or a discovery tool runs by itself, between batches. So does a call to a tool whose `ToolInfo` sets `changes_files`: the Engine issues it once every call listed before it has its answer, and issues the calls listed after it once it has its own.
 
-The calls run at the same time because they are independent of each other, and the model would otherwise wait for them one at a time. A call that changes files is the exception, because a later call of the same reply can depend on the change, and two changes that overlap can interleave. With each such call alone, the changes of one reply apply one at a time, in the order the model listed them, and a call listed before a change reads the files as they were. A script's `tools.call` is one call and waits for its answer, so the flag changes nothing for it. The loop appends the whole round because model APIs reject a request unless every requested call has a result.
+The calls run at the same time because they are independent of each other, and the model would otherwise wait for them one at a time. A call that changes files is the exception, because a later call of the same reply can depend on the change. The Host's files have no conflict check ([Files and the VFS](files-and-the-vfs.md)), so this order is what keeps two changes of one reply from interleaving: each changing call finishes before the next one starts. The changes of one reply apply one at a time, in the order the model listed them, and a call listed before a change reads the files as they were. A script's `tools.call` is one call and waits for its answer, so the flag changes nothing for it. The loop appends the whole round because model APIs reject a request unless every requested call has a result.
 
 ### Each call works under its own file identity
 
-The Engine forks a file identity for each tool call when it issues the call, and joins it back when the Harness answers. The calls that one round runs together therefore count as concurrent, and a call that runs alone comes after every call answered before it. When two concurrent calls touch the same path and one writes, the file system returns `VfsError::Conflict` to the operation that ran second, and the run continues ([Files and the VFS](files-and-the-vfs.md)). A Rust Pack receives that error, and the loader hands a library Pack the kind `RV_FILE_ERROR_CONFLICT` with a sentence that names the path. Each shipped tool reads files only: `web` and `mcp` leave the access unused, and the file functions of contract 0.4 stat, list, and read.
+The Engine forks a file identity for each tool call when it issues the call, and ends it when the Harness answers the call or the Engine aborts it. Every file operation of the call runs under that identity, and the file system refuses one that arrives after the end ([Files and the VFS](files-and-the-vfs.md)). The Host's files have no conflict check: the calls that one round runs together, and the calls of two tasks, may read and write one path, and the later write is the content. Each shipped tool reads files only: `web` and `mcp` leave the access unused, and the file functions of contract 0.4 stat, list, and read.
 
-Concurrent calls that shared one identity would race, and the file system would miss the conflict.
+Each call has an identity of its own so that the end of one call stops that call's operations and no other's. A call that the Harness dropped can then change no file afterward.
 
 ### The Harness runs at most 10 calls at once and starts waiting calls oldest first
 
@@ -448,19 +448,18 @@ Each question asks for the reason behind a part of the design.
 4. Why do events fire in the order of the answers while the messages are in call order?
 5. Why is a script's `tools.call` a single call, outside the batch path?
 6. Why is the default 24 rounds?
-7. Why does a file conflict inside a tool return to the model, while the same conflict in `store.*` ends the run?
-8. What is `survives_stop` for, when the shipped Packs leave it unset?
+7. What is `survives_stop` for, when the shipped Packs leave it unset?
 
 **Packs**
 
-9. Why does the registry leave a Plugin's Packs in place when its `install` fails partway?
-10. Why does `Host::parse` check `uses:` when the run's first step checks it too?
-11. Why is the need for a person expressed as a Pack?
-12. Why is every `uses:` entry required?
-13. Why do `web`, `std`, and `bash` wrap output for scripts while `mcp` returns it raw?
+8. Why does the registry leave a Plugin's Packs in place when its `install` fails partway?
+9. Why does `Host::parse` check `uses:` when the run's first step checks it too?
+10. Why is the need for a person expressed as a Pack?
+11. Why is every `uses:` entry required?
+12. Why do `web`, `std`, and `bash` wrap output for scripts while `mcp` returns it raw?
 
 **The C contract**
 
-14. Why do verbs 7 and 8 and status codes 1 to 3 stay reserved, when the header names no use for them?
-15. What does a new Pack that is compiled into the Host use until the contract has what `web` and `mcp` need: a Rust `install` function, or a C entry point handed to `insert_plugin`?
-16. What happens to the `Pack` trait, `HostServices`, and `ToolContext` of `runvil-plugin` once `plugin-web` and `plugin-mcp` are on the contract?
+13. Why do verbs 7 and 8 and status codes 1 to 3 stay reserved, when the header names no use for them?
+14. What does a new Pack that is compiled into the Host use until the contract has what `web` and `mcp` need: a Rust `install` function, or a C entry point handed to `insert_plugin`?
+15. What happens to the `Pack` trait, `HostServices`, and `ToolContext` of `runvil-plugin` once `plugin-web` and `plugin-mcp` are on the contract?

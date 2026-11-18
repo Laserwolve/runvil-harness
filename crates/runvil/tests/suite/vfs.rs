@@ -1,7 +1,7 @@
 //! Guarding and watching the files a Host hands a run's tool calls: a
 //! policy refuses a path off the desk before the operation watcher sees
 //! it, and while the run waits on its inbox, the Host's edit of a file a
-//! tool call read conflicts and leaves the file as it was. A run's store
+//! tool call read applies, and the run keeps what it read. A run's store
 //! is no part of those files, so the policy and the watcher never see a
 //! store operation.
 
@@ -186,7 +186,7 @@ fn a_policy_refuses_a_path_off_the_desk_before_the_watcher_sees_it() {
 }
 
 #[tokio::test]
-async fn a_hosts_edit_of_a_file_the_run_read_conflicts_while_the_run_waits_on_its_inbox() {
+async fn a_hosts_edit_of_a_file_the_run_read_applies_while_the_run_waits_on_its_inbox() {
     let (vfs, seen) = watched(DeskFiles);
     vfs.acquire(Origin::new("desk notes"))
         .expect("a memory filesystem acquires")
@@ -213,26 +213,30 @@ async fn a_hosts_edit_of_a_file_the_run_read_conflicts_while_the_run_waits_on_it
     });
     let report = report.expect("the run is reported");
 
-    assert!(matches!(edited, Err(VfsError::Conflict { .. })));
+    // The Host's files have no conflict check: the run's read of the
+    // notes holds back no edit of them, though the run is still live.
+    assert_eq!(edited, Ok(()), "the Host's edit runs");
     let notes = vfs
         .acquire(Origin::new("desk check"))
         .expect("a memory filesystem acquires")
         .read_string("/notes.md")
         .expect("the notes stay readable");
-    assert_eq!(notes, "Ship on Friday.");
+    assert_eq!(notes, "Ship on Monday.", "the later write is the content");
     assert_eq!(
         seen.lock().unwrap()[..],
         [
             ("desk notes".to_owned(), file!().to_owned()),
             ("desk/read".to_owned(), "review".to_owned()),
+            ("desk edit".to_owned(), file!().to_owned()),
             ("desk check".to_owned(), file!().to_owned()),
         ],
-        "the tool call's read names the prompt by its frontmatter `name`, and the refused \
-         edit never reaches the watcher"
+        "the tool call's read names the prompt by its frontmatter `name`, and the watcher \
+         sees the Host's edit after it"
     );
     assert_eq!(
         report.result.expect("the run completed"),
-        "Ship on Friday. Approved."
+        "Ship on Friday. Approved.",
+        "the run returns the notes as its tool call read them"
     );
 }
 

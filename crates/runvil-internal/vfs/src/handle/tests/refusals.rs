@@ -6,7 +6,7 @@ use std::fmt;
 use std::sync::atomic::AtomicUsize;
 
 use super::*;
-use crate::MemoryBackend;
+use crate::{MemoryBackend, Store};
 
 /// The error a refusing backend's acquire returns: the trait's contract
 /// allows refusal, so the handle must surface it as an error rather
@@ -37,6 +37,7 @@ fn a_mounted_handle_whose_backend_refuses_releases_the_identity_it_joined() -> R
             "/m",
             VfsRef::new(TestFs::default().on_acquire(|_| Err(refusal()))),
         )
+        .checking_claims()
         .build();
     let caller = access(&vfs)?;
     caller.write("/a.txt", b"1")?;
@@ -68,7 +69,8 @@ fn a_backend_refusal_fails_spawn_and_releases_the_refused_child() -> Result<(), 
         Ok(())
     }));
     let parent = access(&vfs)?;
-    parent.write("/f.txt", b"1")?;
+    let store = Store::new();
+    store.view(&parent)?.write("f.txt", b"1")?;
     match parent.spawn(test_origin()) {
         Err(VfsError::Backend { message }) => {
             assert_eq!(message, "the backend refuses acquisition");
@@ -76,12 +78,12 @@ fn a_backend_refusal_fails_spawn_and_releases_the_refused_child() -> Result<(), 
         other => panic!("expected a backend refusal, got {other:?}"),
     }
     // The refused child's reference was released, so only the
-    // parent keeps the scope live, and the parent's write still
-    // conflicts with another live scope's.
+    // parent keeps the scope live, and the parent's write to a store
+    // still conflicts with another live scope's.
     assert_eq!(parent.scope.live.load(Ordering::Acquire), 1);
     let other = access(&vfs)?;
-    let message = conflict_message(other.write("/f.txt", b"2"));
-    assert!(message.contains("/f.txt"), "{message}");
+    let message = conflict_message(store.view(&other)?.write("f.txt", b"2"));
+    assert!(message.contains("f.txt"), "{message}");
     Ok(())
 }
 
@@ -95,7 +97,7 @@ fn an_ended_identity_refuses_operations_and_spawns_while_the_scope_stays_open()
         }
     }
 
-    let vfs = VfsRef::builder().mount("/", MemoryBackend::new()).build();
+    let vfs = handle(MemoryBackend::new());
     let (owner, scope) = vfs.acquire_scope(test_origin())?;
     let call = scope.spawn(&owner, test_origin())?;
     call.write("/a.txt", b"call")?;

@@ -1,6 +1,7 @@
-//! The capability's file operations: each gates its path, admits its
-//! claims, and fires its event before it reaches the backend. One
-//! [`VfsOp`] runs as the operation it names.
+//! The capability's file operations: each gates its path, passes
+//! admission, where an access that checks claims makes its claim, and
+//! fires its event before it reaches the backend. One [`VfsOp`] runs as
+//! the operation it names.
 
 use super::Access;
 use super::claims::Claims;
@@ -56,9 +57,10 @@ impl Access {
     /// Reads the bytes of the file at `path`, exactly as stored.
     ///
     /// # Errors
-    /// Returns an error when the policy denies the read, when another
-    /// access holds a conflicting claim on `path` that is not ordered
-    /// before this operation, or when the backend fails.
+    /// Returns an error when the policy denies the read, when this
+    /// access checks claims and another access holds a conflicting claim
+    /// on `path` that is not ordered before this operation, or when the
+    /// backend fails.
     pub fn read(&self, path: &str) -> Result<Vec<u8>, VfsError> {
         let path = self.gate(Op::Read, path)?;
         self.admit(Claims::claim_read, &path)?;
@@ -89,9 +91,10 @@ impl Access {
     /// there.
     ///
     /// # Errors
-    /// Returns an error when the policy denies the read, when another
-    /// access holds a conflicting claim on `path` that is not ordered
-    /// before this operation, or when the backend fails.
+    /// Returns an error when the policy denies the read, when this
+    /// access checks claims and another access holds a conflicting claim
+    /// on `path` that is not ordered before this operation, or when the
+    /// backend fails.
     pub fn read_range(&self, path: &str, offset: u64, len: u64) -> Result<Vec<u8>, VfsError> {
         let path = self.gate(Op::Read, path)?;
         self.admit(Claims::claim_read, &path)?;
@@ -102,9 +105,10 @@ impl Access {
     /// Creates or overwrites the file at `path` with `contents`.
     ///
     /// # Errors
-    /// Returns an error when the policy denies the write, when another
-    /// access holds a conflicting claim on `path` that is not ordered
-    /// before this operation, or when the backend fails.
+    /// Returns an error when the policy denies the write, when this
+    /// access checks claims and another access holds a conflicting claim
+    /// on `path` that is not ordered before this operation, or when the
+    /// backend fails.
     pub fn write(&self, path: &str, contents: &[u8]) -> Result<(), VfsError> {
         let path = self.gate(Op::Write, path)?;
         self.admit(Claims::claim_write, &path)?;
@@ -116,9 +120,10 @@ impl Access {
     /// is absent.
     ///
     /// # Errors
-    /// Returns an error when the policy denies the append, when another
-    /// access holds a conflicting claim on `path` that is not ordered
-    /// before this operation, or when the backend fails.
+    /// Returns an error when the policy denies the append, when this
+    /// access checks claims and another access holds a conflicting claim
+    /// on `path` that is not ordered before this operation, or when the
+    /// backend fails.
     pub fn append(&self, path: &str, contents: &[u8]) -> Result<(), VfsError> {
         let path = self.gate(Op::Append, path)?;
         self.admit(Claims::claim_write, &path)?;
@@ -131,9 +136,10 @@ impl Access {
     ///
     /// # Errors
     /// Returns an error when `old` is empty, when the policy denies the
-    /// write, when another access holds a conflicting claim on `path`
-    /// that is not ordered before this operation, when `old` occurs zero
-    /// times or more than once, or when the backend fails.
+    /// write, when this access checks claims and another access holds a
+    /// conflicting claim on `path` that is not ordered before this
+    /// operation, when `old` occurs zero times or more than once, or
+    /// when the backend fails.
     pub fn str_replace(&self, path: &str, old: &str, new: &str) -> Result<(), VfsError> {
         // The store view validates the path before the anchor, in the
         // store contract's order.
@@ -161,10 +167,10 @@ impl Access {
     /// removing the same path twice succeeds.
     ///
     /// # Errors
-    /// Returns an error when the policy denies the delete, when another
-    /// access holds a conflicting claim that is not ordered before this
-    /// operation, or when the backend fails. A recursive removal claims
-    /// the whole subtree under `path`.
+    /// Returns an error when the policy denies the delete, when this
+    /// access checks claims and another access holds a conflicting claim
+    /// that is not ordered before this operation, or when the backend
+    /// fails. A recursive removal claims the whole subtree under `path`.
     pub fn remove(&self, path: &str, recursive: bool) -> Result<bool, VfsError> {
         match self.remove_present(path, recursive) {
             Ok(()) => Ok(true),
@@ -194,9 +200,10 @@ impl Access {
     /// Returns `Ok(false)` only when the path is confirmed absent.
     ///
     /// # Errors
-    /// Returns an error when the policy denies the check, when another
-    /// access holds a conflicting claim on `path` that is not ordered
-    /// before this operation, or when the backend fails.
+    /// Returns an error when the policy denies the check, when this
+    /// access checks claims and another access holds a conflicting claim
+    /// on `path` that is not ordered before this operation, or when the
+    /// backend fails.
     pub fn exists(&self, path: &str) -> Result<bool, VfsError> {
         let path = self.gate(Op::Exists, path)?;
         self.admit(Claims::claim_read, &path)?;
@@ -225,9 +232,10 @@ impl Access {
     /// refuse it. Each malformed pattern
     /// reports the rule it broke as a [`PathReason`] in the
     /// [`VfsError::InvalidPath`]. It also returns an error when the
-    /// policy denies the glob, when another access holds a conflicting
-    /// claim that is not ordered before this operation, or when the
-    /// backend fails. One claim covers the pattern as a whole.
+    /// policy denies the glob, when this access checks claims and
+    /// another access holds a conflicting claim that is not ordered
+    /// before this operation, or when the backend fails. One claim
+    /// covers the pattern as a whole.
     pub fn glob(&self, pattern: &str) -> Result<Vec<String>, VfsError> {
         if pattern.is_empty() {
             return Err(VfsError::InvalidPath {
@@ -278,9 +286,10 @@ impl Access {
     /// Lists the entries of the directory at `path`.
     ///
     /// # Errors
-    /// Returns an error when the policy denies the list, when another
-    /// access holds a conflicting claim on the directory's children that
-    /// is not ordered before this operation, or when the backend fails.
+    /// Returns an error when the policy denies the list, when this
+    /// access checks claims and another access holds a conflicting claim
+    /// on the directory's children that is not ordered before this
+    /// operation, or when the backend fails.
     pub fn list(&self, path: &str) -> Result<Vec<Entry>, VfsError> {
         let path = self.gate(Op::List, path)?;
         self.admit(Claims::claim_list, &path)?;
@@ -291,9 +300,10 @@ impl Access {
     /// Returns metadata for `path`.
     ///
     /// # Errors
-    /// Returns an error when the policy denies the stat, when another
-    /// access holds a conflicting claim on `path` that is not ordered
-    /// before this operation, or when the backend fails.
+    /// Returns an error when the policy denies the stat, when this
+    /// access checks claims and another access holds a conflicting claim
+    /// on `path` that is not ordered before this operation, or when the
+    /// backend fails.
     pub fn stat(&self, path: &str) -> Result<Stat, VfsError> {
         let path = self.gate(Op::Stat, path)?;
         self.admit(Claims::claim_read, &path)?;
@@ -306,9 +316,10 @@ impl Access {
     /// Set `recursive` to also create any missing parent directories.
     ///
     /// # Errors
-    /// Returns an error when the policy denies the mkdir, when another
-    /// access holds a conflicting claim on `path` that is not ordered
-    /// before this operation, or when the backend fails.
+    /// Returns an error when the policy denies the mkdir, when this
+    /// access checks claims and another access holds a conflicting claim
+    /// on `path` that is not ordered before this operation, or when the
+    /// backend fails.
     pub fn mkdir(&self, path: &str, recursive: bool) -> Result<(), VfsError> {
         let path = self.gate(Op::Mkdir, path)?;
         self.admit(Claims::claim_write, &path)?;
@@ -318,14 +329,15 @@ impl Access {
 
     /// Renames or moves `from` to `to`.
     ///
-    /// The move is atomic where the backend allows it. It claims the
-    /// source as the whole subtree it moves, and the destination as a
-    /// write.
+    /// The move is atomic where the backend allows it. An access that
+    /// checks claims claims the source as the whole subtree it moves,
+    /// and the destination as a write.
     ///
     /// # Errors
-    /// Returns an error when the policy denies the rename, when another
-    /// access holds a conflicting claim on either path that is not
-    /// ordered before this operation, or when the backend fails.
+    /// Returns an error when the policy denies the rename, when this
+    /// access checks claims and another access holds a conflicting claim
+    /// on either path that is not ordered before this operation, or when
+    /// the backend fails.
     pub fn rename(&self, from: &str, to: &str) -> Result<(), VfsError> {
         let from = self.gate(Op::Rename, from)?;
         let to = self.gate(Op::Rename, to)?;
@@ -344,12 +356,14 @@ impl Access {
 
     /// Copies the file at `from` to `to`.
     ///
-    /// It claims the source as a read and the destination as a write.
+    /// An access that checks claims claims the source as a read and the
+    /// destination as a write.
     ///
     /// # Errors
-    /// Returns an error when the policy denies the copy, when another
-    /// access holds a conflicting claim on either path that is not
-    /// ordered before this operation, or when the backend fails.
+    /// Returns an error when the policy denies the copy, when this
+    /// access checks claims and another access holds a conflicting claim
+    /// on either path that is not ordered before this operation, or when
+    /// the backend fails.
     pub fn copy(&self, from: &str, to: &str) -> Result<(), VfsError> {
         let from = self.gate(Op::Copy, from)?;
         let to = self.gate(Op::Copy, to)?;

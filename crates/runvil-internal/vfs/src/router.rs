@@ -433,6 +433,9 @@ pub struct VfsRefBuilder {
     policy: Option<Arc<dyn Policy + Sync>>,
     sink: Option<OpSink>,
     folds: CaseFolds,
+    /// Whether the built handle checks claims. Only this crate sets it,
+    /// for a store.
+    checks_claims: bool,
 }
 
 impl fmt::Debug for VfsRefBuilder {
@@ -448,7 +451,20 @@ impl VfsRefBuilder {
             policy: None,
             sink: None,
             folds: CaseFolds::default(),
+            checks_claims: false,
         }
+    }
+
+    /// Makes the built handle check claims, consuming and returning the
+    /// builder: each operation through it claims its region, and one that
+    /// conflicts with an operation not ordered before it is refused.
+    ///
+    /// A store asks for the check. A handle that a caller builds makes
+    /// none, so the setting stays inside this crate.
+    #[must_use]
+    pub(crate) fn checking_claims(mut self) -> VfsRefBuilder {
+        self.checks_claims = true;
+        self
     }
 
     /// Mounts `backend` at `prefix`, consuming and returning the
@@ -500,8 +516,9 @@ impl VfsRefBuilder {
     /// returning the builder.
     ///
     /// The built handle calls this operation sink just before the
-    /// backend runs each operation that passes the policy and claims
-    /// checks. Only those operations reach the sink. Each call receives
+    /// backend runs each operation that the policy allows, of an access
+    /// whose scope and identity are live. Only those operations reach
+    /// the sink. Each call receives
     /// an `OpEvent` with the operation kind, the canonical path, and the
     /// `Origin` of the access that made the call. The sink only
     /// observes: it returns `()`, and the operation's result stays
@@ -520,13 +537,20 @@ impl VfsRefBuilder {
     ///
     /// The mount table is fixed from this point on. The policy defaults
     /// to [`AllowAll`], and the handle has an operation sink only when
-    /// `on_op` installed one.
+    /// `on_op` installed one. The handle checks no claims: two unordered
+    /// accesses to one path both run.
     ///
     /// [`AllowAll`]: crate::AllowAll
     #[must_use]
     pub fn build(self) -> VfsRef {
         let policy = self.policy.unwrap_or_else(|| Arc::new(AllowAll));
-        VfsRef::from_router(Router::new(self.mounts), policy, self.sink, self.folds)
+        VfsRef::from_router(
+            Router::new(self.mounts),
+            policy,
+            self.sink,
+            self.folds,
+            self.checks_claims,
+        )
     }
 }
 

@@ -81,7 +81,7 @@ pub enum Mode {
 /// `Mode`.
 ///
 /// A `VfsRef` holds one policy and consults it on every operation,
-/// before it checks for conflicting claims. The mode limits only operations
+/// before any other check of the operation. The mode limits only operations
 /// that change storage: writes, appends, deletes, renames, directory
 /// creation, copies, symbolic links, and permission changes.
 ///

@@ -1,6 +1,6 @@
 # Files and the VFS: design decisions
 
-This page covers the `store` Lua API, the virtual file system (VFS), real and virtual roots, what a run may read and write, file identities and conflicts, and persistence. A run's files are in a virtual file system, the VFS, which the crate `runvil-vfs` implements. The Host builds one `VfsRef` handle for each run: a table of mounts, each a backend in memory or over a real directory, which holds the files the run's tools work in. The store is a separate value that the Engine makes for each run, and each `execute` gives the prompt that it runs a store of its own. Lua reads and writes a store through the `store` table. The main walk, each task, and each tool call has an `Access`, an object that performs file operations for one identity: it checks the path, the policy of its handle, and what the others have read and written, and then calls the backend. A `store` call runs on a view of the store, an `Access` with the calling chain's identity that reaches the store alone and asks no Host policy.
+This page covers the `store` Lua API, the virtual file system (VFS), real and virtual roots, what a run may read and write, file identities and conflicts, and persistence. A run's files are in a virtual file system, the VFS, which the crate `runvil-vfs` implements. The Host builds one `VfsRef` handle for each run: a table of mounts, each a backend in memory or over a real directory, which holds the files the run's tools work in. The store is a separate value that the Engine makes for each run, and each `execute` gives the prompt that it runs a store of its own. Lua reads and writes a store through the `store` table. The main walk, each task, and each tool call has an `Access`, an object that performs file operations for one identity: it checks the path and the policy of its handle, and then calls the backend. A `store` call runs on a view of the store, an `Access` with the calling chain's identity that reaches the store alone and asks no Host policy. A view also checks what the other identities have read and written in its store, which an `Access` to the Host's files leaves unchecked.
 
 ## 1. The `store` table
 
@@ -58,11 +58,11 @@ The owner's reason for one list: "in principle, the store is just a virtual dire
 
 A virtual path is rooted and uses forward slashes on every operating system. An `Access` canonicalizes each path when it receives it, so the policy, the claims table, and the backend see one spelling. A path without a leading `/` is relative to `/`.
 
-With one canonical form, only `RealBackend` translates a path to the operating system's form. Case is significant, with one exception: below a rooted real mount on Windows and macOS the claims table compares paths in lowercase, because a false conflict fails safe.
+With one canonical form, only `RealBackend` translates a path to the operating system's form. Case is significant. A claims table has one exception: below a rooted real mount on Windows and macOS it compares paths in lowercase, because a false conflict fails safe. No run reaches that exception while the Host's files are unchecked, because a store is memory (see Identities and conflicts).
 
 ### `VfsRefBuilder::build` fixes a handle's mount table, and the longest matching prefix wins
 
-`VfsRefBuilder::mount` installs a backend at a path prefix, and `build` returns the handle. The handle sends each operation to the mount with the longest matching prefix. `VfsRef::overlay` returns a second handle with one more mount above the first, and the two share one claims table.
+`VfsRefBuilder::mount` installs a backend at a path prefix, and `build` returns the handle. The handle sends each operation to the mount with the longest matching prefix. `VfsRef::overlay` returns a second handle with one more mount above the first, under the first handle's policy and operation sink.
 
 A table fixed at construction makes routing immutable and a handle cheap to clone for each run.
 
@@ -112,7 +112,7 @@ The owner's rule for slow storage: "we should allow it, but if the performance s
 
 ### Each handle has one policy, which answers Allow, Deny, or Ask
 
-An `Access` asks the handle's `Policy` about every operation, reads included, before it checks claims. `Policy::check` returns `Allow`, `Deny(String)`, or `Ask(String)`. The file system turns `Deny` into `PermissionDenied` and `Ask` into `ApprovalRequired`. The default policy is `AllowAll`. A store is no part of the handle and has `AllowAll` as its own policy, so the handle's policy sees the file operations of tool calls and never a `store` call.
+An `Access` asks the handle's `Policy` about every operation, reads included, before any other check. `Policy::check` returns `Allow`, `Deny(String)`, or `Ask(String)`. The file system turns `Deny` into `PermissionDenied` and `Ask` into `ApprovalRequired`. The default policy is `AllowAll`. A store is no part of the handle and has `AllowAll` as its own policy, so the handle's policy sees the file operations of tool calls and never a `store` call.
 
 The model reads the `Deny` text, and a person would read the `Ask` text. A tool of a library Plugin receives both answers as one file error of the C contract, of kind `RV_FILE_ERROR_DENIED`, with the policy's text. One policy for a handle is enough, because a Host that needs a richer system can combine its rules inside a single `Policy` object. No Host policy applies to the store, because a policy decides what a run's tools may do to the files of the handle, and the store is the run's own memory, outside every handle.
 
@@ -124,43 +124,53 @@ Modes are one implementation of the `Policy` trait, separate from the machinery 
 
 ### An operation sink observes every admitted operation of its handle
 
-A Host installs a callback, the operation sink, with `VfsRefBuilder::on_op`. The handle calls it for each operation that passed the policy and the claims check, with the operation kind, the canonical path, and the `Origin` of the access, a label with a file and line. A store has no sink, so the sink observes the file operations of tool calls and never a `store` call.
+A Host installs a callback, the operation sink, with `VfsRefBuilder::on_op`. The handle calls it for each operation that the policy allowed, with the operation kind, the canonical path, and the `Origin` of the access, a label with a file and line. A store has no sink, so the sink observes the file operations of tool calls and never a `store` call.
 
 Each store operation is an effect instead: the Harness sees it before it runs, and the run's record holds it.
 
 ## 5. Identities and conflicts
 
-### Each operation belongs to an identity, and a conflict in a `store` call ends the run
+### Each operation belongs to an identity, and a conflict in a store ends the run
 
-Every `Access` has an `ExecId`, the identity of one serial thread of execution: the main walk, a task, or a tool call. A claims table records which identity read or wrote which path. When two identities use one path, at least one of them writes, and the two are unordered, the second operation fails with `VfsError::Conflict`. For a `store` call the Engine then ends the run with the error code `determinism` and abandons the suspended chain, together with any `pcall` around the call.
+Every `Access` has an `ExecId`, the identity of one serial thread of execution: the main walk, a task, or a tool call. Each store has a claims table, which records which identity read or wrote which path of that store. When two identities use one store path, at least one of them writes, and the two are unordered, the second operation fails with `VfsError::Conflict`. The Engine then ends the run with the error code `determinism` and abandons the suspended chain, together with any `pcall` around the call.
 
 A lock on the backend makes such a pair of accesses memory-safe, and the claims table refuses the second one all the same. The owner's reason: "It's safe, but it's not correct because that's non-deterministic behavior. That means replay is not going to work right."
 
-### Happens-before order decides whether two accesses conflict
+### The claims check applies to a store alone, and the Host's files have none
 
-Each identity has a vector clock. Fork and join are methods of `ScopeHandle`, which `VfsRef::acquire_scope` returns and whose methods are `spawn`, `join`, `end_access`, and `end`. `ScopeHandle::spawn` forks a child identity, and the fork orders everything the parent did before it ahead of the child's first operation. `ScopeHandle::join` merges a child's clock into its owner's, and the owner may then read what the child wrote. The Engine forks at each task spawn and joins at each delivery of a task's result ([Tasks and fanout](tasks-and-fanout.md)).
+An operation on the files of the run's handle makes no claim and checks none, whoever asked for it: a model's tool call, or the prompt's own `tools.call`. Two tasks that work on one file both succeed. A reader in one task holds back no writer in another, and the later write is the content. A handle that a Host builds checks no claims at all, so two runs over one handle, and the Host's own access beside them, share its files in the same way.
+
+The owner's reason: "maybe the determinism error should only apply to store operations? and we should otherwise try to behave like regular harnesses, so that two subagents which conflict on file access can just work it out". On the prompt's own `tools.call`, the owner's words: "I think I am ok with Lua's own tools.call on Host files being unchecked. We can always put it back in later." The store is the prompt's own memory, and every party in it is the prompt's Lua, so the check stays there. The Host's files are the outside world: with a real folder mounted, another program can change a file, and a claims table knows the run's own identities alone.
+
+The record of a run stays whole without the check, because each operation that a tool asks for through the files of its call is a recorded effect that the Harness performs in order (see the entry on a tool's file request). One gap is known. A tool that edits a file as a read followed by a write can lose an edit that another task makes between the two. The list of operations has `StrReplace`, which replaces a text in one step, and a Rust Pack can ask for it. The C contract has no function for it, so the tools of `std` and `bash` cannot, and whether to add one is the owner's to decide.
+
+The claims code stays in `runvil-vfs` with its tests, and only that crate can make a handle check claims, which a store does. The check on the Host's files can therefore return.
+
+### Happens-before order decides whether two accesses to a store conflict
+
+Each identity has a vector clock. Fork and join are methods of `ScopeHandle`, which `VfsRef::acquire_scope` returns and whose methods are `spawn`, `join`, `end_access`, and `end`. `ScopeHandle::spawn` forks a child identity, and the fork orders everything the parent did before it ahead of the child's first operation. `ScopeHandle::join` merges a child's clock into its owner's, and the owner may then read what the child wrote to the store. The Engine forks at each task spawn and joins at each delivery of a task's result ([Tasks and fanout](tasks-and-fanout.md)).
 
 The ordering test is the one that the FastTrack race detector uses, and with it a verdict depends only on the structure of the program. A claim that lasted for the life of its identity would make the verdict depend on which model call returns first.
 
 ### A read claims the whole region it observes
 
-`read` and `exists` claim a path, `glob` claims its pattern, and `list` claims a directory's children. A write claims its path and each parent directory it may create. A `glob` therefore conflicts with an unordered write of a matching file, whichever runs second. Two unordered writes below one new directory pass.
+Where claims are checked, `read` and `exists` claim a path, `glob` claims its pattern, and `list` claims a directory's children. A write claims its path and each parent directory it may create. A `glob` therefore conflicts with an unordered write of a matching file, whichever runs second. Two unordered writes below one new directory pass.
 
 A `glob` or an `exists` that runs before a sibling task creates a matching file has to conflict as well, because its result would otherwise depend on timing. The claims are stricter than some cases need. That extra strictness is deterministic, and a missed conflict would be nondeterministic.
 
 ### A scope is one acquire and its forks, and the run closes its scope at `Done`
 
-`VfsRef::acquire` starts a scope: a new identity plus every identity later forked from it. Accesses in two live scopes are always unordered, so a write in one conflicts with an overlapping access in the other. A backend that wraps another backend passes the `AcquireContext` of `Vfs::acquire` on as it received it, so a wrapped `VfsRef` joins the caller's scope.
+`VfsRef::acquire` starts a scope: a new identity plus every identity later forked from it. Accesses in two live scopes are always unordered, so in one store a write in one scope conflicts with an overlapping access in the other. A backend that wraps another backend passes the `AcquireContext` of `Vfs::acquire` on as it received it, so a wrapped `VfsRef` joins the caller's scope.
 
-A run is one scope, which the Engine starts with `VfsRef::acquire_scope` on the run's handle. A store view joins the scope of the `Access` it comes from and records its claims in the store's own claims table, so the forks, joins, and ends of the scope order store operations as they order file operations. A store and the handle share no claim, and two stores share none, even under one identity. The Engine closes the run's scope when the run ends: each table then ignores the scope's claims, and an `Access` of the scope, a store view included, refuses each operation with `ScopeEnded`.
+A run is one scope, which the Engine starts with `VfsRef::acquire_scope` on the run's handle. A store view joins the scope of the `Access` it comes from and records its claims in the store's own claims table, so the forks, joins, and ends of the scope order store operations. Two stores share no claim, even under one identity, and the handle holds none. The Engine closes the run's scope when the run ends: each store's table then ignores the scope's claims, and an `Access` of the scope, a store view included, refuses each operation with `ScopeEnded`.
 
-Scopes let a Host write files before a run and read them after it, and let concurrent runs share a base of real files. A store view joins its caller's scope so that the ordering test for a `store` call is the one that file operations use.
+The scope bounds what a run can do: once it is closed, no access of the run changes a file of the handle or of a store. A store view joins its caller's scope so that the identities of the run's chains order its `store` calls.
 
 ### A tool call works under its own identity, which the Engine ends with the call
 
 The Engine forks an identity for each Pack tool call. The identity's `Access`, rooted at `/` of the run's handle, reaches the files of the handle and no store, and every file operation of the call runs on it ([Tools and Packs](tools-and-packs.md)). The Engine passes the `Access` in each `Vfs` effect that it issues for a request of the call, and the Harness performs the operation on it. The `ToolCall` effect holds the same `Access`: a Rust Pack can call it itself, and for a Pack that follows the C contract, the loader keeps it and answers the contract's file functions from it: `file_stat`, `file_list`, and `file_read`. Contract 0.4 reads only, so the tools of `std` and `bash` read files. When the Harness answers the call or the Engine aborts it, `ScopeHandle::end_access` joins the identity into the calling chain, and every later operation through that `Access` fails with `ScopeEnded`. The Engine ends the identity because a call that it aborted could otherwise still write.
 
-When an operation of a tool call conflicts, the tool receives `VfsError::Conflict`, as the outcome of its request or from the `Access`, and its Pack decides how to answer the call. For the `std` Pack, a library Plugin, the loader passes the conflict on as a file error of the C contract, and the Pack converts it into a sentence that tells the model to call the tool again. In the shell of the `bash` Pack the same file error fails the command that read the file, and the model reads the reason in the command's output. The Engine resumes the chain with the Pack's answer. The Engine ends the run only for a conflict in a `store` call: the fatal rule applies to the answer of a `Vfs` effect that the prompt's Lua asked for, and a failure in the answer of one that a tool asked for goes to the tool alone.
+A tool call's operations make no claim, so none of them conflicts with another access (see the entry on the claims check). A failure of one, such as a path that is absent or a policy's denial, goes to the tool alone, and its Pack decides how to answer the call. The Engine ends a run for a conflict only in the answer to a `store` call.
 
 ### A tool's file request is a `Vfs` effect, which the Harness performs and records
 
@@ -226,7 +236,6 @@ Each question asks for the reason behind a part of the design.
 
 **Conflicts**
 
-4. Why does a conflict inside a tool call return to the Pack, while the same conflict in a `store` call ends the run?
 5. Why does the claims table fold case below a rooted real mount and compare exactly below an identity mount?
 
 **Hosts and backends**

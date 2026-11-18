@@ -79,11 +79,14 @@ impl Access {
         self.id
     }
 
-    /// The claims-table half of one operation: refuses once the run that
-    /// owned this access has ended, runs `claim` against this access's
-    /// identity and scope on `path`'s claim key - whose view refuses once
-    /// the tool call that owned the identity has ended - and re-spells a
-    /// store view's error paths into the caller's logical form.
+    /// The admission of one operation: refuses once the run that owned
+    /// this access has ended, and once the tool call that owned its
+    /// identity has. On a volume that checks claims, it runs `claim`
+    /// against this access's identity and scope on `path`'s claim key,
+    /// whose view makes the second refusal. On any other volume it claims
+    /// nothing, so the operation runs whatever another access has read or
+    /// written. It re-spells a store view's error paths into the caller's
+    /// logical form.
     pub(super) fn admit(
         &self,
         claim: impl FnOnce(&Claims, &Arc<Scope>, ExecId, &VfsPath) -> Result<(), VfsError>,
@@ -92,12 +95,18 @@ impl Access {
         self.scope
             .refuse_if_closed(path)
             .and_then(|()| {
-                claim(
-                    &self.volume.claims,
-                    &self.scope,
-                    self.id,
-                    &self.claim_key(path),
-                )
+                if self.volume.checks_claims {
+                    claim(
+                        &self.volume.claims,
+                        &self.scope,
+                        self.id,
+                        &self.claim_key(path),
+                    )
+                } else {
+                    // With no claim to make, the view is taken for its one
+                    // refusal: the identity whose tool call has ended.
+                    self.scope.view(self.id, path).map(drop)
+                }
             })
             .map_err(|err| self.relativize(err))
     }
@@ -119,8 +128,8 @@ impl Access {
     }
 
     /// Canonicalizes at receipt and consults the policy - in that order,
-    /// so a denied operation never registers a claim and every claim key
-    /// is the canonical path. A path without a leading `/` is relative to
+    /// so a denied operation never reaches admission, where a claim is
+    /// made, and every claim key is the canonical path. A path without a leading `/` is relative to
     /// `/`. The store view applies the store's strict logical-path rules
     /// before canonicalization. A store has no policy of its own, so a
     /// view's check always allows.
@@ -156,8 +165,8 @@ impl Access {
     }
 
     /// Fires the installed sink for one admitted path of `op` -
-    /// fire-and-forget, after policy and claims pass, before the backend
-    /// executes. A handle without a sink, or a capability vended to a
+    /// fire-and-forget, after the policy and the admission pass, before
+    /// the backend executes. A handle without a sink, or a capability vended to a
     /// mounted-handle forward (the outer handle already fired with the
     /// caller's origin), fires nothing.
     pub(super) fn fire(&self, op: Op, path: &VfsPath) {

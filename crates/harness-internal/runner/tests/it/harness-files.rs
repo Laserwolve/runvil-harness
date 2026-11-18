@@ -30,10 +30,11 @@ use crate::support::{assert_canceled, registry};
 /// The fixture Pack `files`, whose every tool works through its call's
 /// files. `files/copy` reads the file its `from` names and writes what it
 /// read to the one its `to` names. `files/cat` answers with the text of
-/// the file its `path` names. `files/append` reads that file and writes
-/// it back with its `text` added, and its info says that it changes
-/// files. `files/pair` runs the hook its factory was given and then asks
-/// for two writes at once.
+/// the file its `path` names. `files/put` writes its `text` to that file,
+/// and `files/append` reads the file and writes it back with its `text`
+/// added. The info of each of those two says that it changes files.
+/// `files/pair` runs the hook its factory was given and then asks for two
+/// writes at once.
 const FILES_PACK: PackInfo = PackInfo::new("tests/files");
 
 /// What `files/pair` runs as it starts, before it asks for anything.
@@ -60,6 +61,7 @@ fn files_pack(on_pair: impl Fn() + Send + Sync + 'static) -> impl PackFactory {
             tools: vec![
                 tool("copy", "Copy one file to another."),
                 tool("cat", "Read one file."),
+                tool("put", "Write one file.").changes_files(true),
                 tool("append", "Add text to the end of one file.").changes_files(true),
                 tool("pair", "Write two files at once."),
             ],
@@ -130,6 +132,7 @@ impl Pack for FilesPack {
                     Ok(text) => ToolOutput::trusted(text),
                     Err(failed) => failed,
                 },
+                "put" => write_text(files, &arg("path"), arg("text")).await,
                 "append" => match read_text(files, arg("path")).await {
                     Ok(text) => write_text(files, &arg("path"), text + &arg("text")).await,
                     Err(failed) => failed,

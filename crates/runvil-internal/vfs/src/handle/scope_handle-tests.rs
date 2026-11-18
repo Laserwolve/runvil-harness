@@ -1,10 +1,18 @@
 //! Tests for the scope handle: it forks, joins, and ends the identities
 //! of its own scope, ends that scope, and leaves every other scope alone.
+//! Most tests run on a handle that checks claims, where the order a fork
+//! or a join makes shows as a conflict or its absence, and one runs on a
+//! handle that checks none, where an end still refuses.
 
 use std::fmt;
 
-use crate::test_support::{access, test_origin};
-use crate::{VfsError, VfsRef};
+use crate::test_support::{access, handle, test_origin};
+use crate::{MemoryBackend, VfsError, VfsRef};
+
+/// An empty memory handle that checks claims, as a store's handle does.
+fn checked() -> VfsRef {
+    handle(MemoryBackend::new())
+}
 
 /// Asserts that `result` is the refusal of an ended scope or an ended
 /// identity, naming `expected`.
@@ -27,7 +35,7 @@ fn conflicts<T: fmt::Debug>(result: Result<T, VfsError>) {
 
 #[test]
 fn a_spawn_forks_an_identity_ordered_after_its_parents_earlier_work() -> Result<(), VfsError> {
-    let (parent, scope) = VfsRef::default().acquire_scope(test_origin())?;
+    let (parent, scope) = checked().acquire_scope(test_origin())?;
     parent.write("/before.txt", b"parent")?;
     let child = scope.spawn(&parent, test_origin())?;
     assert_ne!(
@@ -48,7 +56,7 @@ fn a_spawn_forks_an_identity_ordered_after_its_parents_earlier_work() -> Result<
 
 #[test]
 fn a_join_orders_the_childs_work_before_the_owners_next_step() -> Result<(), VfsError> {
-    let (owner, scope) = VfsRef::default().acquire_scope(test_origin())?;
+    let (owner, scope) = checked().acquire_scope(test_origin())?;
     // A child whose identity is still live contributes its current clock.
     let live = scope.spawn(&owner, test_origin())?;
     live.write("/live.txt", b"live")?;
@@ -69,7 +77,7 @@ fn a_join_orders_the_childs_work_before_the_owners_next_step() -> Result<(), Vfs
 #[test]
 fn ending_an_identity_refuses_its_accesses_and_joins_it_into_the_owner_it_names()
 -> Result<(), VfsError> {
-    let (owner, scope) = VfsRef::default().acquire_scope(test_origin())?;
+    let (owner, scope) = checked().acquire_scope(test_origin())?;
     let joined = scope.spawn(&owner, test_origin())?;
     let unjoined = scope.spawn(&owner, test_origin())?;
     joined.write("/joined.txt", b"call")?;
@@ -97,7 +105,7 @@ fn ending_an_identity_refuses_its_accesses_and_joins_it_into_the_owner_it_names(
 
 #[test]
 fn ending_the_scope_refuses_its_accesses_and_its_claims_stop_conflicting() -> Result<(), VfsError> {
-    let vfs = VfsRef::default();
+    let vfs = checked();
     let (root, scope) = vfs.acquire_scope(test_origin())?;
     root.write("/a.txt", b"first")?;
     let arm = scope.spawn(&root, test_origin())?;
@@ -127,7 +135,7 @@ fn ending_the_scope_refuses_its_accesses_and_its_claims_stop_conflicting() -> Re
 #[test]
 #[should_panic(expected = "the access belongs to another scope than this scope handle's")]
 fn a_scope_handle_refuses_to_fork_another_scopes_access() {
-    let vfs = VfsRef::default();
+    let vfs = checked();
     let (_mine, scope) = vfs
         .acquire_scope(test_origin())
         .expect("the memory backend acquires");
@@ -137,7 +145,7 @@ fn a_scope_handle_refuses_to_fork_another_scopes_access() {
 
 #[test]
 fn a_scope_handle_leaves_every_other_scope_alone() -> Result<(), VfsError> {
-    let vfs = VfsRef::default();
+    let vfs = checked();
     let (_mine, mine) = vfs.acquire_scope(test_origin())?;
     let (theirs, their_scope) = vfs.acquire_scope(test_origin())?;
     let call = their_scope.spawn(&theirs, test_origin())?;
@@ -157,8 +165,38 @@ fn a_scope_handle_leaves_every_other_scope_alone() -> Result<(), VfsError> {
 }
 
 #[test]
+fn on_a_handle_that_checks_no_claims_an_end_still_refuses_and_nothing_else_does()
+-> Result<(), VfsError> {
+    let (owner, scope) = VfsRef::default().acquire_scope(test_origin())?;
+    let call = scope.spawn(&owner, test_origin())?;
+    call.write("/call.txt", b"call")?;
+    // Nothing orders the owner after the call, and the read still runs.
+    assert_eq!(owner.read("/call.txt")?, b"call");
+    owner.write("/call.txt", b"owner")?;
+    assert_eq!(call.read("/call.txt")?, b"owner");
+    // An ended identity refuses every operation and spawn, of each kind
+    // of claim, while its scope stays open.
+    scope.end_access(None, call.id());
+    refused(call.read("/call.txt"), "/call.txt");
+    refused(call.write("/late.txt", b"late"), "/late.txt");
+    refused(call.list("/"), "/");
+    refused(call.glob("/**"), "/**");
+    refused(call.remove("/call.txt", true), "/call.txt");
+    refused(call.rename("/call.txt", "/moved.txt"), "/call.txt");
+    refused(call.copy("/call.txt", "/copied.txt"), "/call.txt");
+    refused(scope.spawn(&call, test_origin()), "/");
+    assert_eq!(owner.glob("/**")?, ["/call.txt"]);
+    // An ended scope refuses every access still held.
+    scope.end();
+    refused(owner.read("/call.txt"), "/call.txt");
+    refused(owner.write("/late.txt", b"late"), "/late.txt");
+    refused(scope.spawn(&owner, test_origin()), "/");
+    Ok(())
+}
+
+#[test]
 fn a_scope_handle_never_keeps_its_scope_alive() -> Result<(), VfsError> {
-    let vfs = VfsRef::default();
+    let vfs = checked();
     let (root, scope) = vfs.acquire_scope(test_origin())?;
     let child = scope.spawn(&root, test_origin())?;
     child.write("/x.txt", b"child")?;

@@ -322,6 +322,7 @@ fn one_handle_serves_several_mounts_and_an_overlay_simultaneously() -> Result<()
     let base = VfsRef::builder()
         .mount("/store", store.clone())
         .mount("/scratch", scratch.clone())
+        .checking_claims()
         .build();
     let overlay = base.overlay("/overlay", extra.clone());
 
@@ -423,8 +424,11 @@ fn an_overlay_mount_makes_its_ancestors_visible_over_a_base_that_lacks_them() ->
 }
 
 #[test]
-fn an_overlay_shares_the_bases_claims_table() -> Result<(), VfsError> {
-    let base = VfsRef::builder().mount("/store", TestFs::default()).build();
+fn an_overlay_of_a_handle_that_checks_claims_shares_its_claims_table() -> Result<(), VfsError> {
+    let base = VfsRef::builder()
+        .mount("/store", TestFs::default())
+        .checking_claims()
+        .build();
     let overlay = base.overlay("/overlay", TestFs::default());
     let first = access(&base)?;
     first.write("/store/shared.txt", b"1")?;
@@ -437,6 +441,36 @@ fn an_overlay_shares_the_bases_claims_table() -> Result<(), VfsError> {
         }
         other => panic!("expected a conflict, got {other:?}"),
     }
+    // The overlay's own mount is checked in the same table.
+    second.write("/overlay/own.txt", b"2")?;
+    match access(&overlay)?.read("/overlay/own.txt") {
+        Err(VfsError::Conflict { detail, .. }) => {
+            assert!(detail.contains("/overlay/own.txt"), "{detail}");
+        }
+        other => panic!("expected a conflict, got {other:?}"),
+    }
+    Ok(())
+}
+
+#[test]
+fn an_overlay_of_a_built_handle_checks_no_claims_as_its_base_checks_none() -> Result<(), VfsError> {
+    let storage = TestFs::default();
+    let base = VfsRef::builder().mount("/store", storage.clone()).build();
+    let overlay = base.overlay("/overlay", TestFs::default());
+    let first = access(&base)?;
+    first.write("/store/shared.txt", b"1")?;
+    // A second live scope writes the path through the overlay, and the
+    // later write is the content.
+    let second = access(&overlay)?;
+    second.write("/store/shared.txt", b"2")?;
+    assert_eq!(first.read("/store/shared.txt")?, b"2");
+    assert_eq!(
+        storage.files().get("/shared.txt").map(Vec::as_slice),
+        Some(b"2".as_slice())
+    );
+    // The overlay's own mount is as free.
+    second.write("/overlay/own.txt", b"2")?;
+    assert_eq!(access(&overlay)?.read("/overlay/own.txt")?, b"2");
     Ok(())
 }
 

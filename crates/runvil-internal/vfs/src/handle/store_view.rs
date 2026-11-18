@@ -207,6 +207,11 @@ fn respell_error(err: VfsError, logical: impl Fn(&str) -> String) -> VfsError {
 /// no claim, even when one identity views both. A clone is the same
 /// store.
 ///
+/// A store checks claims, which a handle that a caller builds does not:
+/// each operation through a view claims the region it reads or writes,
+/// and an operation that conflicts with one not ordered before it is
+/// refused with [`VfsError::Conflict`].
+///
 /// A store has no policy and no operation observer: every operation that
 /// the claims rules admit runs.
 #[derive(Clone)]
@@ -228,7 +233,12 @@ impl Store {
     /// Returns a new, empty store.
     #[must_use]
     pub fn new() -> Store {
-        Store(VfsRef::builder().mount("/", MemoryBackend::new()).build())
+        Store(
+            VfsRef::builder()
+                .mount("/", MemoryBackend::new())
+                .checking_claims()
+                .build(),
+        )
     }
 
     /// Returns a view of this store under `access`'s identity and scope.

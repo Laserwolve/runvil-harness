@@ -150,8 +150,8 @@ impl MemoryBackend {
 impl Vfs for MemoryBackend {
     fn acquire(&mut self, cx: &AcquireContext) -> Result<Box<dyn VfsAccess>, VfsError> {
         // Attribution is accepted as a no-op: every session shares the
-        // one map, and the claims model above the backend enforces
-        // conflicts.
+        // one map, and where conflicts are checked, the claims model
+        // above the backend checks them.
         let _ = cx;
         Ok(Box::new(MemoryAccess {
             tree: Arc::clone(&self.tree),

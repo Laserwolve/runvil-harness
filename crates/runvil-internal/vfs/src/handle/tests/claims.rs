@@ -189,12 +189,13 @@ fn claims_are_shared_across_handle_clones() -> Result<(), VfsError> {
 #[test]
 fn a_denied_operation_never_registers_a_claim() -> Result<(), VfsError> {
     let verdict = Arc::new(Mutex::new(Verdict::Deny("writes are sealed".to_owned())));
-    let vfs = VfsRef::with_policy(
-        TestFs::default(),
-        FlipPolicy {
+    let vfs = VfsRef::builder()
+        .mount("/", TestFs::default())
+        .policy(FlipPolicy {
             verdict: Arc::clone(&verdict),
-        },
-    );
+        })
+        .checking_claims()
+        .build();
     let denied = access(&vfs)?;
     match denied.write("/f.txt", b"x") {
         Err(VfsError::PermissionDenied { path, reason }) => {

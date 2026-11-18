@@ -75,7 +75,8 @@ fn a_handle_file_is_invisible_to_a_store_view_and_a_store_file_to_the_handle()
 #[test]
 fn a_store_view_records_its_claims_in_the_stores_ledger_never_in_the_handles()
 -> Result<(), VfsError> {
-    let vfs = VfsRef::default();
+    // The handle checks claims too, so each side has a ledger to show.
+    let vfs = handle(TestFs::default());
     let store = Store::new();
     let first = access(&vfs)?;
     let second = access(&vfs)?;
@@ -89,6 +90,28 @@ fn a_store_view_records_its_claims_in_the_stores_ledger_never_in_the_handles()
     // Inside either ledger, the two scopes conflict.
     conflict_message(second.write("/notes.md", b"handle"));
     conflict_message(store.view(&first)?.write("notes.md", b"store"));
+    Ok(())
+}
+
+#[test]
+fn a_store_checks_claims_under_accesses_of_a_handle_that_checks_none() -> Result<(), VfsError> {
+    let vfs = VfsRef::default();
+    let store = Store::new();
+    let (parent, scope) = vfs.acquire_scope(test_origin())?;
+    let left = scope.spawn(&parent, test_origin())?;
+    let right = scope.spawn(&parent, test_origin())?;
+    // Nothing orders the two forks. On the handle both write one path,
+    // and the later write is the content.
+    left.write("/notes.md", b"left")?;
+    right.write("/notes.md", b"right")?;
+    assert_eq!(parent.read("/notes.md")?, b"right");
+    // In the store the second write conflicts, and a join orders it.
+    store.view(&left)?.write("notes.md", b"left")?;
+    let message = conflict_message(store.view(&right)?.write("notes.md", b"right"));
+    assert!(message.contains("notes.md"), "{message}");
+    scope.join(right.id(), left.id());
+    store.view(&right)?.write("notes.md", b"right")?;
+    assert_eq!(store.view(&right)?.read("notes.md")?, b"right");
     Ok(())
 }
 

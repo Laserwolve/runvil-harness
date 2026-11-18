@@ -2,11 +2,11 @@
 //! sink.
 //!
 //! A handle with an installed sink fires it on every admitted operation -
-//! after policy and claims pass, before the backend executes - with the
-//! op kind, the canonical path, and the caller-supplied [`Origin`]. The
-//! seam is fire-and-forget: no outcome flows back, and a policy-denied
-//! operation never fires. Claims still key on the internal
-//! [`ExecId`](crate::ExecId); the origin is observability, never
+//! after the policy and the admission pass, before the backend executes -
+//! with the op kind, the canonical path, and the caller-supplied
+//! [`Origin`]. The seam is fire-and-forget: no outcome flows back, and a
+//! policy-denied operation never fires. An access is still known by its
+//! internal [`ExecId`](crate::ExecId); the origin is observability, never
 //! identity.
 
 use std::panic::Location;
@@ -69,8 +69,8 @@ impl Origin {
     }
 }
 
-/// One file operation that passed the policy and claim checks, as handed
-/// to the installed sink.
+/// One file operation that the policy allowed and the access admitted,
+/// as handed to the installed sink.
 ///
 /// The event fires before the backend runs the operation. It borrows its
 /// values from the `Access` capability that admitted the operation, so

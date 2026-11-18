@@ -257,11 +257,15 @@ pub(crate) fn test_origin() -> Origin {
     Origin::new("vfs test")
 }
 
-/// A handle with `backend` mounted at `/`, the shape `VfsRef::default`
-/// builds over memory.
+/// A handle with `backend` mounted at `/` that checks claims, as a
+/// store's handle does, so a test of the claims code runs over any
+/// backend.
 #[track_caller]
 pub(crate) fn handle(backend: impl Vfs + 'static) -> VfsRef {
-    VfsRef::builder().mount("/", backend).build()
+    VfsRef::builder()
+        .mount("/", backend)
+        .checking_claims()
+        .build()
 }
 
 /// Acquires `vfs` under the test origin.

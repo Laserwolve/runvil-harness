@@ -86,9 +86,9 @@ pub enum Writability {
 /// path. Writes, copies, and renames are failure-atomic.
 ///
 /// On Windows and macOS, whose file systems treat paths that differ only
-/// in case as one file, the claims check of a handle that mounts a
-/// rooted backend keys each path below the mount by its lowercase
-/// spelling, so two spellings of one file conflict as one path does.
+/// in case as one file, a claims check over a rooted backend keys each
+/// path below the mount by its lowercase spelling, so where claims are
+/// checked two spellings of one file conflict as one path does.
 ///
 /// The backend accepts an `ExecId` for attribution and ignores it,
 /// because every identity sees the same real filesystem.
@@ -179,8 +179,8 @@ impl RealBackend {
 impl Vfs for RealBackend {
     fn acquire(&mut self, cx: &AcquireContext) -> Result<Box<dyn VfsAccess>, VfsError> {
         // Attribution is accepted as a no-op: the real filesystem holds
-        // no per-identity state, and the claims model above the backend
-        // enforces conflicts.
+        // no per-identity state, and where conflicts are checked, the
+        // claims model above the backend checks them.
         let _ = cx;
         Ok(Box::new(RealAccess {
             root: self.root.clone(),

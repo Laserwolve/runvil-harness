@@ -4,11 +4,26 @@
 //! [`VfsRef`] is the public handle: an `Arc`-shared volume pairing one
 //! backend with the claims ledger, behind poison-safe locks. [`Access`]
 //! is the RAII capability vended by [`VfsRef::acquire`]: it canonicalizes
-//! paths at receipt, consults the handle's policy before the claims check
-//! so a denied operation never registers a claim, records its claims, and
-//! locks the backend's access object per call. A handle with an installed
-//! op sink fires it on every admitted operation - after policy and claims
-//! pass, before the backend executes; see [`crate::observe`].
+//! paths at receipt, consults the handle's policy, admits the operation,
+//! and locks the backend's access object per call. The admission refuses
+//! an access whose scope or identity has ended. On a volume that checks
+//! claims it also checks and records the operation's claim, after the
+//! policy, so a denied operation never registers one. A handle with an
+//! installed op sink fires it on every admitted operation - after the
+//! policy and the admission pass, before the backend executes; see
+//! [`crate::observe`].
+//!
+//! # Which volumes check claims
+//!
+//! A volume says whether its operations check and record claims. The
+//! volume of a [`Store`] does. The volume of a handle a caller builds,
+//! with [`VfsRef::new`] or a [`VfsRefBuilder`], does not: an operation on
+//! it claims nothing and is checked against nothing, so two unordered
+//! accesses to one path both run, and the later write is the content. An
+//! overlay checks exactly when its base does. Identities, scopes, forks,
+//! and joins are the same on every volume, because a store view takes
+//! its order from the access it comes from, and a closed scope and an
+//! ended identity refuse their operations on every volume.
 //!
 //! # Scopes, fork and join
 //!
@@ -30,11 +45,11 @@
 //! and a scope ends with its last identity or when its run closes it
 //! through [`ScopeHandle::end`], whichever comes first; its
 //! claims are then ignored and purged lazily, and a closed scope's
-//! accesses refuse every later operation. Two live scopes never order each other, so their
-//! claims always conflict. See the reference docs on the facade for the
-//! region model: a read claims the path, directory children, or pattern
-//! it observes; a write claims its path, the ancestors it may create, or
-//! the whole subtree it removes.
+//! accesses refuse every later operation. Two live scopes never order
+//! each other, so where a volume checks claims, theirs always conflict.
+//! The region model: a read claims the path, directory children, or
+//! pattern it observes; a write claims its path, the ancestors it may
+//! create, or the whole subtree it removes.
 
 mod access;
 mod case_fold;
@@ -72,18 +87,25 @@ pub use store_view::Store;
 struct Volume {
     backend: Arc<Mutex<Box<dyn Vfs>>>,
     claims: Arc<Claims>,
+    /// Whether an operation through this volume checks and records a
+    /// claim in `claims`. A store's volume does. The volume of a handle
+    /// a caller builds does not, and its ledger stays empty.
+    checks_claims: bool,
     sink: Option<OpSink>,
     /// The mount prefixes whose claim keys fold case.
     folds: CaseFolds,
 }
 
-/// A cloneable handle to a virtual filesystem: one backend plus a claims
-/// ledger that records which parts of the filesystem each access has
-/// read or written.
+/// A cloneable handle to a virtual filesystem: one backend, and the
+/// policy consulted on every operation.
 ///
-/// Clones share the backend, the claims ledger, and the policy. Claims
-/// registered through one clone are checked against operations through
-/// every other clone.
+/// Clones share the backend and the policy. A handle that a caller
+/// builds, with [`VfsRef::new`] or a [`VfsRefBuilder`], checks no claims:
+/// an operation through it runs whatever another access has read or
+/// written. Two accesses that are unordered, such as those of two tasks
+/// or of two scopes, may use one path, and the later write is the
+/// content. Each access still has an identity in a scope, and an access
+/// whose scope or identity has ended refuses every operation.
 #[derive(Clone)]
 pub struct VfsRef {
     volume: Arc<Volume>,
@@ -119,6 +141,7 @@ impl VfsRef {
             volume: Arc::new(Volume {
                 backend: Arc::new(Mutex::new(Box::new(backend))),
                 claims: Arc::new(Claims::new()),
+                checks_claims: false,
                 sink: None,
                 folds,
             }),
@@ -138,8 +161,9 @@ impl VfsRef {
     /// Returns a new handle that mounts `backend` at `prefix` on top of
     /// this handle's namespace.
     ///
-    /// The new handle shares this handle's claims table, so conflicts are
-    /// detected across both views of the same storage.
+    /// The new handle shares this handle's policy and operation sink, and
+    /// it treats claims as this handle does: a handle that a caller
+    /// builds checks none.
     ///
     /// # Panics
     /// Panics when `prefix` is not an absolute virtual path or is the
@@ -169,7 +193,12 @@ impl VfsRef {
         VfsRef {
             volume: Arc::new(Volume {
                 backend: Arc::new(Mutex::new(Box::new(Router::new(mounts)))),
+                // The overlay shares the base's claims table and checks
+                // claims exactly when the base does, so where they are
+                // checked a conflict is found across both views of the
+                // same storage.
                 claims: Arc::clone(&self.volume.claims),
+                checks_claims: self.volume.checks_claims,
                 // One sink observes both views of the same storage, fired
                 // by the outer capability with the caller's origin.
                 sink: self.volume.sink.clone(),
@@ -184,10 +213,11 @@ impl VfsRef {
     ///
     /// Every acquire creates a fresh [`ExecId`] and starts a new *scope*.
     /// A scope is the acquired identity together with every identity
-    /// later forked from it. Accesses are ordered only within one scope,
-    /// so while two scopes live, a write in one conflicts with any
-    /// overlapping read or write in the other. A scope's claims are
-    /// ignored once its last identity ends.
+    /// later forked from it. The scope orders its identities, and it
+    /// ends with its last identity or when its owner closes it. On a
+    /// handle that a caller builds, no scope holds a file against
+    /// another: two live scopes may read and write one path, and the
+    /// later write is the content.
     ///
     /// `origin` only labels the operation events this capability fires.
     /// It never decides whether an operation may proceed.
@@ -220,8 +250,8 @@ impl VfsRef {
     /// Acquires the capability for the identity and scope in `cx`: a
     /// fresh acquire passes a new scope, and a mounted handle receives
     /// the caller's context, so the forwarded capability joins the
-    /// caller's scope and its claims conflict across both views of the
-    /// same storage. A `None` origin is the mount forward: the outer
+    /// caller's scope and, where claims are checked, its claims conflict
+    /// across both views of the same storage. A `None` origin is the mount forward: the outer
     /// handle already fired the caller's origin, so the forward fires
     /// nothing rather than double the event with a fabricated, less
     /// precise one.
@@ -257,28 +287,34 @@ impl VfsRef {
     }
 
     /// Joins the scope in `cx`: attaches the identity, fresh or
-    /// forwarded, and registers the scope in this handle's claims
-    /// tables. A closed scope is refused before either.
+    /// forwarded, and, on a handle that checks claims, registers the
+    /// scope in its claims tables. A closed scope is refused before
+    /// either. A handle that checks no claims registers nothing, so its
+    /// tables never grow.
     fn join_scope(&self, cx: &AcquireContext) -> Result<Arc<Scope>, VfsError> {
         let scope = Arc::clone(cx.scope());
         scope.attach(cx.id(), &VfsPath::root())?;
-        self.volume.claims.register_scope(&scope);
+        if self.volume.checks_claims {
+            self.volume.claims.register_scope(&scope);
+        }
         Ok(scope)
     }
 
     /// Builds a handle over a router with a fresh claims table and the
-    /// installed policy, op sink, and the mounts' case folds: the
-    /// builder's exit.
+    /// installed policy, op sink, and the mounts' case folds, which
+    /// checks claims when `checks_claims` is set: the builder's exit.
     pub(crate) fn from_router(
         router: Router,
         policy: Arc<dyn Policy + Sync>,
         sink: Option<OpSink>,
         folds: CaseFolds,
+        checks_claims: bool,
     ) -> VfsRef {
         VfsRef {
             volume: Arc::new(Volume {
                 backend: Arc::new(Mutex::new(Box::new(router))),
                 claims: Arc::new(Claims::new()),
+                checks_claims,
                 sink,
                 folds,
             }),
@@ -299,16 +335,20 @@ impl VfsRef {
 /// as one identity.
 ///
 /// It holds an [`ExecId`] and the backend's access object. Every
-/// operation canonicalizes the path, checks the policy, checks the
-/// claims tables, and reports the operation to the observer installed
-/// with `VfsRefBuilder::on_op`, if any. It then locks the backend for
-/// that one call.
+/// operation canonicalizes the path, checks the policy, refuses when its
+/// scope or its identity has ended, and reports the operation to the
+/// observer installed with `VfsRefBuilder::on_op`, if any. It then locks
+/// the backend for that one call. An access of a handle that a caller
+/// builds checks no claims. A view of a store, an access from
+/// `Store::view`, checks the store's claims between the policy and the
+/// observer, and refuses an operation that conflicts with one that is
+/// not ordered before it.
 ///
 /// Dropping an `Access` drops one reference to its identity. The
 /// identity ends when its last access drops, and the scope ends when
 /// its last identity ends. [`Access::close`] does the same and reports
 /// the backend release failures that dropping swallows.
-#[must_use = "an acquire dropped immediately is a bug: the capability holds its identity's claims"]
+#[must_use = "an acquire dropped immediately is a bug: the capability is its identity, which ends with it"]
 pub struct Access {
     id: ExecId,
     /// The caller-supplied observability origin; `None` only on the

@@ -153,6 +153,10 @@ pub enum VfsError {
     /// claim was made by an identity in another live scope, or in the same
     /// scope at an epoch later than the last one the operation's clock has
     /// seen.
+    ///
+    /// Only an access that checks claims returns this error. A view of a
+    /// store checks them, and an access of a handle that a caller builds
+    /// does not.
     Conflict {
         /// The canonical path or pattern both accesses claimed.
         path: String,

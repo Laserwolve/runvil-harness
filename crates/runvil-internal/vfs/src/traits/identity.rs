@@ -30,8 +30,7 @@ impl ExecId {
 /// A `VfsRef` or one of its `Access` capabilities builds each context.
 /// A backend that wraps another [`Vfs`](crate::Vfs) must pass it the
 /// context exactly as received. A wrapped `VfsRef` then joins the outer
-/// session's scope, so its claims stay ordered with the outer session's
-/// claims.
+/// session's scope, so one scope orders the identities of both.
 #[derive(Clone)]
 pub struct AcquireContext {
     id: ExecId,

@@ -7,7 +7,7 @@ use crate::handle::scope::Clock;
 #[test]
 fn dropping_an_access_releases_its_identity_and_claims() -> Result<(), VfsError> {
     let stub = TestFs::default();
-    let vfs = VfsRef::new(stub.clone());
+    let vfs = handle(stub.clone());
     let first = access(&vfs)?;
     let first_id = first.id;
     first.write("/f.txt", b"1")?;

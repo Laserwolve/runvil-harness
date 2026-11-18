@@ -608,9 +608,10 @@ impl ChainOps<'_> {
             ToolCallOrigin::new(chain.section_name(), caller).with_entry(frame.entry_id());
         origin.model = model;
         // The call runs under an identity of its own, forked from the
-        // chain's, so two calls in flight at once never share one sequence
-        // of claims. A refused fork fails the call at its caller, and the
-        // counts already taken stay taken.
+        // chain's, so two calls in flight at once are two identities, and
+        // the end of one call refuses that call's later operations alone.
+        // A refused fork fails the call at its caller, and the counts
+        // already taken stay taken.
         let access = self
             .scope()?
             .spawn(
