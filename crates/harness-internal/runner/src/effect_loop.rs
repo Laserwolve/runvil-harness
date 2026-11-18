@@ -10,25 +10,45 @@
 //! future: the loop starts no task, so a run is one future that any
 //! executor can drive. When an effect's future lands, the loop appends the
 //! answer's record and resumes the run with it, then steps again. A Vfs
-//! effect has no future: it is one operation on a store of the run, and
-//! file operations are synchronous by design, so the loop performs the
-//! operation inline through the effect's view, appends the answer's
-//! record, and resumes the run at once. A run has the store it starts with and one more for each prompt
-//! an `execute` runs, and the effect's record names its store, so the
-//! loop reads the view and never which store it reaches. It resumes every
-//! Vfs effect of a step this way and then steps once, so the loop awaits
-//! an answer only when it answered nothing inline. Vfs operations from
-//! different chains run one at a time in issue order.
+//! effect has no future: it is one file operation, and file operations
+//! are synchronous by design, so the loop performs the operation inline
+//! through the effect's access, appends the answer's record, and resumes
+//! the run at once. It resumes every Vfs effect of a step this way and
+//! then steps once, so the loop awaits an answer only when it answered
+//! nothing inline. Vfs operations run one at a time in issue order,
+//! whichever chain or tool call asked for each.
+//!
+//! The prompt's Lua asks for a Vfs effect with a `store` call, and the
+//! operation works on a store of the run. A run has the store it starts
+//! with and one more for each prompt an `execute` runs, and the effect's
+//! record names its store, so the loop reads the view and never which
+//! store it reaches. The loop answers with the operation's whole outcome.
+//!
+//! A tool call asks through its files, the desk the loop lends it. Each
+//! request joins the run's queue of the calls that asked, which the loop
+//! reads beside the effects in flight, before and after it polls them.
+//! For a request from a call still in flight, the loop reports the
+//! operation to the run with `Run::request_file` and steps, and the run
+//! issues it as a Vfs effect whose asker is the call. The loop performs
+//! it on the run's filesystem through the call's own access, inside a
+//! guard that turns a panic of the Host's policy or backend into a
+//! backend failure, appends the answer's record, resumes the run with
+//! the receipt of the outcome, and hands the whole outcome to the call's
+//! desk, which wakes the call. The tool call stays in flight throughout.
+//! A request from a call that has landed or was aborted is dropped, and a
+//! Vfs effect whose call has gone since it asked is answered `Dropped`
+//! unperformed.
 //!
 //! An effect the step withdraws is answered `Dropped` without being
 //! performed, and a withdrawn effect an earlier step issued is aborted
 //! and answered `Dropped`, so the step that decides the run leaves the
 //! loop nothing to perform.
 //!
-//! The loop waits on four things at once: the run's cancel flag, the stop
+//! The loop waits on five things at once: the run's cancel flag, the stop
 //! a Host raises through [`RunControl::stop_round`](crate::RunControl::stop_round),
 //! the messages a Host sends through
-//! [`RunControl::send`](crate::RunControl::send), and the next effect to
+//! [`RunControl::send`](crate::RunControl::send), the next file request
+//! of a tool call, and the next effect to
 //! land. A cancel aborts every effect in flight,
 //! answers each `Dropped`, and steps the run, which reads the same flag,
 //! to `Done`. A stop aborts every effect in flight except tool calls that
@@ -90,18 +110,20 @@ use std::task::{Context, Poll, Waker};
 use futures_util::future::{AbortHandle, Abortable, Aborted, FutureExt as _};
 use futures_util::stream::{FuturesUnordered, StreamExt as _};
 use runvil_engine::cancel::CancelHandle;
-use runvil_engine::effect::{Effect, EffectAnswer, EffectId, IssuedEffect};
+use runvil_engine::effect::{Effect, EffectAnswer, EffectId, IssuedEffect, VfsAsker, VfsReceipt};
 use runvil_engine::event::Event;
 use runvil_engine::ids::{Provenance, TaskId};
-use runvil_engine::vfs::{Access, VfsOp, perform_vfs_op};
+use runvil_engine::vfs::{Access, VfsError, VfsOp, VfsOutcome, perform_vfs_op};
 use runvil_engine::{BoxFuture, Error, ErrorCode};
 use runvil_engine::{Run, Step};
+use runvil_plugin::ToolFiles;
 use tracing::Instrument as _;
 
 use crate::harness::{RunControl, SendQueue, StopSignal};
 use crate::performers::{InferenceBroker, Timer, ToolPerformer};
 use crate::recorder::{Record, RecordKind, RunId, RunRecorder, make_recorder_error, refused};
 use crate::setup::RunSetup;
+use crate::tool_files::{Asked, CallDesk};
 
 /// The message of the failure a stalled run ends with.
 const STALLED: &str = "the effect loop has nothing to await for a pending run";
@@ -167,6 +189,7 @@ pub(crate) async fn drive(
         recorder: Arc::clone(&setup.recorder),
         run_id,
         flights: Flights::new(setup.max_tool_calls_in_flight),
+        asked: Arc::new(Asked::default()),
         cancel: control.cancel_handle().clone(),
         stop: Arc::clone(control.stop_signal()),
         sends: Arc::clone(control.send_queue()),
@@ -191,6 +214,9 @@ struct Driver {
     /// tool calls waiting for a slot. Dropping the driver drops their futures, so
     /// nothing a performer holds outlives the drive however it ends.
     flights: Flights,
+    /// The tool calls that asked for a file operation, one entry for each
+    /// request the loop has not taken off its call's desk.
+    asked: Arc<Asked>,
     cancel: CancelHandle,
     stop: Arc<StopSignal>,
     /// The messages the Host sent that the loop has not delivered yet.
@@ -208,8 +234,18 @@ enum Woken {
     Stop,
     /// The Host sent these messages, oldest first.
     Sent(Vec<String>),
+    /// This tool call asked for a file operation.
+    Asked(EffectId),
     /// An effect's future landed with its answer.
     Landed(EffectId, Provenance, EffectAnswer),
+}
+
+/// A Vfs effect, which the loop answers inline: who asked for it, the
+/// access it runs on, and the operation.
+struct InlineVfs {
+    asker: VfsAsker,
+    access: Arc<Access>,
+    op: VfsOp,
 }
 
 impl Driver {
@@ -287,9 +323,8 @@ impl Driver {
                         // answered here; every other kind goes in flight.
                         // The run is not stepped between inline answers:
                         // the whole batch is resumed, then stepped once.
-                        if let Some((access, op)) = self.perform(id, provenance, issued.effect) {
-                            let answer = answer_vfs(access, op);
-                            self.answer(id, provenance, answer).await?;
+                        if let Some(vfs) = self.perform(id, provenance, issued.effect) {
+                            self.answer_vfs(id, provenance, vfs).await?;
                             answered = true;
                         }
                     }
@@ -337,7 +372,8 @@ impl Driver {
 
     /// Waits for the next answer, then answers every effect already
     /// landed behind it, or acts on a cancel or a stop as soon as one is
-    /// raised, or delivers what the Host sent.
+    /// raised, or delivers what the Host sent, or reports a tool call's
+    /// file request to the run.
     ///
     /// Before a delivery, a stop raised before the messages were sent is
     /// handled, so a Host that stops and then sends gets the stop, and
@@ -355,11 +391,68 @@ impl Driver {
                 self.answer_landed().await?;
                 self.deliver(texts).await
             }
+            Woken::Asked(call) => {
+                self.report_request(call);
+                Ok(())
+            }
             Woken::Landed(id, provenance, answer) => {
                 self.answer(id, &provenance, answer).await?;
                 self.answer_landed().await
             }
         }
+    }
+
+    /// Reports the oldest file request of tool call `call` to the run,
+    /// which issues it as a Vfs effect at the next step. A call that has
+    /// landed or was aborted has no desk, and a request whose future was
+    /// dropped has left its desk, so neither is reported.
+    fn report_request(&mut self, call: EffectId) {
+        let Some(op) = self.flights.desk(call).and_then(|desk| desk.next_request()) else {
+            return;
+        };
+        self.run.request_file(call, op);
+    }
+
+    /// Answers one Vfs effect inline: performs the operation through the
+    /// effect's access, records the answer, and resumes the run with it.
+    ///
+    /// A tool call that asked gets the whole outcome at its desk, which
+    /// wakes it, once the run has the outcome's receipt. When that call
+    /// has landed or was aborted since it asked, the effect is answered
+    /// `Dropped` unperformed. Any other asker is the prompt's Lua, whose
+    /// `store` call takes the whole outcome as the answer.
+    ///
+    /// The access is this function's own, so it drops when the function
+    /// returns, and the Harness holds no way to a store between effects.
+    /// The drop is hygiene only: claims follow happens-before within the
+    /// run's scope, and the run ends that scope at `Done` however long
+    /// any access is held.
+    async fn answer_vfs(
+        &mut self,
+        id: EffectId,
+        provenance: &Provenance,
+        vfs: InlineVfs,
+    ) -> Result<(), Error> {
+        let InlineVfs { asker, access, op } = vfs;
+        // `VfsAsker` is `#[non_exhaustive]`. An asker the Engine adds
+        // takes the whole outcome here until this loop names it, and the
+        // run ends with an internal error should that be the wrong form.
+        let VfsAsker::Tool { call } = asker else {
+            let answer = EffectAnswer::Vfs(perform_vfs_op(&access, &op));
+            return self.answer(id, provenance, answer).await;
+        };
+        let Some(desk) = self.flights.desk(call).cloned() else {
+            return self.drop_effect(id, provenance).await;
+        };
+        let outcome = perform_contained(&access, &op);
+        let receipt = match &outcome {
+            Ok(outcome) => Ok(VfsReceipt::of(outcome)),
+            Err(error) => Err(error.clone()),
+        };
+        self.answer(id, provenance, EffectAnswer::VfsReceipt(receipt))
+            .await?;
+        desk.deliver(outcome);
+        Ok(())
     }
 
     /// Acts on a raised stop: drops whatever is in flight but the tool
@@ -373,16 +466,19 @@ impl Driver {
         Ok(self.flights.len() < owed)
     }
 
-    /// Waits for the cancel flag, a raised stop, a sent message, or the
-    /// next effect to land, checked in that order, so a stop drops a round
-    /// whose answer or message arrived beside it. Every arm is
-    /// event-driven: the cancel, the stop, and a send wake the loop as they
-    /// are raised and a future wakes it as it lands, so a fully suspended
-    /// run costs no wakeups while it waits.
+    /// Waits for the cancel flag, a raised stop, a sent message, a tool
+    /// call's file request, or the next effect to land, checked in that
+    /// order, so a stop drops a round whose answer or message arrived
+    /// beside it. The requests are checked a second time once the effects
+    /// in flight are polled, because a tool call asks while it is polled.
+    /// Every arm is event-driven: the cancel, the stop, a send, and a
+    /// request wake the loop as they are raised and a future wakes it as
+    /// it lands, so a fully suspended run costs no wakeups while it waits.
     async fn wake(&mut self) -> Woken {
         let mut canceled = self.cancel.canceled();
         let stop = &self.stop;
         let sends = &self.sends;
+        let asked = &self.asked;
         let flights = &mut self.flights;
         poll_fn(|cx| {
             if Pin::new(&mut canceled).poll(cx).is_ready() {
@@ -394,9 +490,13 @@ impl Driver {
             if let Poll::Ready(texts) = sends.poll_sent(cx) {
                 return Poll::Ready(Woken::Sent(texts));
             }
-            flights
-                .poll_landed(cx)
-                .map(|(id, provenance, answer)| Woken::Landed(id, provenance, answer))
+            if let Poll::Ready(call) = asked.poll_next(cx) {
+                return Poll::Ready(Woken::Asked(call));
+            }
+            if let Poll::Ready((id, provenance, answer)) = flights.poll_landed(cx) {
+                return Poll::Ready(Woken::Landed(id, provenance, answer));
+            }
+            asked.poll_next(cx).map(Woken::Asked)
         })
         .await
     }
@@ -442,15 +542,17 @@ impl Driver {
     /// flight, where a tool call may wait for a slot, and returns `None`.
     /// The performer is called inside its future, so a performer that
     /// panics as it is called is caught like one that panics as it runs.
+    /// A tool call gets a desk of its own, through which its tool asks
+    /// for file operations while the call is in flight.
     ///
-    /// A Vfs effect goes nowhere and is handed back as the access and
-    /// operation it carries, for the caller to answer inline.
+    /// A Vfs effect goes nowhere and is handed back as it is, for the
+    /// caller to answer inline.
     fn perform(
         &mut self,
         id: EffectId,
         provenance: &Provenance,
         effect: Effect,
-    ) -> Option<(Arc<Access>, VfsOp)> {
+    ) -> Option<InlineVfs> {
         let (kind, answer): (Kind, BoxFuture<'static, EffectAnswer>) = match effect {
             Effect::Chat {
                 binding,
@@ -488,21 +590,19 @@ impl Driver {
                 survives_stop,
             } => {
                 let performer = Arc::clone(&self.tool);
+                let desk = CallDesk::open(id, &self.asked);
+                let files: Arc<dyn ToolFiles> = Arc::clone(&desk) as _;
                 let call = async move {
-                    EffectAnswer::ToolCall(performer.call(tool, alias, access, origin, args).await)
+                    let output = performer
+                        .call(tool, alias, access, origin, args, files)
+                        .await;
+                    EffectAnswer::ToolCall(output)
                 };
                 self.flights
-                    .queue(id, provenance.clone(), survives_stop, Box::pin(call));
+                    .queue(id, provenance.clone(), survives_stop, desk, Box::pin(call));
                 return None;
             }
-            // The effect's record, written before this call, names who
-            // asked. The loop reports no request of a tool to the run, so
-            // the prompt's Lua asked, and the view reaches its store alone.
-            Effect::Vfs {
-                asker: _,
-                access,
-                op,
-            } => return Some((access, op)),
+            Effect::Vfs { asker, access, op } => return Some(InlineVfs { asker, access, op }),
             Effect::Timer { duration } => {
                 let timer = Arc::clone(&self.timer);
                 let sleep = async move {
@@ -630,12 +730,17 @@ struct InFlight {
     /// Whether the effect is a tool call that survives stops, which a
     /// stop leaves alone.
     survives_stop: bool,
+    /// The desk of a tool call, through which its tool asks for file
+    /// operations. It goes when the call lands or is aborted.
+    desk: Option<Arc<CallDesk>>,
 }
 
-/// A tool call waiting for a slot: its performer future, not yet polled.
+/// A tool call waiting for a slot: its performer future, not yet polled,
+/// and its desk.
 struct Waiting {
     provenance: Provenance,
     survives_stop: bool,
+    desk: Arc<CallDesk>,
     answer: BoxFuture<'static, EffectAnswer>,
 }
 
@@ -696,18 +801,19 @@ impl Flights {
         kind: Kind,
         answer: BoxFuture<'static, EffectAnswer>,
     ) {
-        self.launch(id, provenance, kind, false, answer);
+        self.launch(id, provenance, kind, false, None, answer);
     }
 
     /// Queues `answer`, the performer future of tool call `id`, under
     /// `provenance`, then starts waiting calls, lowest id first, while
     /// fewer than `cap` tool calls are in flight. `survives_stop` marks a
-    /// call that survives stops.
+    /// call that survives stops, and `desk` is the call's desk.
     fn queue(
         &mut self,
         id: EffectId,
         provenance: Provenance,
         survives_stop: bool,
+        desk: Arc<CallDesk>,
         answer: BoxFuture<'static, EffectAnswer>,
     ) {
         self.waiting.insert(
@@ -715,10 +821,17 @@ impl Flights {
             Waiting {
                 provenance,
                 survives_stop,
+                desk,
                 answer,
             },
         );
         self.fill();
+    }
+
+    /// The desk of tool call `call`, while the call is in flight. A call
+    /// that waits for a slot has not started, so it has asked for nothing.
+    fn desk(&self, call: EffectId) -> Option<&Arc<CallDesk>> {
+        self.effects.get(&call)?.desk.as_ref()
     }
 
     /// Starts waiting calls, lowest id first, while fewer than `cap` tool
@@ -738,6 +851,7 @@ impl Flights {
                 call.provenance,
                 Kind::ToolCall,
                 call.survives_stop,
+                Some(call.desk),
                 call.answer,
             );
             running += 1;
@@ -748,13 +862,14 @@ impl Flights {
     /// `provenance` as `kind`, inside a span that records the effect id,
     /// the task path, and the task-local sequence, so a run's effects
     /// trace as a group. `survives_stop` marks a tool call that survives
-    /// stops.
+    /// stops, and `desk` is a tool call's desk.
     fn launch(
         &mut self,
         id: EffectId,
         provenance: Provenance,
         kind: Kind,
         survives_stop: bool,
+        desk: Option<Arc<CallDesk>>,
         answer: BoxFuture<'static, EffectAnswer>,
     ) {
         let span = tracing::info_span!(
@@ -774,6 +889,7 @@ impl Flights {
                 abort,
                 kind,
                 survives_stop,
+                desk,
             },
         );
     }
@@ -863,21 +979,17 @@ impl Flights {
     }
 }
 
-/// Answers one Vfs effect inline: performs `op` on the effect's store
-/// through the view the effect carries and returns the answer to record
-/// and resume the run with.
-///
-/// The view is this function's own parameter, so it drops when the
-/// function returns, and the Harness holds no way to a store between
-/// effects. The drop is hygiene only: claims follow happens-before within
-/// the run's scope, and the run ends that scope at `Done` however long any
-/// access is held.
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "the view is taken by value so that it drops with the operation"
-)]
-fn answer_vfs(access: Arc<Access>, op: VfsOp) -> EffectAnswer {
-    EffectAnswer::Vfs(perform_vfs_op(&access, &op))
+/// Performs `op`, an operation a tool call asked for, on `access`, and
+/// turns a panic inside it into a backend failure. The policy and the
+/// backends behind the access of a tool call are the Host's own code, and
+/// a panic there must reach the tool as a failed operation, where it
+/// would otherwise unwind through the run's future.
+fn perform_contained(access: &Access, op: &VfsOp) -> Result<VfsOutcome, VfsError> {
+    std::panic::catch_unwind(AssertUnwindSafe(|| access.perform(op))).unwrap_or_else(|_| {
+        Err(VfsError::Backend {
+            message: "the file operation panicked".to_owned(),
+        })
+    })
 }
 
 /// A panic payload's message, when it carries one.

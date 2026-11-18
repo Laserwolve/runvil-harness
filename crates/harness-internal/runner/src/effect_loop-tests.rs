@@ -17,6 +17,7 @@ use runvil_engine::{
     BoxFuture, Error, ErrorCode, Prompt, Run, RunParams, RunSeed, Step, Timestamp,
 };
 use runvil_engine::{ToolCatalog, ToolId, ToolInfo, ToolOutput};
+use runvil_plugin::ToolFiles;
 use serde_json::{Value, json};
 
 use super::{STALLED, drive};
@@ -113,6 +114,7 @@ impl ToolPerformer for Unused {
         _access: Arc<Access>,
         _origin: ToolCallOrigin,
         _args: Value,
+        _files: Arc<dyn ToolFiles>,
     ) -> BoxFuture<'static, Result<ToolOutput, Error>> {
         unreachable!("the loop never sees the lost run's tool call")
     }

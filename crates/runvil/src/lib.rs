@@ -111,8 +111,9 @@ pub mod plugin {
     //! instance of it, the registry a Host's Plugins insert Packs into,
     //! where each of its Packs came from, the services map a Host fills
     //! for its Plugins with the keys that name its services, and what a
-    //! tool call and a render are lent. The Plugin crates themselves are
-    //! the Host's own dependencies.
+    //! tool call and a render are lent, the files through which a tool
+    //! call asks for file operations among them. The Plugin crates
+    //! themselves are the Host's own dependencies.
 
     pub use runvil_plugin::HostServices;
     pub use runvil_plugin::Pack;
@@ -125,6 +126,7 @@ pub mod plugin {
     pub use runvil_plugin::ServiceKey;
     pub use runvil_plugin::TOKIO_RUNTIME;
     pub use runvil_plugin::ToolContext;
+    pub use runvil_plugin::ToolFiles;
 }
 
 pub mod effect {

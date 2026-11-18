@@ -23,6 +23,7 @@ use runvil_engine::model::{
 use runvil_engine::vfs::Access;
 use runvil_engine::{BoxFuture, Prompt, Run, RunParams, Timestamp};
 use runvil_engine::{ToolCatalog, ToolId, ToolInfo, ToolOutput};
+use runvil_plugin::ToolFiles;
 use serde_json::{Value, json};
 use tokio::sync::{Notify, Semaphore};
 
@@ -134,6 +135,7 @@ impl ToolPerformer for ParkingTool {
         _access: Arc<Access>,
         _origin: ToolCallOrigin,
         args: Value,
+        _files: Arc<dyn ToolFiles>,
     ) -> BoxFuture<'static, Result<ToolOutput, Error>> {
         let name = args["name"].as_str().unwrap_or_default().to_owned();
         let gate = Arc::clone(&self.gate);

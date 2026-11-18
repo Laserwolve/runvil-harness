@@ -55,7 +55,7 @@ use runvil_engine::vfs::Access;
 use runvil_engine::{BoxFuture, Error, ErrorCode};
 use runvil_engine::{ToolCatalog, ToolId, ToolInfo, ToolOutput, make_tool_error};
 use runvil_plugin::{
-    Pack, PackFactory, PackId, PackInfo, PackRegistry, RenderContext, ToolContext,
+    Pack, PackFactory, PackId, PackInfo, PackRegistry, RenderContext, ToolContext, ToolFiles,
 };
 use serde_json::Value;
 
@@ -570,6 +570,7 @@ impl ToolPerformer for RunPacks {
         access: Arc<Access>,
         origin: ToolCallOrigin,
         args: Value,
+        files: Arc<dyn ToolFiles>,
     ) -> BoxFuture<'static, Result<ToolOutput, Error>> {
         let pack = self.usable(&tool.pack()).cloned();
         Box::pin(async move {
@@ -584,7 +585,7 @@ impl ToolPerformer for RunPacks {
                     format!("tool `{alias}` ({tool}) belongs to no usable Pack of this run"),
                 ));
             };
-            let cx = ToolContext::new(&tool, &access, &origin);
+            let cx = ToolContext::new(&tool, &access, &origin, files.as_ref());
             pack.call(cx, args).await
         })
     }

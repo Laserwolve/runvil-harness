@@ -22,7 +22,7 @@ use runvil_engine::vfs::Access;
 use runvil_engine::{BoxFuture, Error, ErrorCode};
 use runvil_engine::{Prompt, Run, RunParams, RunSeed, Timestamp};
 use runvil_engine::{ToolCatalog, ToolId, ToolInfo, ToolOutput};
-use runvil_plugin::{Pack, PackId, PackInfo, PackRegistry};
+use runvil_plugin::{Pack, PackId, PackInfo, PackRegistry, ToolFiles};
 use serde_json::{Value, json};
 
 /// The fixed seed every fixture run and recorded meta takes.
@@ -183,6 +183,7 @@ impl ToolPerformer for Unused {
         _access: Arc<Access>,
         _origin: ToolCallOrigin,
         _args: Value,
+        _files: Arc<dyn ToolFiles>,
     ) -> BoxFuture<'static, Result<ToolOutput, Error>> {
         unreachable!("this test issues no ToolCall effect")
     }
@@ -212,6 +213,7 @@ impl ToolPerformer for TextTool {
         _access: Arc<Access>,
         _origin: ToolCallOrigin,
         _args: Value,
+        _files: Arc<dyn ToolFiles>,
     ) -> BoxFuture<'static, Result<ToolOutput, Error>> {
         let text = self.0;
         Box::pin(async move { Ok(ToolOutput::trusted(text)) })
@@ -229,6 +231,7 @@ impl ToolPerformer for PendingTool {
         _access: Arc<Access>,
         _origin: ToolCallOrigin,
         _args: Value,
+        _files: Arc<dyn ToolFiles>,
     ) -> BoxFuture<'static, Result<ToolOutput, Error>> {
         Box::pin(std::future::pending())
     }
@@ -246,6 +249,7 @@ impl ToolPerformer for PanickingTool {
         _access: Arc<Access>,
         _origin: ToolCallOrigin,
         _args: Value,
+        _files: Arc<dyn ToolFiles>,
     ) -> BoxFuture<'static, Result<ToolOutput, Error>> {
         Box::pin(std::future::poll_fn(
             |_cx| -> Poll<Result<ToolOutput, Error>> {
@@ -270,6 +274,7 @@ impl ToolPerformer for ClosingTool {
         _access: Arc<Access>,
         _origin: ToolCallOrigin,
         _args: Value,
+        _files: Arc<dyn ToolFiles>,
     ) -> BoxFuture<'static, Result<ToolOutput, Error>> {
         let recorder = Arc::clone(&self.recorder);
         let run_id = self.run_id;
@@ -409,6 +414,7 @@ impl ToolPerformer for GatedTool {
         _access: Arc<Access>,
         _origin: ToolCallOrigin,
         _args: Value,
+        _files: Arc<dyn ToolFiles>,
     ) -> BoxFuture<'static, Result<ToolOutput, Error>> {
         let gate = Arc::clone(&self.gate);
         Box::pin(async move {

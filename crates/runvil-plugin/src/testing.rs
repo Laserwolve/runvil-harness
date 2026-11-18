@@ -1,22 +1,37 @@
 //! [`TestCall`]: lends a [`ToolContext`] to a Plugin crate's own tests.
 
+use runvil_types::future::BoxFuture;
 use runvil_types::tools::{ToolCallOrigin, ToolCaller, ToolId};
-use runvil_vfs::{Access, Origin, VfsRef};
+use runvil_vfs::{Access, Origin, VfsError, VfsOp, VfsOutcome, VfsRef};
 
-use crate::ToolContext;
+use crate::{ToolContext, ToolFiles};
 
 /// One tool call a test makes directly, without a Harness.
 ///
-/// It owns everything a [`ToolContext`] borrows: the called tool's id, an
-/// access over a fresh in-memory filesystem, and an origin naming the
+/// It owns everything a [`ToolContext`] borrows: the called tool's id, a
+/// fresh in-memory filesystem of its own, and an origin naming the
 /// section `Test` and a caller that is the script unless
-/// [`with_caller`](TestCall::with_caller) names another. A test calls the
-/// Pack's factory for the instance it calls.
+/// [`with_caller`](TestCall::with_caller) names another. The context's
+/// files and its access reach that one filesystem, so a test seeds a file
+/// through either and reads it back through the other. A request through
+/// the files is answered at once: its future is ready at its first poll.
+/// A test calls the Pack's factory for the instance it calls.
 #[derive(Debug)]
 pub struct TestCall {
     tool: ToolId,
-    access: Access,
+    files: AnsweredAtOnce,
     origin: ToolCallOrigin,
+}
+
+/// The files of a [`TestCall`]: each request is performed where it is
+/// made, on the call's own in-memory filesystem.
+#[derive(Debug)]
+struct AnsweredAtOnce(Access);
+
+impl ToolFiles for AnsweredAtOnce {
+    fn request(&self, op: VfsOp) -> BoxFuture<'_, Result<VfsOutcome, VfsError>> {
+        Box::pin(std::future::ready(self.0.perform(&op)))
+    }
 }
 
 impl TestCall {
@@ -38,7 +53,7 @@ impl TestCall {
         let origin = ToolCallOrigin::new("Test", ToolCaller::Script);
         TestCall {
             tool,
-            access,
+            files: AnsweredAtOnce(access),
             origin,
         }
     }
@@ -54,6 +69,6 @@ impl TestCall {
     /// Lends the context to one call.
     #[must_use]
     pub fn context(&self) -> ToolContext<'_> {
-        ToolContext::new(&self.tool, &self.access, &self.origin)
+        ToolContext::new(&self.tool, &self.files.0, &self.origin, &self.files)
     }
 }

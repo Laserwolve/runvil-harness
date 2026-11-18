@@ -44,6 +44,12 @@
 //!   of a Vfs effect, through that effect's view. It puts nothing in a
 //!   store before a run and reads nothing from one after: a run takes its
 //!   input as arguments and hands back its result.
+//! - A tool call asks for a file operation through the files of its
+//!   context. The Harness reports each request to the run, performs the
+//!   Vfs effect the run issues for it on the run's filesystem, records
+//!   it, and hands the outcome to the call, so the record holds every
+//!   operation a tool asks for this way. It drops the request of a call
+//!   that has landed or was aborted.
 //! - The recorder is written in loop order: a step's events before the
 //!   step's effects are issued, each effect before its performer starts,
 //!   each answer before the run resumes with it, and each sent message's
@@ -92,6 +98,7 @@ mod prompt_finders;
 pub mod recorder;
 mod recorder_memory;
 mod setup;
+mod tool_files;
 
 pub use display_chain::display_chain;
 pub use harness::{Harness, RunControl, RunReport};

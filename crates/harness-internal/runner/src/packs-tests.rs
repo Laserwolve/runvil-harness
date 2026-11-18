@@ -18,12 +18,12 @@ use runvil_engine::cancel::CancelHandle;
 use runvil_engine::effect::{ToolCallOrigin, ToolCaller};
 use runvil_engine::make_tool_error;
 use runvil_engine::packs::RosterEntry;
-use runvil_engine::vfs::{Origin, VfsRef};
+use runvil_engine::vfs::{Origin, VfsError, VfsOp, VfsOutcome, VfsRef};
 use runvil_engine::{Error, ErrorCode};
 use runvil_engine::{Prompt, Run, RunParams, RunSeed, Step, Timestamp};
 use runvil_plugin::{
     BoxFuture, HostServices, Pack, PackFactory, PackId, PackInfo, PackRegistry, ServiceKey,
-    ToolContext, ToolId, ToolInfo, ToolOutput,
+    ToolContext, ToolFiles, ToolId, ToolInfo, ToolOutput,
 };
 use serde_json::{Value, json};
 
@@ -683,8 +683,75 @@ fn preludes_follow_the_prompts_declaration_order_and_carry_the_pack_id() {
     assert_eq!(order, ["third", "second", "first"]);
 }
 
-/// Calls `tool` through `run` from a script and returns its result.
+/// The files of a call whose tool asks for no file operation.
+struct NoFiles;
+
+impl ToolFiles for NoFiles {
+    fn request(&self, op: VfsOp) -> BoxFuture<'_, Result<VfsOutcome, VfsError>> {
+        unreachable!("no tool of this call asks for a file operation: {op:?}")
+    }
+}
+
+/// Files that note each operation asked of them and answer it at once
+/// with `true`.
+#[derive(Default)]
+struct NotedFiles {
+    asked: Mutex<Vec<VfsOp>>,
+}
+
+impl ToolFiles for NotedFiles {
+    fn request(&self, op: VfsOp) -> BoxFuture<'_, Result<VfsOutcome, VfsError>> {
+        self.asked.lock().unwrap().push(op);
+        Box::pin(async { Ok(VfsOutcome::Bool(true)) })
+    }
+}
+
+/// Asks its call's files whether `/probe` exists and answers with what
+/// they said.
+struct Asks;
+
+impl Pack for Asks {
+    fn tools(&self) -> Vec<ToolInfo> {
+        vec![listed_tool("asks/probe")]
+    }
+
+    fn call<'a>(
+        &'a self,
+        cx: ToolContext<'a>,
+        _args: Value,
+    ) -> BoxFuture<'a, Result<ToolOutput, Error>> {
+        Box::pin(async move {
+            let probe = VfsOp::Exists {
+                path: "/probe".to_owned(),
+            };
+            let outcome = cx.files().request(probe).await;
+            Ok(ToolOutput::trusted(format!("{outcome:?}")))
+        })
+    }
+}
+
+/// Makes an [`Asks`].
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the Make signature fixes the return type"
+)]
+fn asks(_name: &PackId, _config: &Value, _wide: &HostServices) -> Result<Arc<dyn Pack>, Error> {
+    Ok(Arc::new(Asks))
+}
+
+/// Calls `tool` through `run` from a script, lending the call no files
+/// to ask, and returns its result.
 async fn call(run: &dyn ToolPerformer, tool: &str) -> Result<ToolOutput, Error> {
+    call_with(run, tool, Arc::new(NoFiles)).await
+}
+
+/// Calls `tool` through `run` from a script, lending the call `files`,
+/// and returns its result.
+async fn call_with(
+    run: &dyn ToolPerformer,
+    tool: &str,
+    files: Arc<dyn ToolFiles>,
+) -> Result<ToolOutput, Error> {
     let access = VfsRef::default().acquire(Origin::new("host test")).unwrap();
     let origin = ToolCallOrigin::new("Only", ToolCaller::Script);
     let tool = ToolId::parse(tool).unwrap();
@@ -694,8 +761,36 @@ async fn call(run: &dyn ToolPerformer, tool: &str) -> Result<ToolOutput, Error> 
         Arc::new(access),
         origin,
         json!({}),
+        files,
     )
     .await
+}
+
+#[tokio::test]
+async fn a_call_is_lent_the_files_the_caller_gave_for_it() {
+    let host = host_with(
+        &HostServices::new(),
+        &[(info("runvil/asks"), asks, Value::Null)],
+    );
+    let run = begin(&host, BTreeMap::new(), &prompt(""));
+    let files = Arc::new(NotedFiles::default());
+
+    let output = call_with(&run, "asks/probe", Arc::clone(&files) as _)
+        .await
+        .expect("the call answers");
+
+    assert_eq!(
+        output.text(),
+        "Ok(Bool(true))",
+        "the tool got the files' answer"
+    );
+    assert_eq!(
+        *files.asked.lock().unwrap(),
+        [VfsOp::Exists {
+            path: "/probe".to_owned(),
+        }],
+        "the tool's request reached the files of its own call"
+    );
 }
 
 #[tokio::test]

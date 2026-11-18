@@ -15,6 +15,7 @@ use runvil_engine::cancel::CancelHandle;
 use runvil_engine::effect::ToolCallOrigin;
 use runvil_engine::vfs::Access;
 use runvil_engine::{BoxFuture, Timestamp, ToolId, ToolOutput};
+use runvil_plugin::ToolFiles;
 use serde_json::{Value, json};
 
 use crate::support::{
@@ -113,6 +114,7 @@ impl ToolPerformer for DelayedTool {
         _access: Arc<Access>,
         _origin: ToolCallOrigin,
         _args: Value,
+        _files: Arc<dyn ToolFiles>,
     ) -> BoxFuture<'static, Result<ToolOutput, Error>> {
         let delay = self.delay;
         let text = self.text;

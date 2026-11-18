@@ -17,9 +17,10 @@
 //! block while polled: one that blocks stalls every other effect of the
 //! run, and the run's stop and cancel with them. A performer with blocking
 //! or CPU-heavy work hands it to the Host's own runtime and awaits the
-//! result. A `Vfs` effect has no performer: it is one operation on a
-//! store of the run, and file operations are synchronous by design, so
-//! the loop answers it inline through the Engine's store operation.
+//! result. A `Vfs` effect has no performer: it is one file operation, on
+//! a store of the run or, for a tool call that asked through its files,
+//! on the run's filesystem, and file operations are synchronous by
+//! design, so the loop answers it inline.
 //!
 //! The runner supplies the tool performer itself: the run's snapshot of
 //! the Host's Packs, taken at preparation. The Host supplies the
@@ -35,6 +36,7 @@ use runvil_engine::model::{
 use runvil_engine::vfs::Access;
 use runvil_engine::{BoxFuture, Error, Timestamp};
 use runvil_engine::{ToolId, ToolInfo, ToolOutput};
+use runvil_plugin::ToolFiles;
 use serde_json::Value;
 
 /// The model inference the Host supplies to the Harness.
@@ -73,8 +75,9 @@ pub trait InferenceBroker: Send + Sync {
 }
 
 /// Performs a `ToolCall` effect: resolves `tool` to an implementation and
-/// calls it with `args`, lending it the call's `access` and `origin`. Also
-/// performs a `Render` effect: the tools each offered Pack shows the model.
+/// calls it with `args`, lending it the call's `access`, `origin`, and
+/// `files`. Also performs a `Render` effect: the tools each offered Pack
+/// shows the model.
 ///
 /// Each method returns a [`BoxFuture`] for the Harness to poll. The future
 /// is `Send` and `'static`. It can move between threads, and it owns the
@@ -84,8 +87,11 @@ pub trait ToolPerformer: Send + Sync {
     /// its canonical id for a script call, for the performer's own
     /// diagnostics; `tool` is the identity it resolves. `access` is the
     /// call's own filesystem access and `origin` says who made the call.
-    /// The returned future owns both until it finishes, and drops them
-    /// when it finishes or is dropped.
+    /// `files` is the call's desk at the effect loop: the tool asks it for
+    /// each file operation, and the loop performs and records the
+    /// operation and resolves the request. The returned future owns all
+    /// three until it finishes, and drops them when it finishes or is
+    /// dropped.
     fn call(
         &self,
         tool: ToolId,
@@ -93,6 +99,7 @@ pub trait ToolPerformer: Send + Sync {
         access: Arc<Access>,
         origin: ToolCallOrigin,
         args: Value,
+        files: Arc<dyn ToolFiles>,
     ) -> BoxFuture<'static, Result<ToolOutput, Error>>;
 
     /// Renders the tools the section entry `entry` offered from each Pack

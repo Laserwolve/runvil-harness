@@ -66,18 +66,21 @@ pub trait Pack: Send + Sync {
 
     /// Performs one tool call.
     ///
-    /// `cx` names the called tool and lends the call's filesystem access
-    /// and its origin. What the call needs from the Host's services, its
-    /// factory took at `install` and shares with the instance. `args` is
-    /// the JSON the model or the script passed.
+    /// `cx` names the called tool and lends the call's files, its
+    /// filesystem access, and its origin. What the call needs from the
+    /// Host's services, its factory took at `install` and shares with the
+    /// instance. `args` is the JSON the model or the script passed.
     ///
     /// # Invariants
     ///
     /// - `call` must not block while polled. The Harness polls every
     ///   effect of a run on the same task, so blocking or CPU-heavy work
-    ///   goes to the Host's runtime, without the access. Operations
-    ///   through [`ToolContext::access`] run inside the call; on real
-    ///   directories they block the poll briefly.
+    ///   goes to the Host's runtime, without the files or the access. A
+    ///   call awaits each operation it asks for through
+    ///   [`ToolContext::files`], and the Harness performs it between two
+    ///   polls of the call. Operations through [`ToolContext::access`]
+    ///   run inside the call; on real directories they block the poll
+    ///   briefly.
     /// - `call` must not panic. If it does, the Harness answers its effect
     ///   `Dropped` and logs the panic.
     /// - `call` marks the trust of every output correctly. Output that

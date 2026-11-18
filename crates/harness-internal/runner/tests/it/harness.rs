@@ -13,9 +13,10 @@
 //! `stop_cap` child module, how what a stop reaches depends on when the
 //! loop sees it in the `stop_timing` child module, the messages a Host
 //! sends the main chain in the `inbox` child module, a run whose prompt
-//! executes a prompt it lists in the `execute` child module, and the runs
-//! that end before they start and the one error `run` returns in the
-//! `errors` child module.
+//! executes a prompt it lists in the `execute` child module, the file
+//! operations a tool call asks for through its files in the `files` child
+//! module, and the runs that end before they start and the one error
+//! `run` returns in the `errors` child module.
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -40,6 +41,8 @@ use crate::support::{PendingTimer, host_over, parsed};
 mod errors;
 #[path = "harness-execute.rs"]
 mod execute;
+#[path = "harness-files.rs"]
+mod files;
 #[path = "harness-inbox.rs"]
 mod inbox;
 #[path = "harness-stop.rs"]

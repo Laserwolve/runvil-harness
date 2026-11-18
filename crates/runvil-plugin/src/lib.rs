@@ -41,7 +41,9 @@
 //! makes each run's [`Pack`] instance: the Harness calls
 //! [`PackFactory::new_pack`] for each Pack a run holds, and the instance
 //! drops when the run ends. [`Pack::call`] performs one tool call with the
-//! [`ToolContext`] the Harness lends it.
+//! [`ToolContext`] the Harness lends it, and asks for each file operation
+//! through the context's [`ToolFiles`], as a [`VfsOp`] that resolves with
+//! its [`VfsOutcome`].
 //! [`Pack::render`] returns the tools the model sees, given the tools a
 //! section offered from the Pack and the [`RenderContext`] that names the
 //! section entry and its model.
@@ -90,9 +92,14 @@
 //!   resolution it answers at once unless the Pack's state has changed.
 //! - [`Pack::call`] must not block while polled. Every effect of a run
 //!   is polled on the same task, so blocking or CPU-heavy work goes to the
-//!   Host's runtime. A file operation through the call's access is the
-//!   exception: it is synchronous by design and holds the run until it
-//!   returns.
+//!   Host's runtime. A file operation is the exception: it is synchronous
+//!   by design, and the run waits for it. The Harness performs each
+//!   operation a call asks for through [`ToolContext::files`] with one
+//!   blocking call, and an operation through the call's access holds the
+//!   run until it returns.
+//! - A call asks for a file operation through [`ToolContext::files`], so
+//!   the run's record holds it. An operation through the call's access is
+//!   outside the record.
 //! - [`Pack::call`] must not panic. A panicking call's effect is
 //!   answered `Dropped`, and the panic is logged.
 //! - [`Pack::call`] marks the trust of every output correctly: output
@@ -115,7 +122,7 @@ mod service;
 #[cfg(feature = "test-support")]
 pub mod testing;
 
-pub use context::{RenderContext, ToolContext};
+pub use context::{RenderContext, ToolContext, ToolFiles};
 pub use pack::{Pack, PackFactory, PackInfo};
 pub use registry::{PackOrigin, PackRegistry};
 pub use service::{HostServices, ServiceId, ServiceKey, TOKIO_RUNTIME};
@@ -127,4 +134,4 @@ pub use runvil_types::packs::PackId;
 pub use runvil_types::tools::{
     OutputTrust, ToolCallOrigin, ToolCaller, ToolId, ToolInfo, ToolOutput, make_tool_error,
 };
-pub use runvil_vfs::{Access, Entry, FileType, PathReason, Stat, VfsError};
+pub use runvil_vfs::{Access, Entry, FileType, PathReason, Stat, VfsError, VfsOp, VfsOutcome};
