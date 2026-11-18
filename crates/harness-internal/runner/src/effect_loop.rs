@@ -40,12 +40,14 @@
 //! unperformed.
 //!
 //! The loop performs a request and wakes its call without returning to
-//! its executor, so it gives the executor a turn itself. After a set
-//! number of requests, and before it reports the next one, the run's
-//! future wakes itself and returns pending once. The executor's other
-//! tasks run then, one that raises a cancel or a stop among them, however
-//! long a tool call keeps asking. No Vfs effect is outstanding at that
-//! point, and the request is still at its desk.
+//! its executor, so it makes that return itself. After a set number of
+//! requests, and before it reports the next one, the run's future wakes
+//! itself and returns pending once. Which task the executor polls next
+//! is the executor's choice, so the return is a chance for its other
+//! tasks, one that raises a cancel or a stop among them, and no promise.
+//! An executor that takes its tasks in turn runs them then, however long
+//! a tool call keeps asking. No Vfs effect is outstanding at that point,
+//! and the request is still at its desk.
 //!
 //! An effect the step withdraws is answered `Dropped` without being
 //! performed, and a withdrawn effect an earlier step issued is aborted
@@ -992,9 +994,11 @@ impl Flights {
     }
 }
 
-/// Returns to the executor once, so that its other tasks run. The future
-/// wakes itself before it returns pending, so the executor polls the run
-/// again after them, and it needs no runtime of its own.
+/// Returns to the executor once. The future wakes itself before it
+/// returns pending, so the executor polls the run again, and the future
+/// needs no runtime of its own. Which task the executor polls next is
+/// the executor's choice: the return is a chance for its other tasks to
+/// run, and no promise that one does before the run is polled again.
 async fn give_a_turn() {
     let mut given = false;
     poll_fn(|cx| {

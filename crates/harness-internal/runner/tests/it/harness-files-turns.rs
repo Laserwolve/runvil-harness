@@ -1,8 +1,8 @@
 //! The turns the effect loop gives its executor while a tool call asks
-//! for files: a call that keeps asking does not hold the executor's
-//! thread, so a cancel that a second task raises lands long before the
-//! call is done, and a call that asks for more files than one turn
-//! allows loses no request.
+//! for files: a call that keeps asking does not hold the thread of an
+//! executor that takes its tasks in turn, so a cancel that a second task
+//! raises lands long before the call is done, and a call that asks for
+//! more files than one turn allows loses no request.
 
 use std::sync::Arc;
 
@@ -12,7 +12,7 @@ use runvil_engine::Error;
 use runvil_engine::vfs::{Origin, VfsRef};
 use runvil_plugin::{
     BoxFuture, Pack, PackFactory, PackId, PackInfo, ToolContext, ToolId, ToolInfo, ToolOutput,
-    VfsOp,
+    VfsOp, VfsOutcome,
 };
 use serde_json::{Value, json};
 use tokio::sync::Notify;
@@ -23,8 +23,13 @@ use crate::support::{assert_canceled, registry};
 
 /// The fixture Pack `reads`. Its one tool, `reads/many`, says that it
 /// has started and then reads `/in.md` as many times as its `count`
-/// says, one read after another.
+/// says, one read after another. It answers `read <count>` when each
+/// read gave it the text [`SEEDED`], and says what the first other read
+/// gave it otherwise.
 const READS_PACK: PackInfo = PackInfo::new("tests/reads");
+
+/// The text of `/in.md`.
+const SEEDED: &str = "x";
 
 struct ReadsPack {
     tools: Vec<ToolInfo>,
@@ -70,8 +75,9 @@ impl Pack for ReadsPack {
             self.started.notify_one();
             let count = args["count"].as_u64().unwrap_or_default();
             for _ in 0..count {
-                if let Err(error) = cx.files().request(read_in()).await {
-                    return Ok(ToolOutput::trusted(format!("failed: {error}")));
+                match cx.files().request(read_in()).await {
+                    Ok(VfsOutcome::Text(text)) if text == SEEDED => {}
+                    other => return Ok(ToolOutput::trusted(format!("a read gave {other:?}"))),
                 }
             }
             Ok(ToolOutput::trusted(format!("read {count}")))
@@ -87,7 +93,7 @@ fn reading(count: u32, started: &Arc<Notify>) -> (Harness, Arc<MemoryRecorder>) 
     let vfs = VfsRef::default();
     vfs.acquire(Origin::new("turns seed"))
         .unwrap()
-        .write("/in.md", b"x")
+        .write("/in.md", SEEDED.as_bytes())
         .unwrap();
     let mut packs = registry(&[]);
     packs
@@ -158,11 +164,14 @@ async fn a_second_tasks_cancel_lands_long_before_a_call_that_keeps_asking_for_fi
         control.cancel();
     });
 
-    let report = tokio::time::timeout(PATIENCE, harness.run())
-        .await
-        .expect("the run ends in time")
-        .expect("the run is reported");
-    canceler.await.expect("the second task ends");
+    // One deadline holds the run and the second task, so a run that ends
+    // with the tool never started fails here and leaves nothing waiting.
+    let (report, second_task) =
+        tokio::time::timeout(PATIENCE, async { tokio::join!(harness.run(), canceler) })
+            .await
+            .expect("the run and the second task end in time");
+    second_task.expect("the second task ends");
+    let report = report.expect("the run is reported");
 
     assert_canceled(&report.result);
     let asked = recorder

@@ -3,10 +3,13 @@
 //! under the task that made the call and with the call's own access, and
 //! the next step returns it ahead of the effects that step issues. Its
 //! answer, a receipt, a failure, or a drop, resumes no chain and reports
-//! no event, and the call stays open. A request for a call whose chain
-//! stopped waiting is discarded, one for any other id ends the run, and
-//! so does a `Vfs` answer of the other form. The chain's abort withdraws
-//! the effect with its call, and `Done` waits for its answer.
+//! no event, and the call stays open. A request that names a withdrawn
+//! effect is discarded, whatever kind the effect is. One that names no
+//! outstanding effect, or an effect the run still waits on that is no
+//! tool call, ends the run, and so does a `Vfs` answer of the other
+//! form. A run whose result is decided keeps that result. The chain's
+//! abort withdraws the effect with its call, and `Done` waits for its
+//! answer.
 
 use runvil_prompt::test_support::prompt;
 use runvil_types::tools::{ToolCatalog, ToolInfo, ToolOutput};
@@ -326,6 +329,39 @@ fn a_file_request_for_a_call_whose_chain_stopped_waiting_is_discarded() {
     assert_eq!(finished(&mut run).as_deref(), Ok("main done"));
 }
 
+#[test]
+fn a_file_request_that_names_a_withdrawn_effect_that_is_no_tool_call_is_discarded() {
+    let mut run = worker_run(
+        "tasks.cancel(t)\n\
+         tasks.join_any({ t })\n\
+         store.exists('two')\n\
+         return 'main done'",
+        &VfsRef::default(),
+    );
+    let (effects, ..) = stepped(&mut run);
+    let (call, ..) = tool_call(&effects);
+    let store = store_call(&effects);
+    run.request_file(call, write("/note.md", "x"));
+    let (file, _) = only_effect(run.step());
+    // The main chain cancels the worker, which withdraws the call and
+    // the call's file effect, and goes on to a second store call.
+    run.resume(store, absent());
+    let (effects, _, withdrawn) = stepped(&mut run);
+    assert_eq!(withdrawn, [call, file]);
+    let second_store = store_call(&effects);
+
+    // The file effect is withdrawn, still owed its answer, and no tool
+    // call. The run keeps no kind for it, so a request that names it is
+    // discarded as one that names the withdrawn call is.
+    run.request_file(file, write("/late.md", "x"));
+    assert_still_waiting(&mut run);
+
+    run.resume(call, EffectAnswer::Dropped);
+    run.resume(file, EffectAnswer::Dropped);
+    run.resume(second_store, absent());
+    assert_eq!(finished(&mut run).as_deref(), Ok("main done"));
+}
+
 /// Asserts that `run`, whose one outstanding effect is `outstanding`,
 /// was ended by a file request that named no open tool call.
 #[track_caller]
@@ -396,6 +432,29 @@ fn a_vfs_answer_of_the_other_form_ends_the_run_with_an_internal_error() {
     run.resume(store, EffectAnswer::VfsReceipt(Ok(VfsReceipt::Bool(false))));
     let error = finished(&mut run).expect_err("the mismatch fails the run");
     assert_internal(&error, "effect's own kind");
+}
+
+#[test]
+fn a_file_request_on_a_run_whose_result_is_decided_leaves_that_result() {
+    let mut run = one_call_run(&VfsRef::default());
+    let (effects, ..) = stepped(&mut run);
+    let (call, ..) = tool_call(&effects);
+    run.request_file(call, write("/note.md", "x"));
+    let (file, _) = only_effect(run.step());
+    // The call's answer lets the chain return, so the run's result is
+    // decided while the file effect is withdrawn and still owed its
+    // answer.
+    run.resume(call, echoed("echoed"));
+    let (_, events, withdrawn) = stepped(&mut run);
+    assert!(ended(&events), "the chain returned: {events:?}");
+    assert_eq!(withdrawn, [file]);
+
+    // A request that ends a run whose result is open.
+    run.request_file(EffectId(file.0 + 99), write("/late.md", "x"));
+    assert_still_waiting(&mut run);
+
+    run.resume(file, EffectAnswer::Dropped);
+    assert_eq!(finished(&mut run).as_deref(), Ok("echoed"));
 }
 
 #[test]

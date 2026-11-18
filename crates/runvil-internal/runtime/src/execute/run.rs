@@ -258,12 +258,16 @@ impl Run {
     /// no chain, and a failure in it ends nothing: the tool call stays
     /// open until the caller answers it with the tool's result.
     ///
-    /// A request for a call whose chain stopped waiting, one a step
-    /// listed as withdrawn, is discarded. A request for any other id is a
-    /// caller error that ends the run with an internal error, as a bad
-    /// answer does: an id the run never issued, a call already answered,
-    /// or an effect that is no tool call. A run that has returned `Done`
-    /// ignores the request.
+    /// A request that names an effect a step listed as withdrawn, and
+    /// whose answer the caller still owes, is discarded, whatever kind
+    /// that effect is: the run keeps no kind for a withdrawn effect. A
+    /// request that names no outstanding effect is a caller error that
+    /// ends the run with an internal error, as a bad answer does: an id
+    /// the run never issued, or the id of an effect already answered. So
+    /// is a request that names an effect the run still waits on, when
+    /// that effect is no tool call. A run whose result is decided keeps
+    /// that result, and a run that has returned `Done` ignores every
+    /// request.
     pub fn request_file(&mut self, call: EffectId, op: VfsOp) {
         self.scheduler.request_file(call, op);
     }

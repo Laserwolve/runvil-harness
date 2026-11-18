@@ -171,12 +171,13 @@ impl Scheduler {
     /// awaits the call and with the call's own access, for the next step
     /// to return. No chain parks on the effect.
     ///
-    /// A request for an effect whose chain stopped waiting is discarded.
-    /// A request that names no outstanding tool call, because the run
-    /// never issued the id, its answer already arrived, or it is an
-    /// effect of another kind, ends the run with an internal error, as an
-    /// answer for an unknown id does. A run that has returned `Done`
-    /// ignores every request.
+    /// A request for an effect whose chain stopped waiting is discarded,
+    /// whatever kind the effect is. A request that names no outstanding
+    /// tool call, because the run never issued the id, its answer already
+    /// arrived, or a chain awaits it as an effect of another kind, ends
+    /// the run with an internal error, as an answer for an unknown id
+    /// does. A run whose result is decided keeps that result, and a run
+    /// that has returned `Done` ignores every request.
     pub(crate) fn request_file(&mut self, call: EffectId, op: VfsOp) {
         if matches!(self.phase, Phase::Done) {
             return;

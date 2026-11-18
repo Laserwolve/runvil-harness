@@ -192,10 +192,12 @@ pub(super) enum Asking {
     /// A chain awaits the tool call: that chain, and the call's access.
     Awaited(ChainIndex, Arc<Access>),
     /// The chain stopped waiting on the effect, so the request is
-    /// discarded.
+    /// discarded. The entry keeps no kind, so the effect may be one that
+    /// was no tool call.
     Orphaned,
     /// The id names no outstanding tool call: the run never issued it,
-    /// its answer already arrived, or it is an effect of another kind.
+    /// its answer already arrived, or a chain awaits it as an effect of
+    /// another kind.
     NotACall,
 }
 
@@ -470,6 +472,12 @@ mod tests {
         let (orphan, _) = issue_tool_call(&mut table, chain(0));
         table.orphan(orphan);
         assert!(matches!(table.asking(orphan), Asking::Orphaned));
+        let withdrawn_round = issue_round(&mut table, chain(0));
+        table.orphan(withdrawn_round);
+        assert!(
+            matches!(table.asking(withdrawn_round), Asking::Orphaned),
+            "a withdrawn effect keeps no kind, so one that was no tool call reads as one that was"
+        );
         let round = issue_round(&mut table, chain(0));
         assert!(
             matches!(table.asking(round), Asking::NotACall),
