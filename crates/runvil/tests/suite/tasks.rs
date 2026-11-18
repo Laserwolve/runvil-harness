@@ -89,3 +89,33 @@ async fn status_reads_queued_then_chat_then_done_around_a_model_call() {
 async fn status_shows_the_latest_note_a_task_set() {
     check("17-note").await;
 }
+
+#[tokio::test(start_paused = true)]
+async fn cancel_stops_a_queued_task_a_waiting_task_and_a_task_that_owns_a_task() {
+    check("18-cancel").await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_owner_steers_a_worker_between_its_replies() {
+    check("19-steer-with-replies").await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn receive_returns_messages_oldest_first_and_waits_for_the_next() {
+    check("20-receive-oldest-first").await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_task_that_acts_on_its_sibling_is_refused_as_not_the_owner() {
+    check("21-sibling-not-owned").await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_task_that_cancels_itself_or_a_made_up_id_is_refused_as_not_the_owner() {
+    check("22-self-and-unknown-not-owned").await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_task_reads_its_own_status() {
+    check("23-own-status").await;
+}

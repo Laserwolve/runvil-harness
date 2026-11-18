@@ -1,0 +1,19 @@
+0 0 event - {"kind":"run_started","provenance":{"seq":0,"task":"0"},"section":"self-and-unknown-not-owned"}
+0 1 event - {"kind":"section_started","provenance":{"seq":1,"task":"0"},"section":"Main"}
+0 2 event - {"kind":"lua_chunk_started","provenance":{"seq":2,"task":"0"},"section":"Main"}
+0 3 event - {"args":null,"index":null,"item":null,"kind":"task_started","provenance":{"seq":3,"task":"0"},"section":"Main","target":"Prober","task":"0.0","var":{}}
+0.0 0 event - {"kind":"section_started","provenance":{"seq":0,"task":"0.0"},"section":"Prober"}
+0.0 1 event - {"kind":"lua_chunk_started","provenance":{"seq":1,"task":"0.0"},"section":"Prober"}
+0.0 2 event - {"kind":"lua","message":"0.0: false task_not_owned","provenance":{"seq":2,"task":"0.0"},"section":"Prober"}
+0.0 3 event - {"kind":"lua","message":"9.9: false task_not_owned","provenance":{"seq":3,"task":"0.0"},"section":"Prober"}
+0.0 4 event - {"kind":"lua_chunk_succeeded","provenance":{"seq":4,"task":"0.0"},"section":"Prober"}
+0.0 5 event - {"kind":"lua_teardown_started","provenance":{"seq":5,"task":"0.0"},"section":"Prober"}
+0.0 6 event - {"kind":"lua_teardown_succeeded","provenance":{"seq":6,"task":"0.0"},"section":"Prober"}
+0.0 7 event - {"kind":"section_finished","provenance":{"seq":7,"task":"0.0"},"section":"Prober"}
+0.0 8 event - {"kind":"task_succeeded","provenance":{"seq":8,"task":"0.0"},"section":"Prober","task":"0.0"}
+0 4 event - {"kind":"lua_chunk_succeeded","provenance":{"seq":4,"task":"0"},"section":"Main"}
+0 5 event - {"kind":"lua_teardown_started","provenance":{"seq":5,"task":"0"},"section":"Main"}
+0 6 event - {"kind":"lua_teardown_succeeded","provenance":{"seq":6,"task":"0"},"section":"Main"}
+0 7 event - {"kind":"section_finished","provenance":{"seq":7,"task":"0"},"section":"Main"}
+0 8 event - {"kind":"run_succeeded","provenance":{"seq":8,"task":"0"},"section":"self-and-unknown-not-owned"}
+result ok "tried two ids"
