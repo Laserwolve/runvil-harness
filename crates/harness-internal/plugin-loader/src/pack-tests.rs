@@ -92,7 +92,8 @@ fn an_instance_holds_the_tools_the_plugin_added_under_the_pack_id() {
         tools.iter().all(|tool| !tool.structured_output
             && !tool.survives_stop
             && !tool.describes_tools
-            && !tool.model_only_call),
+            && !tool.model_only_call
+            && !tool.changes_files),
         "the contract carries no tool flags"
     );
 }

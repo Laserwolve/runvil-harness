@@ -11,8 +11,8 @@ use super::ids::ToolId;
 /// A `ToolInfo` holds the tool's stable id, the name the model calls it by
 /// when one is set, the description the model reads, its parameter schema,
 /// whether its output is structured, whether a stop leaves its calls
-/// running, whether its output lists tools, and whether only a model may
-/// call it.
+/// running, whether its output lists tools, whether only a model may
+/// call it, and whether it changes files.
 ///
 /// The caller collects the `ToolInfo` values of every Pack it can serve
 /// into a `ToolCatalog`. The implementations stay with
@@ -34,7 +34,7 @@ use super::ids::ToolId;
 #[non_exhaustive]
 #[expect(
     clippy::struct_excessive_bools,
-    reason = "the four flags are independent: each answers a different question about one tool, so no state machine or enum expresses them"
+    reason = "the five flags are independent: each answers a different question about one tool, so no state machine or enum expresses them"
 )]
 pub struct ToolInfo {
     /// The tool's stable identity. The catalog uses it as the key.
@@ -75,11 +75,22 @@ pub struct ToolInfo {
     /// catalog, so Lua names it and a section offers it with
     /// `tools.offer`; only the call is refused.
     pub model_only_call: bool,
+    /// Whether a call to the tool changes files.
+    ///
+    /// The calls one model reply asks for run together, except a call to
+    /// a tool that sets this: the Engine issues it once every call the
+    /// reply lists before it has its answer, and issues the calls listed
+    /// after it once it has its own. So the changes of one reply apply
+    /// one at a time, in the order the model listed them, and a call
+    /// listed before a change never sees it. A tool that only reads
+    /// files leaves the flag clear.
+    pub changes_files: bool,
 }
 
 impl ToolInfo {
     /// Builds a `ToolInfo` under the default wire name, with plain-text
-    /// output that a stop reaches and that lists no tools.
+    /// output that a stop reaches and that lists no tools, for a tool
+    /// that a script may call and that changes no file.
     #[must_use]
     pub fn new(id: ToolId, description: impl Into<String>, parameters_schema: Value) -> ToolInfo {
         ToolInfo {
@@ -91,6 +102,7 @@ impl ToolInfo {
             survives_stop: false,
             describes_tools: false,
             model_only_call: false,
+            changes_files: false,
         }
     }
 
@@ -130,6 +142,15 @@ impl ToolInfo {
     #[must_use]
     pub fn model_only_call(mut self, model_only: bool) -> ToolInfo {
         self.model_only_call = model_only;
+        self
+    }
+
+    /// Sets whether a call to the tool changes files (`true`), so the
+    /// calls of one model reply run it alone and in the listed order, or
+    /// changes none (`false`).
+    #[must_use]
+    pub fn changes_files(mut self, changes: bool) -> ToolInfo {
+        self.changes_files = changes;
         self
     }
 }

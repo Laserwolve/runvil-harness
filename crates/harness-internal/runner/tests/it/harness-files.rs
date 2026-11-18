@@ -27,10 +27,13 @@ use super::{PATIENCE, PendingTimer, hooked_recorder, launch, setup};
 use crate::scripted::ScriptedBroker;
 use crate::support::{assert_canceled, registry};
 
-/// The fixture Pack `files`: `files/copy` reads one file through its
-/// call's files and writes what it read to another, and `files/pair`
-/// runs the hook its factory was given and then asks for two writes at
-/// once.
+/// The fixture Pack `files`, whose every tool works through its call's
+/// files. `files/copy` reads the file its `from` names and writes what it
+/// read to the one its `to` names. `files/cat` answers with the text of
+/// the file its `path` names. `files/append` reads that file and writes
+/// it back with its `text` added, and its info says that it changes
+/// files. `files/pair` runs the hook its factory was given and then asks
+/// for two writes at once.
 const FILES_PACK: PackInfo = PackInfo::new("tests/files");
 
 /// What `files/pair` runs as it starts, before it asks for anything.
@@ -56,6 +59,8 @@ fn files_pack(on_pair: impl Fn() + Send + Sync + 'static) -> impl PackFactory {
         Ok(Arc::new(FilesPack {
             tools: vec![
                 tool("copy", "Copy one file to another."),
+                tool("cat", "Read one file."),
+                tool("append", "Add text to the end of one file.").changes_files(true),
                 tool("pair", "Write two files at once."),
             ],
             on_pair: Arc::clone(&on_pair),
@@ -65,7 +70,7 @@ fn files_pack(on_pair: impl Fn() + Send + Sync + 'static) -> impl PackFactory {
 
 /// A Host holding the fixture Pack, whose `files/pair` runs `on_pair` as
 /// it starts.
-fn files_host(on_pair: impl Fn() + Send + Sync + 'static) -> Packs {
+pub(super) fn files_host(on_pair: impl Fn() + Send + Sync + 'static) -> Packs {
     let mut packs = registry(&[]);
     packs.insert(FILES_PACK, files_pack(on_pair)).unwrap();
     Packs::new(packs)
@@ -79,22 +84,25 @@ fn write(path: &str, text: &str) -> VfsOp {
     }
 }
 
-/// Reads the file `args.from` names through `files` and writes what it
-/// read to the one `args.to` names. Answers with the text it copied, or
-/// with the failure of the operation that failed.
-async fn copy(files: &dyn ToolFiles, args: &Value) -> ToolOutput {
-    let path = |name: &str| args[name].as_str().unwrap_or_default().to_owned();
+/// The whole text of the file at `path`, read through `files`, or what a
+/// fixture tool answers when the read fails: the failure as text.
+async fn read_text(files: &dyn ToolFiles, path: String) -> Result<String, ToolOutput> {
     let read = VfsOp::Read {
-        path: path("from"),
+        path,
         start: None,
         end: None,
     };
-    let text = match files.request(read).await {
-        Ok(VfsOutcome::Text(text)) => text,
-        Ok(other) => return ToolOutput::trusted(format!("a read answered {other:?}")),
-        Err(error) => return ToolOutput::trusted(format!("failed: {error}")),
-    };
-    match files.request(write(&path("to"), &text)).await {
+    match files.request(read).await {
+        Ok(VfsOutcome::Text(text)) => Ok(text),
+        Ok(other) => Err(ToolOutput::trusted(format!("a read answered {other:?}"))),
+        Err(error) => Err(ToolOutput::trusted(format!("failed: {error}"))),
+    }
+}
+
+/// Writes `text` to `path` through `files` and answers with `text`, or
+/// with the failure of the write as text.
+async fn write_text(files: &dyn ToolFiles, path: &str, text: String) -> ToolOutput {
+    match files.request(write(path, &text)).await {
         Ok(_) => ToolOutput::trusted(text),
         Err(error) => ToolOutput::trusted(format!("failed: {error}")),
     }
@@ -112,15 +120,30 @@ impl Pack for FilesPack {
     ) -> BoxFuture<'a, Result<ToolOutput, Error>> {
         Box::pin(async move {
             let files = cx.files();
-            if cx.tool().name() == "copy" {
-                return Ok(copy(files, &args).await);
-            }
-            (self.on_pair)();
-            let (first, second) = tokio::join!(
-                files.request(write("/first.md", "1")),
-                files.request(write("/second.md", "2")),
-            );
-            Ok(ToolOutput::trusted(format!("{first:?}|{second:?}")))
+            let arg = |name: &str| args[name].as_str().unwrap_or_default().to_owned();
+            let output = match cx.tool().name() {
+                "copy" => match read_text(files, arg("from")).await {
+                    Ok(text) => write_text(files, &arg("to"), text).await,
+                    Err(failed) => failed,
+                },
+                "cat" => match read_text(files, arg("path")).await {
+                    Ok(text) => ToolOutput::trusted(text),
+                    Err(failed) => failed,
+                },
+                "append" => match read_text(files, arg("path")).await {
+                    Ok(text) => write_text(files, &arg("path"), text + &arg("text")).await,
+                    Err(failed) => failed,
+                },
+                _ => {
+                    (self.on_pair)();
+                    let (first, second) = tokio::join!(
+                        files.request(write("/first.md", "1")),
+                        files.request(write("/second.md", "2")),
+                    );
+                    ToolOutput::trusted(format!("{first:?}|{second:?}"))
+                }
+            };
+            Ok(output)
         })
     }
 }

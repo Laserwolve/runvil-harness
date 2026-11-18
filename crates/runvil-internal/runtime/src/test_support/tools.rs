@@ -19,6 +19,10 @@ type FnToolHandler = dyn Fn(serde_json::Value) -> Result<ToolOutput, Error> + Se
 /// A fixture tool whose call is a closure, answered at once by the serial
 /// test drivers.
 #[derive(Clone)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is one independent flag of the tool info the fixture builds"
+)]
 pub(crate) struct FnTool {
     id: ToolId,
     wire_name: Option<String>,
@@ -27,6 +31,7 @@ pub(crate) struct FnTool {
     structured: bool,
     describes_tools: bool,
     model_only_call: bool,
+    changes_files: bool,
     handler: Arc<FnToolHandler>,
 }
 
@@ -48,6 +53,7 @@ impl FnTool {
             structured: false,
             describes_tools: false,
             model_only_call: false,
+            changes_files: false,
             handler: Arc::new(handler),
         }
     }
@@ -86,6 +92,13 @@ impl FnTool {
         self
     }
 
+    /// Marks the tool as one whose calls change files, so the calls of
+    /// one model reply run it alone.
+    pub(crate) fn changes_files(mut self) -> FnTool {
+        self.changes_files = true;
+        self
+    }
+
     /// The tool's stable identity: the catalog key and what a `ToolCall`
     /// effect names.
     pub(crate) fn id(&self) -> ToolId {
@@ -98,7 +111,8 @@ impl FnTool {
         let info = ToolInfo::new(self.id(), &self.description, self.schema.clone())
             .structured(self.structured)
             .describes_tools(self.describes_tools)
-            .model_only_call(self.model_only_call);
+            .model_only_call(self.model_only_call)
+            .changes_files(self.changes_files);
         match &self.wire_name {
             Some(wire_name) => info.wire_name(wire_name),
             None => info,

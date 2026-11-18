@@ -27,13 +27,18 @@ pub enum ToolOutputKind {
 
 /// One tool bound under the name its caller reaches it by, holding the
 /// tool's data - its schema, description, output kind, whether it lists
-/// tools, whether only a model may call it, and whether a stop leaves its
-/// calls running - and never its implementation.
+/// tools, whether only a model may call it, whether a stop leaves its
+/// calls running, and whether it changes files - and never its
+/// implementation.
 ///
 /// Run-time execution (schema preparation, script dispatch) reads the
 /// binding alone; a call is issued as an effect naming the identity, and
 /// performing it is the Harness's job.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "the four flags are the tool info's own, and each answers a different question about one tool"
+)]
 pub struct ToolBinding {
     /// The name the call reaches the tool by: its wire name in a section's
     /// frozen sets, or the full id of a catalog tool a script calls.
@@ -56,13 +61,16 @@ pub struct ToolBinding {
     model_only_call: bool,
     /// Whether a stop leaves a call to the tool in flight.
     survives_stop: bool,
+    /// Whether a call to the tool changes files, so the calls of one
+    /// model reply run it alone.
+    changes_files: bool,
 }
 
 impl ToolBinding {
     /// Binds `alias` to the tool `info` describes: the description is the
     /// tool's own, the output kind follows the tool info's
-    /// structured-output flag, and the listing, model-only, and stop flags
-    /// are the tool info's.
+    /// structured-output flag, and the listing, model-only, stop, and
+    /// file-change flags are the tool info's.
     #[must_use]
     pub fn from_info(alias: &str, info: &ToolInfo) -> Self {
         Self {
@@ -78,6 +86,7 @@ impl ToolBinding {
             describes_tools: info.describes_tools,
             model_only_call: info.model_only_call,
             survives_stop: info.survives_stop,
+            changes_files: info.changes_files,
         }
     }
 
@@ -129,6 +138,12 @@ impl ToolBinding {
     #[must_use]
     pub fn survives_stop(&self) -> bool {
         self.survives_stop
+    }
+
+    /// Returns whether a call to the tool changes files.
+    #[must_use]
+    pub fn changes_files(&self) -> bool {
+        self.changes_files
     }
 }
 

@@ -342,6 +342,7 @@ fn bind(mut tool: ToolInfo, catalog: &ToolCatalog) -> ToolBinding {
         tool.describes_tools = known.describes_tools;
         tool.model_only_call = known.model_only_call;
         tool.survives_stop = known.survives_stop;
+        tool.changes_files = known.changes_files;
     }
     ToolBinding::from_info(&wire_name_of(&tool), &tool)
 }

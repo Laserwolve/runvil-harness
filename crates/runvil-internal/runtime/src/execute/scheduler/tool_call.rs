@@ -23,14 +23,18 @@
 //! The loop sends a round's unanswered calls together as one
 //! `tool_calls` request. The arm walks them in the model's order and
 //! issues each catalog call at once into a slot of the chain's batch,
-//! stopping at the first call whose route is not the catalog. A call that
+//! stopping at the first call whose route is not the catalog, or whose
+//! tool changes files. A call that
 //! fails to route or to prepare fills its slot with the error and stops
 //! the batch too. Each landed answer fills its call's slot, and the
 //! chain is answered once no slot is open: every text in call order, or
 //! the first failure in call order. Fewer texts than calls tells the
 //! loop where the batch stopped, and the loop sends that call alone as
 //! an ordinary `tool_call`. The calls in flight run concurrently, each
-//! under its own forked identity.
+//! under its own forked identity. A call to a tool that changes files is
+//! therefore issued once every call listed before it has its answer, and
+//! the calls listed after it once it has its own, so the changes of one
+//! round apply one at a time, in the model's order.
 //!
 //! An adhoc tool call is a two-yield handshake. The `tool_call` answer is
 //! [`ToolCallOutcome::Adhoc`], which hands the shim the handler, and the
@@ -162,7 +166,9 @@ impl ChainOps<'_> {
     /// Dispatches a `tool_calls` request, the unanswered calls of one
     /// model round, under the batch rule in the module doc: each catalog
     /// call is issued as a `CallSite::Batch` under the round's `turn` and
-    /// its own slot, and the slots park on the chain.
+    /// its own slot, and the slots park on the chain. A call to a tool
+    /// that changes files stops the batch before it, as an adhoc call
+    /// does, so the loop sends it alone.
     pub(super) fn dispatch_tool_calls(
         &mut self,
         calls: Vec<ToolCallRecord>,
@@ -177,6 +183,7 @@ impl ChainOps<'_> {
             };
             let issued = match self.tool_route(&call.name, &site) {
                 Ok(ToolRoute::Adhoc(_) | ToolRoute::Discovery(_)) => break,
+                Ok(ToolRoute::Catalog(binding)) if binding.changes_files() => break,
                 Ok(ToolRoute::Catalog(binding)) => {
                     self.prepare_catalog_call(binding, call.arguments, site)
                 }

@@ -32,6 +32,9 @@ pub trait Pack: Send + Sync {
     /// change returns its current list, and a Pack still coming up
     /// returns what it has so far. Each tool's id sits under the Pack id
     /// [`new_pack`](PackFactory::new_pack) received, as in `web/fetch`.
+    /// A tool whose calls change files sets `changes_files` in its info,
+    /// so the calls of one model reply run it alone, in the order the
+    /// model listed them.
     fn tools(&self) -> Vec<ToolInfo>;
 
     /// Resolves once the Pack's tool list is complete, or with the

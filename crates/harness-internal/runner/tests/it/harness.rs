@@ -15,8 +15,9 @@
 //! sends the main chain in the `inbox` child module, a run whose prompt
 //! executes a prompt it lists in the `execute` child module, the file
 //! operations a tool call asks for through its files in the `files` child
-//! module, and the runs that end before they start and the one error
-//! `run` returns in the `errors` child module.
+//! module, the order of one reply's calls when a tool changes files in
+//! the `files_order` child module, and the runs that end before they
+//! start and the one error `run` returns in the `errors` child module.
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -43,6 +44,8 @@ mod errors;
 mod execute;
 #[path = "harness-files.rs"]
 mod files;
+#[path = "harness-files-order.rs"]
+mod files_order;
 #[path = "harness-inbox.rs"]
 mod inbox;
 #[path = "harness-stop.rs"]

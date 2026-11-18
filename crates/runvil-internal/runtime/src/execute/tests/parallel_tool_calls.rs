@@ -2,7 +2,8 @@
 //! unanswered call as one batch, the scheduler issues each catalog call in
 //! the same step and answers once every issued call has landed, and the
 //! records append in call order. An adhoc tool stops the batch and runs
-//! alone between its neighbors, and a task canceled while parked on a
+//! alone between its neighbors, as a call to a tool that changes files
+//! does, and a task canceled while parked on a
 //! batch orphans every call in it and lists each in the step's
 //! `withdrawn`, where the step that decides the run lists every effect
 //! still outstanding. Each test steps a `Run`
@@ -287,5 +288,7 @@ fn canceling_a_task_parked_on_a_batch_orphans_every_call() {
     assert_eq!(text_of(result), "canceled");
 }
 
+#[path = "parallel_tool_calls-changes.rs"]
+mod changes;
 #[path = "parallel_tool_calls-withdrawn.rs"]
 mod withdrawn;

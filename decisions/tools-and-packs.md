@@ -186,15 +186,15 @@ When the model made the call, the Engine converts the failure into the call's re
 
 Two failures raise at `models.loop` itself. A model call to a name outside both sets fails the whole round with `out_of_scope_tool`. A call that the Harness drops, after a stop or a cancel, raises the canceled error.
 
-### The Engine issues one round's Pack tool calls together
+### The Engine issues one round's Pack tool calls together, and each call that changes files alone
 
-When one model reply asks for several Pack tools, the Engine issues all the calls in one step, so they run at the same time. The loop appends the round to the messages as a whole, in the order the model listed the calls. An adhoc tool or a discovery tool runs by itself, between batches.
+When one model reply asks for several Pack tools, the Engine issues the calls in one step, so they run at the same time. The loop appends the round to the messages as a whole, in the order the model listed the calls. An adhoc tool or a discovery tool runs by itself, between batches. So does a call to a tool whose `ToolInfo` sets `changes_files`: the Engine issues it once every call listed before it has its answer, and issues the calls listed after it once it has its own.
 
-The calls run at the same time because they are independent of each other, and the model would otherwise wait for them one at a time. The loop appends the whole round because model APIs reject a request unless every requested call has a result.
+The calls run at the same time because they are independent of each other, and the model would otherwise wait for them one at a time. A call that changes files is the exception, because a later call of the same reply can depend on the change, and two changes that overlap can interleave. With each such call alone, the changes of one reply apply one at a time, in the order the model listed them, and a call listed before a change reads the files as they were. A script's `tools.call` is one call and waits for its answer, so the flag changes nothing for it. The loop appends the whole round because model APIs reject a request unless every requested call has a result.
 
 ### Each call works under its own file identity
 
-The Engine forks a file identity for each tool call when it issues the call, and joins it back when the Harness answers. The calls of one round therefore count as concurrent. When two of them touch the same path and one writes, the file system returns `VfsError::Conflict` to the operation that ran second, and the run continues ([Files and the VFS](files-and-the-vfs.md)). A Rust Pack receives that error, and the loader hands a library Pack the kind `RV_FILE_ERROR_CONFLICT` with a sentence that names the path. Each shipped tool reads files only: `web` and `mcp` leave the access unused, and the file functions of contract 0.4 stat, list, and read.
+The Engine forks a file identity for each tool call when it issues the call, and joins it back when the Harness answers. The calls that one round runs together therefore count as concurrent, and a call that runs alone comes after every call answered before it. When two concurrent calls touch the same path and one writes, the file system returns `VfsError::Conflict` to the operation that ran second, and the run continues ([Files and the VFS](files-and-the-vfs.md)). A Rust Pack receives that error, and the loader hands a library Pack the kind `RV_FILE_ERROR_CONFLICT` with a sentence that names the path. Each shipped tool reads files only: `web` and `mcp` leave the access unused, and the file functions of contract 0.4 stat, list, and read.
 
 Concurrent calls that shared one identity would race, and the file system would miss the conflict.
 
@@ -303,6 +303,8 @@ The owner's rule: "Tools are not allowed to have internal states, and if they do
 ### A tool asks for a file operation, and the Harness performs and records it
 
 A Rust Pack's tool asks for a file operation through the files of its `ToolContext` and awaits the outcome. The Harness reports the request to the Engine, which issues it as a `Vfs` effect that names the call. The Harness performs the operation, records it and its answer, and wakes the call with the outcome ([The Harness and the Host API](harness-and-host.md)). The call stays in progress the whole time, and its one answer is still the tool's result. A request goes out when the call first polls it, the Harness performs the requests of one call in the order they went out, and it drops what a call that has ended still asks for. The owner's rule: "every VFS operation that's performed by a tool has to turn into an effect in the engine."
+
+A tool that changes files sets `changes_files` in its `ToolInfo`, and the Engine then runs each of its calls alone, in the order the model listed them (see Tool calls).
 
 The operation itself is synchronous, because the storage underneath is synchronous ([Files and the VFS](files-and-the-vfs.md)): the Harness performs it with one blocking call. The Harness is also independent of any particular async runtime, so each part of the context has to be independent of tokio. A request is a future that the Harness itself wakes, so a tool awaits it on any runtime.
 
@@ -430,7 +432,7 @@ Each of these items is still to be built.
 - **Undecided: a thread of its own for bash.** Bash on a thread of the Plugin's own, with a wake function in the contract. Bash runs inside the steps of its call, so a heavy script holds its step, and a stop with it, until the script ends or reaches one of bashkit's limits, and while a script sleeps the Host steps the call with nothing to do. The owner has yet to decide on it.
 - **Subagent tools.** The tools of `runvil/subagents`, and the wrapping of text that one model writes for another. The Pack only reserves its name.
 - **MCP in the Dynamic Set.** The `mcp` Pack rendering its servers' tools into the Dynamic Set, which retires its own two tools, along with local servers and OAuth. The Pack offers its own two tools, for remote servers.
-- **Filters and labels.** An offer narrowed by a hint such as read-only, and labels on `ToolInfo`, modeled on MCP's, for a future Ask mode. An offer names each tool or Pack, and the `ToolInfo` flags are `structured_output`, `survives_stop`, `describes_tools`, and `model_only_call`.
+- **Filters and labels.** An offer narrowed by a hint such as read-only, and labels on `ToolInfo`, modeled on MCP's, for a future Ask mode. An offer names each tool or Pack, and the `ToolInfo` flags are `structured_output`, `survives_stop`, `describes_tools`, `model_only_call`, and `changes_files`.
 - **Partial rounds.** Saving the finished results when a stop cuts a round short. The loop discards the whole round.
 - **Fetch settings.** A way for a Host to set the fetch limits. The fetch policy has a setter for each limit, and the Pack accepts `null` or `{}` as its configuration, so each Host runs the defaults.
 

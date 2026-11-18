@@ -100,6 +100,10 @@
 //! - A call asks for a file operation through [`ToolContext::files`], so
 //!   the run's record holds it. An operation through the call's access is
 //!   outside the record.
+//! - A tool whose calls change files sets `changes_files` in its
+//!   [`ToolInfo`]. The Engine then issues each of its calls alone, in the
+//!   order the model listed them, so the changes of one model reply
+//!   apply one at a time.
 //! - [`Pack::call`] must not panic. A panicking call's effect is
 //!   answered `Dropped`, and the panic is logged.
 //! - [`Pack::call`] marks the trust of every output correctly: output

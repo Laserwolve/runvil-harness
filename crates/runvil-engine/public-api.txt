@@ -347,6 +347,7 @@ pub fn runvil_engine::ToolCatalog::tools(&self) -> &[runvil_engine::ToolInfo]
 pub fn runvil_engine::ToolId::name(&self) -> &str
 pub fn runvil_engine::ToolId::pack(&self) -> runvil_engine::packs::PackId
 pub fn runvil_engine::ToolId::parse(id: &str) -> core::result::Result<runvil_engine::ToolId, runvil_engine::Error>
+pub fn runvil_engine::ToolInfo::changes_files(self, changes: bool) -> runvil_engine::ToolInfo
 pub fn runvil_engine::ToolInfo::describes_tools(self, describes: bool) -> runvil_engine::ToolInfo
 pub fn runvil_engine::ToolInfo::model_only_call(self, model_only: bool) -> runvil_engine::ToolInfo
 pub fn runvil_engine::ToolInfo::new(id: runvil_engine::ToolId, description: impl core::convert::Into<alloc::string::String>, parameters_schema: serde_json::value::Value) -> runvil_engine::ToolInfo
@@ -697,6 +698,7 @@ pub runvil_engine::Step::Pending::effects: alloc::vec::Vec<runvil_engine::effect
 pub runvil_engine::Step::Pending::events: alloc::vec::Vec<runvil_engine::event::Event>
 pub runvil_engine::Step::Pending::waiting_for_input: bool
 pub runvil_engine::Step::Pending::withdrawn: alloc::vec::Vec<runvil_engine::effect::EffectId>
+pub runvil_engine::ToolInfo::changes_files: bool
 pub runvil_engine::ToolInfo::describes_tools: bool
 pub runvil_engine::ToolInfo::description: alloc::string::String
 pub runvil_engine::ToolInfo::id: runvil_engine::ToolId

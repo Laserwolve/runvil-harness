@@ -364,6 +364,7 @@ pub fn runvil::Timestamp::to_rfc3339(self) -> alloc::string::String
 pub fn runvil::ToolId::name(&self) -> &str
 pub fn runvil::ToolId::pack(&self) -> runvil::packs::PackId
 pub fn runvil::ToolId::parse(id: &str) -> core::result::Result<runvil::ToolId, runvil::Error>
+pub fn runvil::ToolInfo::changes_files(self, changes: bool) -> runvil::ToolInfo
 pub fn runvil::ToolInfo::describes_tools(self, describes: bool) -> runvil::ToolInfo
 pub fn runvil::ToolInfo::model_only_call(self, model_only: bool) -> runvil::ToolInfo
 pub fn runvil::ToolInfo::new(id: runvil::ToolId, description: impl core::convert::Into<alloc::string::String>, parameters_schema: serde_json::value::Value) -> runvil::ToolInfo
@@ -758,6 +759,7 @@ pub runvil::SourceLoc::end_line: core::num::nonzero::NonZeroU32
 pub runvil::SourceLoc::file: alloc::string::String
 pub runvil::SourceLoc::start_column: core::num::nonzero::NonZeroU32
 pub runvil::SourceLoc::start_line: core::num::nonzero::NonZeroU32
+pub runvil::ToolInfo::changes_files: bool
 pub runvil::ToolInfo::describes_tools: bool
 pub runvil::ToolInfo::description: alloc::string::String
 pub runvil::ToolInfo::id: runvil::ToolId

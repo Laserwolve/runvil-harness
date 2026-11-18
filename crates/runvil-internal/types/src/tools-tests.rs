@@ -118,11 +118,24 @@ fn a_wire_name_its_builder_sets_round_trips_exactly_in_canonical_key_order() {
     let canonical = serde_json::to_value(&info).expect("a tool info converts to a JSON value");
     assert_wire(
         &canonical,
-        r#"{"describes_tools":false,"description":"Inspect a fixture.","id":"fixtures/tools/inspect","model_only_call":false,"parameters_schema":{"properties":{"path":{"type":"string"}},"required":["path"],"type":"object"},"structured_output":false,"survives_stop":false,"wire_name":"inspect"}"#,
+        r#"{"changes_files":false,"describes_tools":false,"description":"Inspect a fixture.","id":"fixtures/tools/inspect","model_only_call":false,"parameters_schema":{"properties":{"path":{"type":"string"}},"required":["path"],"type":"object"},"structured_output":false,"survives_stop":false,"wire_name":"inspect"}"#,
     );
     let back: ToolInfo = serde_json::from_value(canonical).expect("the canonical form reads back");
     assert_eq!(back, info);
     assert_eq!(round_trip(&info), info);
+}
+
+#[test]
+fn changes_files_sets_the_flag_and_round_trips_through_serde() {
+    assert!(
+        !inspect_info().changes_files,
+        "a new tool info changes no file"
+    );
+    let info = inspect_info().changes_files(true);
+    assert!(info.changes_files);
+    assert_eq!(round_trip(&info), info);
+    let canonical = serde_json::to_value(&info).expect("a tool info converts to a JSON value");
+    assert_eq!(canonical["changes_files"], json!(true));
 }
 
 #[test]
