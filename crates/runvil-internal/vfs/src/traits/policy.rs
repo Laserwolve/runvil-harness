@@ -24,6 +24,12 @@ use crate::path::VfsPath;
 /// that guards a path must also refuse a rename of each directory above
 /// that path.
 ///
+/// A replacement of text in a file is asked the same way: about its
+/// path as [`Op::Write`], and then as [`Op::Read`], because it reads the
+/// file and its failure tells how many times the text occurs. So a
+/// policy that refuses reads under a path refuses a replacement there,
+/// and the failure is that refusal and never a count.
+///
 /// The enum is `#[non_exhaustive]`, so a `match` on it outside this crate
 /// needs a wildcard arm. A policy should deny in that arm, so an operation
 /// added later is refused until the policy names it.
@@ -92,9 +98,9 @@ pub enum Verdict {
 /// operation is admitted. The first check that fails and the first
 /// question that the policy refuses end the operation, so the policy is
 /// asked nothing that would come after either. A copy and a rename ask
-/// four questions, as [`Op`] says. A policy can change its answers
-/// during a run through shared state: the application holds the same
-/// `Arc` and changes the state mid-run.
+/// four questions, and a replacement of text asks two, as [`Op`] says.
+/// A policy can change its answers during a run through shared state:
+/// the application holds the same `Arc` and changes the state mid-run.
 pub trait Policy: Send {
     /// Decides whether `op` on `path` may proceed.
     fn check(&self, op: Op, path: &VfsPath) -> Verdict;

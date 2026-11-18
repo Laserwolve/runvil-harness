@@ -171,6 +171,32 @@ fn a_copy_that_the_policy_refuses_as_a_read_never_fires_the_sink() -> Result<(),
 }
 
 #[test]
+fn a_replacement_of_text_fires_the_sink_once_as_a_write_and_never_when_its_read_is_refused()
+-> Result<(), VfsError> {
+    let (vfs, events) = watched(crate::AllowAll);
+    access(&vfs)?.str_replace("/a.txt", "x", "y")?;
+    assert_eq!(
+        *events.lock().unwrap_or_else(PoisonError::into_inner),
+        [(Op::Write, "/a.txt".to_owned())],
+        "the read that the policy is asked about fires no event"
+    );
+
+    let (vfs, events) = watched(NoReads);
+    assert!(matches!(
+        access(&vfs)?.str_replace("/a.txt", "x", "y"),
+        Err(VfsError::PermissionDenied { .. })
+    ));
+    assert!(
+        events
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_empty(),
+        "the replacement passed as a write and still fired nothing"
+    );
+    Ok(())
+}
+
+#[test]
 fn an_operation_of_a_tool_call_that_has_ended_never_fires_the_sink() -> Result<(), VfsError> {
     let events: Arc<Mutex<Vec<Op>>> = Arc::new(Mutex::new(Vec::new()));
     let recorded = Arc::clone(&events);

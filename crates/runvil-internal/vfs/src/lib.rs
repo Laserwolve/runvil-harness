@@ -411,6 +411,46 @@ mod tests {
     }
 
     #[test]
+    fn a_replacement_of_text_gets_the_verdict_and_the_reason_of_a_write_in_each_mode()
+    -> Result<(), VfsError> {
+        let policy = ModePolicy::new(Mode::Agent);
+        let handle = policy.handle();
+        let vfs = VfsRef::with_policy(VfsRef::default(), policy);
+        let access = vfs.acquire(Origin::new("mode replacement test"))?;
+        access.write("/a.md", b"one")?;
+        access.write("/a.bin", b"one")?;
+
+        handle.set(Mode::Ask);
+        assert_eq!(
+            access.str_replace("/a.md", "one", "two"),
+            Err(VfsError::ApprovalRequired {
+                path: "/a.md".to_owned(),
+                reason: "Write on /a.md needs user approval: the Ask mode refuses all mutations"
+                    .to_owned(),
+            })
+        );
+
+        handle.set(Mode::Plan);
+        assert_eq!(
+            access.str_replace("/a.bin", "one", "two"),
+            Err(VfsError::PermissionDenied {
+                path: "/a.bin".to_owned(),
+                reason: "Write on /a.bin is refused: the Plan mode allows mutations only to \
+                         markdown paths"
+                    .to_owned(),
+            })
+        );
+        assert_eq!(access.read("/a.bin")?, b"one", "a refused replacement");
+        access.str_replace("/a.md", "one", "two")?;
+        assert_eq!(access.read("/a.md")?, b"two", "markdown, in the Plan mode");
+
+        handle.set(Mode::Agent);
+        access.str_replace("/a.bin", "one", "two")?;
+        assert_eq!(access.read("/a.bin")?, b"two", "in the Agent mode");
+        Ok(())
+    }
+
+    #[test]
     fn exactly_the_operations_that_change_storage_are_mutations() {
         use super::is_mutation;
         use crate::Op;

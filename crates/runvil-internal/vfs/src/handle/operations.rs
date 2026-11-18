@@ -152,12 +152,18 @@ impl Access {
     /// Replaces the single occurrence of `old` with `new` in the file at
     /// `path`.
     ///
+    /// The policy is asked two questions, in this order, and the first
+    /// refusal ends the replacement with nothing written: [`Op::Write`]
+    /// on `path`, and then [`Op::Read`] on `path`. The replacement reads
+    /// the file, and its failure says how many times `old` occurs, so a
+    /// refused read fails as that refusal and never as a count.
+    ///
     /// # Errors
     /// Returns an error when `old` is empty, when the policy denies the
-    /// write, when this access checks claims and another access holds a
-    /// conflicting claim on `path` that is not ordered before this
-    /// operation, when `old` occurs zero times or more than once, or
-    /// when the backend fails.
+    /// write or the read, when this access checks claims and another
+    /// access holds a conflicting claim on `path` that is not ordered
+    /// before this operation, when `old` occurs zero times or more than
+    /// once, or when the backend fails.
     pub fn str_replace(&self, path: &str, old: &str, new: &str) -> Result<(), VfsError> {
         // The store view validates the path before the anchor, in the
         // store contract's order.
@@ -172,6 +178,12 @@ impl Access {
             });
         }
         let path = self.gate(Op::Write, path)?;
+        // A replacement reads its file to find the anchor, so the policy
+        // is asked about that read too, before anything of the file can
+        // come back. The question goes to the policy alone: it makes no
+        // claim and fires no event.
+        self.check_policy(Op::Read, &path)
+            .map_err(|err| self.relativize(err))?;
         self.admit(Claims::claim_write, &path)?;
         self.fire(Op::Write, &path);
         self.inner().str_replace(&path, old, new)

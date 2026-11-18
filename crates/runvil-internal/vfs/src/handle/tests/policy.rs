@@ -5,7 +5,10 @@
 //! its destination as a write, so a policy that refuses reads under a
 //! path keeps the content there, and one that refuses writes under a
 //! path keeps new content out. The first refusal ends the operation, and
-//! a rename asks about no delete.
+//! a rename asks about no delete. A replacement of text asks about its
+//! path as a write and then as a read, so a policy that refuses reads
+//! under a path refuses it there, with its own refusal and never with a
+//! count of what the file holds.
 
 use super::*;
 
@@ -323,5 +326,87 @@ fn a_policy_that_refuses_deletes_still_allows_a_rename() -> Result<(), VfsError>
     access.rename("/open/note", "/open/moved")?;
     assert!(!access.exists("/open/note")?);
     assert_eq!(access.read("/open/moved")?, b"n");
+    Ok(())
+}
+
+#[test]
+fn a_replacement_of_text_asks_about_its_path_as_a_write_and_then_as_a_read() -> Result<(), VfsError>
+{
+    let policy = AskedPolicy::allowing();
+    let access = guarded(&policy)?;
+    access.str_replace("/open/note", "n", "m")?;
+    assert_eq!(
+        policy.take(),
+        [
+            asked(Op::Write, "/open/note"),
+            asked(Op::Read, "/open/note")
+        ]
+    );
+    assert_eq!(access.read("/open/note")?, b"m");
+
+    // A refusal of the write is the one question asked.
+    let policy = AskedPolicy::refusing(|op, _| op == Op::Write);
+    let access = guarded(&policy)?;
+    assert_eq!(
+        access.str_replace("/open/note", "n", "m"),
+        denied(Op::Write, "/open/note")
+    );
+    assert_eq!(policy.take(), [asked(Op::Write, "/open/note")]);
+    Ok(())
+}
+
+#[test]
+fn a_policy_that_refuses_reads_under_a_path_refuses_a_replacement_of_text_there()
+-> Result<(), VfsError> {
+    let seeded = || TestFs::seeded(&[("/secret/key", "one two two")]);
+    let behind = |policy: &AskedPolicy, files: &TestFs| {
+        let vfs = VfsRef::builder()
+            .mount("/", files.clone())
+            .policy(policy.clone())
+            .build();
+        access(&vfs)
+    };
+
+    // Under a policy that allows the read, the failure of a replacement
+    // tells how many times the text occurs.
+    let files = seeded();
+    assert_eq!(
+        behind(&AskedPolicy::allowing(), &files)?.str_replace("/secret/key", "two", "x"),
+        Err(VfsError::Anchor {
+            path: "/secret/key".to_owned(),
+            anchor: "two".to_owned(),
+            count: 2,
+        })
+    );
+
+    // The text occurs zero times, once, and twice.
+    for text in ["three", "one", "two"] {
+        let policy =
+            AskedPolicy::refusing(|op, path| op == Op::Read && path.starts_with("/secret"));
+        let files = seeded();
+        let access = behind(&policy, &files)?;
+        assert_eq!(
+            access.str_replace("/secret/key", text, "x"),
+            denied(Op::Read, "/secret/key"),
+            "{text}: the failure is the policy's refusal of the read and never a count"
+        );
+        assert_eq!(
+            policy.take(),
+            [
+                asked(Op::Write, "/secret/key"),
+                asked(Op::Read, "/secret/key")
+            ],
+            "{text}"
+        );
+        assert!(
+            !files
+                .calls()
+                .iter()
+                .any(|call| matches!(call, Call::Op(..))),
+            "{text}: the file is neither read nor written: {:?}",
+            files.calls()
+        );
+        assert_eq!(files.files()["/secret/key"], b"one two two", "{text}");
+    }
     Ok(())
 }
