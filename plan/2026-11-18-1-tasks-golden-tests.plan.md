@@ -22,7 +22,7 @@ todos:
     status: completed
   - id: pr
     content: "Push the branch to the fork and open one PR against cppalliance/runvil-harness"
-    status: in_progress
+    status: completed
 ---
 
 # Golden tests for tasks
