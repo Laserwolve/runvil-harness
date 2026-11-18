@@ -9,9 +9,26 @@ use super::lines::{LineNumbers, read_lines};
 use super::store_view::{strip_root, validate_store_path};
 use crate::error::{PathReason, VfsError};
 use crate::glob::validate_glob_pattern;
+use crate::path::VfsPath;
 use crate::stat::{Entry, Stat};
 use crate::traits::Op;
 use crate::vfs_op::{VfsOp, VfsOutcome};
+
+/// The second gate of a copy or a rename, for the two things the
+/// operation is made of: asks the policy of `access` about a read of
+/// `from` and then about a write of `to`. Both paths have passed
+/// [`Access::gate`] under the operation's own kind by then, so a policy
+/// that treats that kind as one question gives the verdict of that
+/// question, and one that refuses reads or writes under a path refuses a
+/// copy or a rename that would take content out of it or put content
+/// into it. The first refusal ends the operation. The two questions go
+/// to the policy alone: they make no claim and fire no event.
+fn gate_parts(access: &Access, from: &VfsPath, to: &VfsPath) -> Result<(), VfsError> {
+    access
+        .check_policy(Op::Read, from)
+        .and_then(|()| access.check_policy(Op::Write, to))
+        .map_err(|err| access.relativize(err))
+}
 
 impl Access {
     /// Runs `op`, one operation of the list, and returns its outcome.
@@ -334,14 +351,25 @@ impl Access {
     /// checks claims claims the source as the whole subtree it moves,
     /// and the destination as a write.
     ///
+    /// The policy is asked four questions, in this order, and the first
+    /// refusal ends the rename with nothing moved: [`Op::Rename`] on
+    /// `from`, [`Op::Rename`] on `to`, [`Op::Read`] on `from`, and
+    /// [`Op::Write`] on `to`. It is not asked about `from` as
+    /// [`Op::Delete`].
+    ///
     /// # Errors
-    /// Returns an error when the policy denies the rename, when this
-    /// access checks claims and another access holds a conflicting claim
-    /// on either path that is not ordered before this operation, or when
-    /// the backend fails.
+    /// Returns an error when the policy denies the rename, the read of
+    /// `from`, or the write of `to`, when this access checks claims and
+    /// another access holds a conflicting claim on either path that is
+    /// not ordered before this operation, or when the backend fails.
     pub fn rename(&self, from: &str, to: &str) -> Result<(), VfsError> {
         let from = self.gate(Op::Rename, from)?;
         let to = self.gate(Op::Rename, to)?;
+        // A rename takes what its source holds to its destination, so the
+        // policy is asked about that read and that write too. It is not
+        // asked about a delete of the source: a policy that refuses
+        // deletes so that nothing is lost can still allow a move.
+        gate_parts(self, &from, &to)?;
         // Both paths gated, so the operation is admitted: the source
         // subtree and the destination are claimed, then one event per
         // canonical path.
@@ -360,14 +388,22 @@ impl Access {
     /// An access that checks claims claims the source as a read and the
     /// destination as a write.
     ///
+    /// The policy is asked four questions, in this order, and the first
+    /// refusal ends the copy with nothing copied: [`Op::Copy`] on `from`,
+    /// [`Op::Copy`] on `to`, [`Op::Read`] on `from`, and [`Op::Write`] on
+    /// `to`.
+    ///
     /// # Errors
-    /// Returns an error when the policy denies the copy, when this
-    /// access checks claims and another access holds a conflicting claim
-    /// on either path that is not ordered before this operation, or when
-    /// the backend fails.
+    /// Returns an error when the policy denies the copy, the read of
+    /// `from`, or the write of `to`, when this access checks claims and
+    /// another access holds a conflicting claim on either path that is
+    /// not ordered before this operation, or when the backend fails.
     pub fn copy(&self, from: &str, to: &str) -> Result<(), VfsError> {
         let from = self.gate(Op::Copy, from)?;
         let to = self.gate(Op::Copy, to)?;
+        // A copy reads its source and writes its destination, so the
+        // policy is asked about that read and that write too.
+        gate_parts(self, &from, &to)?;
         let to_key = self.claim_key(&to);
         self.admit(
             |claims, scope, id, from| claims.claim_copy(scope, id, from, &to_key),

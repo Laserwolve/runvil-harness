@@ -518,7 +518,8 @@ impl VfsRefBuilder {
     /// The built handle calls this operation sink just before the
     /// backend runs each operation that the policy allows, of an access
     /// whose scope and identity are live. Only those operations reach
-    /// the sink. Each call receives
+    /// the sink. It is called once for each path of the operation, so a
+    /// copy or a rename is two calls. Each call receives
     /// an `OpEvent` with the operation kind, the canonical path, and the
     /// `Origin` of the access that made the call. The sink only
     /// observes: it returns `()`, and the operation's result stays

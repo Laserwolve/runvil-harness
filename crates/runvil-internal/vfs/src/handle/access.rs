@@ -150,7 +150,7 @@ impl Access {
     /// Consults the handle's policy. `Ask` maps to `ApprovalRequired`:
     /// this layer never asks for approval, and the reason string still
     /// names what was asked and which rule fired.
-    fn check_policy(&self, op: Op, path: &VfsPath) -> Result<(), VfsError> {
+    pub(super) fn check_policy(&self, op: Op, path: &VfsPath) -> Result<(), VfsError> {
         match self.policy.check(op, path) {
             Verdict::Allow => Ok(()),
             Verdict::Deny(reason) => Err(VfsError::PermissionDenied {

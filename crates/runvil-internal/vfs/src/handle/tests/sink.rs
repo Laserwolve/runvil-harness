@@ -96,6 +96,80 @@ fn a_policy_denied_operation_never_fires_the_sink() -> Result<(), VfsError> {
     Ok(())
 }
 
+/// The kind and the path of each event a sink received, in order.
+type Seen = Arc<Mutex<Vec<(Op, String)>>>;
+
+/// A handle over `/a.txt` behind `policy`, beside the kind and the path
+/// of each event its sink receives.
+fn watched(policy: impl Policy + Sync + 'static) -> (VfsRef, Seen) {
+    let events = Seen::default();
+    let recorded = Arc::clone(&events);
+    let vfs = VfsRef::builder()
+        .mount("/", TestFs::seeded(&[("/a.txt", "x")]))
+        .policy(policy)
+        .on_op(move |event: OpEvent<'_>| {
+            recorded
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push((event.op(), event.path().to_string()));
+        })
+        .build();
+    (vfs, events)
+}
+
+#[test]
+fn a_copy_and_a_rename_fire_the_sink_once_for_each_path_under_their_own_kind()
+-> Result<(), VfsError> {
+    let (vfs, events) = watched(crate::AllowAll);
+    let access = access(&vfs)?;
+    access.copy("/a.txt", "/b.txt")?;
+    access.rename("/b.txt", "/c.txt")?;
+    let event = |op, path: &str| (op, path.to_owned());
+    assert_eq!(
+        *events.lock().unwrap_or_else(PoisonError::into_inner),
+        [
+            event(Op::Copy, "/a.txt"),
+            event(Op::Copy, "/b.txt"),
+            event(Op::Rename, "/b.txt"),
+            event(Op::Rename, "/c.txt"),
+        ],
+        "two events are one copy, and the read and the write that the policy is asked about \
+         fire none"
+    );
+    Ok(())
+}
+
+/// Refuses every `Op::Read` and allows everything else.
+struct NoReads;
+
+impl Policy for NoReads {
+    fn check(&self, op: Op, path: &VfsPath) -> Verdict {
+        if op == Op::Read {
+            Verdict::Deny(format!("no read of {path}"))
+        } else {
+            Verdict::Allow
+        }
+    }
+}
+
+#[test]
+fn a_copy_that_the_policy_refuses_as_a_read_never_fires_the_sink() -> Result<(), VfsError> {
+    let (vfs, events) = watched(NoReads);
+    let access = access(&vfs)?;
+    assert!(matches!(
+        access.copy("/a.txt", "/b.txt"),
+        Err(VfsError::PermissionDenied { .. })
+    ));
+    assert!(
+        events
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_empty(),
+        "the copy passed its own kind for both paths and still fired nothing"
+    );
+    Ok(())
+}
+
 #[test]
 fn an_operation_of_a_tool_call_that_has_ended_never_fires_the_sink() -> Result<(), VfsError> {
     let events: Arc<Mutex<Vec<Op>>> = Arc::new(Mutex::new(Vec::new()));

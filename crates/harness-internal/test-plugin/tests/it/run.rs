@@ -434,12 +434,12 @@ async fn each_file_operation_of_a_library_tool_is_performed_on_the_runs_files_an
     remove(&dir);
 }
 
-/// Denies each `Read`, `List`, and `Stat` under `/secret` and every
-/// change under `/locked`, and panics on each `Read`, `List`, and `Stat`
-/// under `/broken`. It does not guard the content under `/secret`: a
-/// copy or a rename out of it passes, because a policy is asked about
-/// those as `Copy` and `Rename`. A write elsewhere passes, so a test can
-/// seed what it reads.
+/// Denies every read under `/secret` and every change under `/locked`,
+/// and panics on every read under `/broken`. A read here is a `Read`, a
+/// `List`, or a `Stat`. The file system asks about the source of a copy
+/// or a rename as a `Read` as well, so the first arm also refuses a copy
+/// and a rename out of `/secret`. A write elsewhere passes, so a test
+/// can seed what it reads.
 struct Guard;
 
 impl Policy for Guard {
@@ -475,6 +475,8 @@ async fn an_operation_the_policy_denies_or_panics_on_is_a_file_error_and_the_run
                \x20 tool('read', { path = '/secret/key' }),\n\
                \x20 tool('stat', { path = '/secret/key' }),\n\
                \x20 tool('list', { path = '/secret' }),\n\
+               \x20 tool('copy', { from = '/secret/key', to = '/notes/key' }),\n\
+               \x20 tool('rename', { from = '/secret/key', to = '/notes/moved' }),\n\
                \x20 tool('write', { path = '/locked/a.md', text = 'x' }),\n\
                \x20 tool('mkdir', { path = '/locked/made', recursive = true }),\n\
                \x20 tool('rename', { from = '/notes/a.md', to = '/locked/a.md' }),\n\
@@ -505,20 +507,13 @@ async fn an_operation_the_policy_denies_or_panics_on_is_a_file_error_and_the_run
         .expect("the recorder takes the run");
     let unread = "failed (4): This run may not read under /secret.";
     let locked = "failed (4): This run may not change files under /locked.";
+    let panicked = "failed (0): the file operation panicked";
     assert_eq!(
         report_of_run.result,
-        Ok([
-            unread,
-            unread,
-            unread,
-            locked,
-            locked,
-            locked,
-            locked,
-            "failed (0): the file operation panicked",
-            "hello",
-        ]
-        .join("|"))
+        Ok([&[unread; 5][..], &[locked; 4], &[panicked, "hello"]]
+            .concat()
+            .join("|")),
+        "a copy and a rename out of /secret get the denial of the read of their source"
     );
     let files = vfs
         .acquire(Origin::new("fixture check"))
@@ -528,24 +523,20 @@ async fn an_operation_the_policy_denies_or_panics_on_is_a_file_error_and_the_run
         (Ok(false), Ok(true)),
         "no denied change was performed"
     );
+    assert_eq!(
+        ["/notes/key", "/notes/moved", "/secret/key"].map(|path| files.exists(path)),
+        [Ok(false), Ok(false), Ok(true)],
+        "the denied copy and the denied rename made nothing and moved nothing"
+    );
     let denied: Vec<Value> = asked_by_each_call(&recorder.records(report_of_run.run_id))
         .into_iter()
         .flatten()
         .map(|(_, receipt)| receipt["Err"]["kind"].clone())
         .collect();
+    let mut kinds = vec![json!("permission_denied"); 9];
+    kinds.extend([json!("backend"), Value::Null]);
     assert_eq!(
-        denied,
-        [
-            json!("permission_denied"),
-            json!("permission_denied"),
-            json!("permission_denied"),
-            json!("permission_denied"),
-            json!("permission_denied"),
-            json!("permission_denied"),
-            json!("permission_denied"),
-            json!("backend"),
-            Value::Null,
-        ],
+        denied, kinds,
         "the record holds each refused operation with the kind of its failure"
     );
     assert_eq!(

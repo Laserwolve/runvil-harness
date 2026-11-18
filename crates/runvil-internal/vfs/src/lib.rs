@@ -80,11 +80,16 @@ pub enum Mode {
 /// A policy that limits changes to storage according to the current
 /// `Mode`.
 ///
-/// A `VfsRef` holds one policy and consults it on every operation whose
-/// path is valid, before the operation goes any further. The mode limits
-/// only operations that change storage: writes, appends, deletes,
-/// renames, directory creation, copies, symbolic links, and permission
-/// changes.
+/// A `VfsRef` holds one policy and asks it about an operation path by
+/// path, about a path once that path is valid and before the operation
+/// is admitted, as [`Policy`] says. The mode limits only operations that
+/// change storage: writes, appends, deletes, renames, directory
+/// creation, copies, symbolic links, and permission changes. A copy and
+/// a rename get its verdict under their own kinds, on the source and on
+/// the destination alike. The two questions that follow, a read of the
+/// source and a write of the destination, never refuse what it allowed
+/// there: it allows every read, and a write of a path gets the answer
+/// that a copy or a rename of that path got.
 ///
 /// The policy shares its current mode with every [`ModeHandle`] it
 /// returns. The caller keeps a handle and can change the mode mid-run.
@@ -172,10 +177,10 @@ impl Policy for ModePolicy {
             Mode::Ask => Verdict::Ask(format!(
                 "{op:?} on {path} needs user approval: the Ask mode refuses all mutations"
             )),
-            // Copy is checked per path, source and destination alike,
-            // so Plan refuses to even read a non-markdown source. The
-            // policy cannot tell the two apart; conservative refusal
-            // is the safe side.
+            // Under its own kind a copy is checked per path, source and
+            // destination alike, so Plan refuses to even read a
+            // non-markdown source. The policy cannot tell the two apart
+            // there; conservative refusal is the safe side.
             Mode::Plan if is_markdown(path) => Verdict::Allow,
             Mode::Plan => Verdict::Deny(format!(
                 "{op:?} on {path} is refused: the Plan mode allows mutations only to markdown paths"
@@ -187,7 +192,7 @@ impl Policy for ModePolicy {
 #[cfg(test)]
 mod tests {
     use super::{Mode, ModePolicy};
-    use crate::{FileType, Origin, VfsError, VfsRef};
+    use crate::{Access, FileType, Origin, VfsError, VfsRef};
 
     /// A manifest section is a dependency table when it is exactly
     /// `dependencies` or `build-dependencies`, a sub-table of one
@@ -331,6 +336,77 @@ mod tests {
         }
         // The denied write never partially applied.
         assert!(!access.exists(binary)?);
+        Ok(())
+    }
+
+    #[test]
+    fn a_copy_and_a_rename_get_the_verdict_and_the_reason_of_their_own_kind_in_each_mode()
+    -> Result<(), VfsError> {
+        /// A copy or a rename of `from` to `to` through an access.
+        type Change = fn(&Access, &str, &str) -> Result<(), VfsError>;
+        let changes: [(&str, Change); 2] = [
+            ("Copy", |access, from, to| access.copy(from, to)),
+            ("Rename", |access, from, to| access.rename(from, to)),
+        ];
+        for (kind, change) in changes {
+            let policy = ModePolicy::new(Mode::Agent);
+            let handle = policy.handle();
+            let vfs = VfsRef::with_policy(VfsRef::default(), policy);
+            let access = vfs.acquire(Origin::new("mode change test"))?;
+            access.write("/a.md", b"markdown")?;
+            access.write("/a.bin", b"binary")?;
+
+            // The Ask mode answers the first question, the operation's
+            // own kind on its source.
+            handle.set(Mode::Ask);
+            assert_eq!(
+                change(&access, "/a.md", "/b.md"),
+                Err(VfsError::ApprovalRequired {
+                    path: "/a.md".to_owned(),
+                    reason: format!(
+                        "{kind} on /a.md needs user approval: the Ask mode refuses all mutations"
+                    ),
+                }),
+                "{kind} in the Ask mode"
+            );
+
+            // The Plan mode refuses the first path that is not markdown,
+            // under the operation's own kind.
+            handle.set(Mode::Plan);
+            let refused = |path: &str| {
+                Err(VfsError::PermissionDenied {
+                    path: path.to_owned(),
+                    reason: format!(
+                        "{kind} on {path} is refused: the Plan mode allows mutations only to \
+                         markdown paths"
+                    ),
+                })
+            };
+            assert_eq!(
+                change(&access, "/a.bin", "/b.md"),
+                refused("/a.bin"),
+                "{kind} of a source that is not markdown, in the Plan mode"
+            );
+            assert_eq!(
+                change(&access, "/a.md", "/b.bin"),
+                refused("/b.bin"),
+                "{kind} to a destination that is not markdown, in the Plan mode"
+            );
+            assert!(
+                !access.exists("/b.md")? && !access.exists("/b.bin")?,
+                "a refused {kind} made nothing"
+            );
+            assert_eq!(change(&access, "/a.md", "/b.md"), Ok(()), "{kind} in Plan");
+            assert_eq!(access.read("/b.md")?, b"markdown");
+
+            handle.set(Mode::Agent);
+            assert_eq!(
+                change(&access, "/a.bin", "/b.bin"),
+                Ok(()),
+                "{kind} in Agent"
+            );
+            assert_eq!(access.read("/b.bin")?, b"binary");
+        }
         Ok(())
     }
 

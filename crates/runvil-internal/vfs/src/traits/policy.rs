@@ -6,11 +6,23 @@ use crate::path::VfsPath;
 /// The kind of filesystem operation being attempted, which a policy
 /// matches on.
 ///
-/// A copy and a rename ask the policy about each of their two paths, as
-/// [`Op::Copy`] and as [`Op::Rename`], and never about the source as
-/// [`Op::Read`]. So a policy that refuses reads under a path must refuse
-/// those two kinds there as well, or a copy or a rename takes the content
-/// out.
+/// A copy and a rename are asked as what they are made of. Each asks
+/// about its source and then about its destination under its own kind,
+/// [`Op::Copy`] or [`Op::Rename`], and then about its source as
+/// [`Op::Read`] and about its destination as [`Op::Write`]. The first
+/// refusal ends the operation, and nothing is copied or moved. So a
+/// policy that refuses reads under a path refuses a copy and a rename
+/// out of it, and a policy that refuses writes under a path refuses a
+/// copy and a rename into it. The questions under the operation's own
+/// kind come first, so a policy that treats a copy or a rename as one
+/// kind of change gives its own verdict and its own reason for it. A
+/// rename is not asked about its source as [`Op::Delete`]: a policy that
+/// refuses deletes so that nothing is lost can still allow a move.
+///
+/// The questions name the two paths of the operation and nothing under
+/// them. A rename of a directory moves everything in it, so a policy
+/// that guards a path must also refuse a rename of each directory above
+/// that path.
 ///
 /// The enum is `#[non_exhaustive]`, so a `match` on it outside this crate
 /// needs a wildcard arm. A policy should deny in that arm, so an operation
@@ -75,11 +87,12 @@ pub enum Verdict {
 
 /// A hook that decides whether each filesystem operation may proceed.
 ///
-/// Each `VfsRef` has one policy. `Access` consults it on every
-/// operation whose path is valid, before the operation goes any further.
-/// An operation whose path is invalid fails before the policy is asked.
-/// A copy and a rename consult it once for each of their two paths,
-/// under their own kinds, as [`Op`] says. A policy can change its answers
+/// Each `VfsRef` has one policy. `Access` asks it about an operation
+/// path by path: about a path once that path is valid, and before the
+/// operation is admitted. The first check that fails and the first
+/// question that the policy refuses end the operation, so the policy is
+/// asked nothing that would come after either. A copy and a rename ask
+/// four questions, as [`Op`] says. A policy can change its answers
 /// during a run through shared state: the application holds the same
 /// `Arc` and changes the state mid-run.
 pub trait Policy: Send {
