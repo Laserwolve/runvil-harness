@@ -8,13 +8,13 @@
 //! `TaskCanceled` exactly once.
 
 use runvil_types::event::Event;
+use runvil_vfs::VfsOp;
 
 use super::context::task;
 use super::scheduler::{asks, is_timer, scheduler_scenario};
 use super::tasks::TaskRecorder;
 use super::*;
 use crate::execute::scheduler::test_hooks::TaskState;
-use crate::lua::VfsOp;
 use crate::test_support::rig::Rig;
 
 /// A prompt whose first section drives the tasks it spawns over the

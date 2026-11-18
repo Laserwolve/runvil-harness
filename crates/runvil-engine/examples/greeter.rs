@@ -44,7 +44,7 @@ pub fn answer(effect: Effect) -> EffectAnswer {
     match effect {
         // The view reaches the one store the effect names, so the loop
         // performs the operation without reading which store that is.
-        Effect::Vfs { access, op, .. } => EffectAnswer::Vfs(perform_vfs_op(&access, op)),
+        Effect::Vfs { access, op, .. } => EffectAnswer::Vfs(perform_vfs_op(&access, &op)),
         Effect::Chat { .. } => {
             let reply = CompletionResult::Text("hi there".to_owned());
             EffectAnswer::Chat(Completion::from_result(reply, "canned").map(Box::new))

@@ -1,7 +1,9 @@
 //! The Runvil virtual filesystem and the editor mode policy over it.
 //!
 //! The machinery modules hold canonical paths, the claims model, the
-//! mount router, the operation-observation seam, and the backends. The
+//! mount router, the operation-observation seam, the backends, and the
+//! file operations as values: a [`VfsOp`] is one operation with its
+//! arguments, and [`Access::perform`] runs it. The
 //! crate root holds runvil policy: [`ModePolicy`], the editor mode
 //! gate. The machinery modules hold no runvil policy (no run
 //! concepts). A [`Store`] is generic machinery: an empty set of files in
@@ -31,6 +33,7 @@ mod stat;
 #[cfg(test)]
 mod test_support;
 mod traits;
+mod vfs_op;
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -43,6 +46,7 @@ pub use real::{RealBackend, Writability};
 pub use router::VfsRefBuilder;
 pub use stat::{Entry, FileType, Stat};
 pub use traits::{AcquireContext, AllowAll, ExecId, Op, Policy, Verdict, Vfs, VfsAccess};
+pub use vfs_op::{VfsOp, VfsOutcome};
 
 /// The default handle has one mount: an empty in-memory backend at `/`.
 impl Default for VfsRef {

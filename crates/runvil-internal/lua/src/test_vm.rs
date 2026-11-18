@@ -26,7 +26,7 @@ use crate::error::{Result, UNNAMED_FILE, make_lua_runtime_error};
 use crate::tests::recording::null_emitter;
 use crate::{
     Answer, CoroStep, LuaBlockResult, LuaProgram, OfferedTool, Request, RosterEntry, SectionRead,
-    SectionVm, ToolSet, YieldParse, make_store_failure_error, run_store_op, store_error_message,
+    SectionVm, ToolSet, YieldParse, make_store_failure_error, store_error_message,
 };
 
 /// The one guard-nonce seed of every test VM.
@@ -111,13 +111,13 @@ pub(crate) fn drive_block(
             CoroStep::Yielded(thread, values) => (thread, values),
         };
         let answer = match vm.request_from_yield(&values) {
-            YieldParse::Request(Request::Store { op }) => run_store_op(&view, op.clone())
-                .map(Answer::Store)
-                .map_err(|cause| {
+            YieldParse::Request(Request::Store { op }) => {
+                view.perform(&op).map(Answer::Store).map_err(|cause| {
                     let failure =
                         make_store_failure_error(&cause, store_error_message(&op, &cause));
                     place(failure, UNNAMED_FILE, vm.call_line())
-                }),
+                })
+            }
             YieldParse::Request(other) => {
                 panic!("the block driver answers store requests alone, got {other:?}")
             }

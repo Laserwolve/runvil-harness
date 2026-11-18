@@ -136,14 +136,12 @@ pub mod prompt {
 
 pub mod vfs {
     //! A run's files: the virtual filesystem the caller gives a run for
-    //! its tool calls, the policy that decides what they may change, and
-    //! the operations of the run's own stores, the one a run starts with
-    //! and one for each prompt it executes, which sit outside that
-    //! filesystem and which the caller reaches only through the view of
-    //! a store effect.
+    //! its tool calls, the policy that decides what they may change, the
+    //! file operations as values with what each returns, and the run's
+    //! own stores, the one a run starts with and one for each prompt it
+    //! executes, which sit outside that filesystem and which the caller
+    //! reaches only through the view of a store effect.
 
-    pub use runvil_lua::VfsOp;
-    pub use runvil_lua::VfsOutcome;
     pub use runvil_lua::make_store_error;
     pub use runvil_runtime::perform_vfs_op;
     pub use runvil_vfs::Access;
@@ -168,6 +166,8 @@ pub mod vfs {
     pub use runvil_vfs::Vfs;
     pub use runvil_vfs::VfsAccess;
     pub use runvil_vfs::VfsError;
+    pub use runvil_vfs::VfsOp;
+    pub use runvil_vfs::VfsOutcome;
     pub use runvil_vfs::VfsPath;
     pub use runvil_vfs::VfsPathBuf;
     pub use runvil_vfs::VfsRef;

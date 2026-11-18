@@ -12,7 +12,7 @@ use mlua::{Lua, Value};
 use runvil_model_client::model::ModelSet;
 use runvil_types::emitter::Emitter;
 use runvil_types::tools::{ToolId, ToolInfo};
-use runvil_vfs::Access;
+use runvil_vfs::{Access, VfsOp, VfsOutcome};
 use serde_json::{Value as Json, json};
 
 use self::recording::{Observation, Recorder, boundary, null_emitter};

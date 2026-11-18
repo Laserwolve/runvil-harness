@@ -12,11 +12,11 @@
 
 use runvil_types::ids::ChainId;
 use runvil_types::packs::{PackId, Prelude};
+use runvil_vfs::VfsOp;
 
 use super::fixtures::echo_tool;
 use super::*;
 use crate::execute::run::{EffectRecord, ToolCallOrigin, ToolCaller};
-use crate::lua::VfsOp;
 /// A prelude contributed by the Pack `id`.
 pub(super) fn prelude(id: &str, source: &str) -> Prelude {
     Prelude::new(PackId::parse(id).expect("a valid Pack id"), source)
@@ -289,7 +289,7 @@ fn write_then_read(path: &str, text: &str) -> Vec<EffectRecord> {
             store: ChainId::root(),
             op: VfsOp::Write {
                 path: path.to_owned(),
-                contents: text.to_owned(),
+                contents: text.as_bytes().to_vec(),
             },
         },
         EffectRecord::Vfs {

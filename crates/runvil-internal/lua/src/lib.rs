@@ -61,8 +61,8 @@
 //!
 //! Most of this crate's public items exist for `runvil-runtime`'s
 //! executor, which drives the VM and the coroutine protocol; the facade
-//! re-exports the store protocol ([`VfsOp`], [`VfsOutcome`],
-//! [`make_store_error`]) and the roster entry ([`RosterEntry`]);
+//! re-exports the store failure's constructor ([`make_store_error`]) and
+//! the roster entry ([`RosterEntry`]);
 //! `crates/runvil-engine/public-api.txt` holds the full surface. The
 //! `test_support` module, built for this crate's tests and under the
 //! `test-support` feature, holds what tests reach beyond that surface.
@@ -140,9 +140,7 @@ pub use crate::collection::render_item;
 pub use crate::compactors::{OverflowReason, UsageAnchor, output_reserve, precheck};
 pub use crate::dispatch::{ScriptReport, ToolDispatch, prepare_dispatch, prepare_model_dispatch};
 pub use crate::engine_globals::install_ui;
-pub use crate::engine_globals_store::{
-    make_store_failure_error, run_store_op, store_error_message,
-};
+pub use crate::engine_globals_store::{make_store_failure_error, store_error_message};
 pub use crate::error::{
     QuotaResource, make_context_exhausted_error, make_internal_at_error, make_internal_error,
     make_lua_quota_error, make_lua_runtime_error, make_task_canceled_error,
@@ -160,7 +158,7 @@ pub use crate::prose::ProseState;
 pub use crate::protocol::{
     AdhocToolOutcome, Answer, Blocked, ChatOutcome, ChatResult, ContentPart, MessageContent,
     MessageRecord, ModelCall, NonEmpty, RecordRole, Request, TaskDelivery, TaskPhase, TaskStatus,
-    ToolCallOutcome, ToolCallRecord, VfsOp, VfsOutcome, YieldParse,
+    ToolCallOutcome, ToolCallRecord, YieldParse,
 };
 pub use crate::scope::{OfferMode, OfferedTool, Offers, RenderedTools, ToolCallCounts};
 pub use crate::section::{

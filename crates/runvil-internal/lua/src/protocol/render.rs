@@ -3,12 +3,13 @@
 
 use mlua::{Lua, LuaSerdeExt, MultiValue, Table, Value};
 use runvil_types::error::Error;
+use runvil_vfs::VfsOutcome;
 
 use crate::error::authored;
 use crate::error_value::error_table;
 use crate::tools::adhoc_handler;
 
-use super::answer::{Answer, TaskDelivery, TaskPhase, TaskStatus, ToolCallOutcome, VfsOutcome};
+use super::answer::{Answer, TaskDelivery, TaskPhase, TaskStatus, ToolCallOutcome};
 
 /// An answer's typed error and the error table rendered from it.
 /// [`SectionVm::resume_block_coro_answer`](crate::SectionVm::resume_block_coro_answer)
@@ -60,14 +61,17 @@ fn task_id_sequence(lua: &Lua, tasks: &[runvil_types::ids::TaskId]) -> mlua::Res
     Ok(sequence)
 }
 
-/// Renders a store op's return value: nil for the mutating ops, the text
-/// for reads, a sequence table for glob, a boolean for exists.
+/// Renders a store op's return value: the text for reads, a sequence
+/// table for glob, a boolean for exists, and nil for the mutating ops. No
+/// `store` function returns a stat, a listing, or bytes, so an outcome of
+/// those kinds renders as nil too.
 fn store_value(lua: &Lua, outcome: VfsOutcome) -> mlua::Result<Value> {
     Ok(match outcome {
-        VfsOutcome::Unit => Value::Nil,
         VfsOutcome::Text(text) => Value::String(lua.create_string(&text)?),
         VfsOutcome::Paths(paths) => Value::Table(lua.create_sequence_from(paths)?),
         VfsOutcome::Bool(exists) => Value::Boolean(exists),
+        // `Unit`, and every outcome no `store` function returns.
+        _ => Value::Nil,
     })
 }
 

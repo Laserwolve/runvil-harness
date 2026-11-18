@@ -269,7 +269,7 @@ fn a_store_failure_takes_the_stores_code_and_facts_under_its_own_message() {
         anchor: "TODO".to_owned(),
         count: 2,
     };
-    let op = crate::lua::VfsOp::StrReplace {
+    let op = runvil_vfs::VfsOp::StrReplace {
         path: "notes.md".to_owned(),
         old: "TODO".to_owned(),
         new: "DONE".to_owned(),

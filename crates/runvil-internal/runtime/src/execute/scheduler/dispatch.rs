@@ -20,10 +20,11 @@ use std::sync::Arc;
 
 use runvil_types::error::place;
 use runvil_types::event::ReplyOrigin;
+use runvil_vfs::VfsOp;
 
 use crate::execute::run::Effect;
 use crate::execute::section_context::TaskSeed;
-use crate::lua::{Answer, LibraryKey, Request, VfsOp};
+use crate::lua::{Answer, LibraryKey, Request};
 use crate::model::{Message, ModelBinding};
 use crate::section_pos::{SectionIndex, SectionPos};
 use crate::{Result, error};

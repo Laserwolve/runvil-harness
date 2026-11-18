@@ -10,11 +10,11 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use runvil_types::ids::{ChainId, TaskId};
-use runvil_vfs::Origin;
+use runvil_vfs::{Origin, VfsOp};
 
 use crate::Result;
 use crate::execute::run::EffectId;
-use crate::lua::{Answer, Request, ToolSet, VfsOp};
+use crate::lua::{Answer, Request, ToolSet};
 use crate::section_pos::{SectionIndex, SectionPos};
 
 use super::chain::ChainStart;

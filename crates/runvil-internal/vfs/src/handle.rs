@@ -41,6 +41,7 @@ mod case_fold;
 mod claims;
 mod claims_tree;
 mod forward;
+mod lines;
 mod operations;
 mod prune;
 mod region;

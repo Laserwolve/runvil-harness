@@ -48,6 +48,12 @@ For each `store` call the Engine derives a store view from the calling chain's s
 
 The store follows one rule: it offers a subset of the operations of the VFS. A store is a value and not a mount of a handle, because one scope has to hold many stores. A child prompt that `execute` runs gets a store of its own, and it runs in its caller's scope under its caller's identity. The owner's rule: "prompts passed to execute or execute_async should get their own store which is completely isolated from the caller's store. they cannot see each others' paths or claims."
 
+### One list of operations serves the `store` functions and a tool's file requests
+
+`runvil-vfs` defines the file operations as values. A `VfsOp` is one operation with its arguments, `Access::perform` runs it on an `Access`, and a `VfsOutcome` is what it returns. The `store` functions use `Write`, `Append`, `Read`, `ReadNumbered`, `StrReplace`, `Delete`, `Glob`, and `Exists`, and each `store` call is one of them. The list also has the operations that a tool asks for: `Stat`, `List`, `ReadRange`, `Mkdir`, `Remove`, `Rename`, and `Copy`, beside `Write` and `Append`. `Write` and `Append` hold bytes, because a tool writes bytes, and a `store` call passes the bytes of its text. `Delete` succeeds on an absent path, and `Remove` fails on one with `VfsError::NotFound`. They are two operations, so a run's record shows which one ran.
+
+The owner's reason for one list: "in principle, the store is just a virtual directory in the file system that is unique to a prompt." A `store` call and a tool's file request are two views of the same operations, and the Engine and the Harness handle the whole list, so either side gains an operation by adding one function. A `store` call reaches the list as an effect today, and a tool's request will once a tool's file operations are effects (see Planned work).
+
 ### Virtual paths have one POSIX form on every operating system
 
 A virtual path is rooted and uses forward slashes on every operating system. An `Access` canonicalizes each path when it receives it, so the policy, the claims table, and the backend see one spelling. A path without a leading `/` is relative to `/`.

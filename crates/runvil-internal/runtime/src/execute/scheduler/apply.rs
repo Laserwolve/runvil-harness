@@ -21,12 +21,10 @@ use runvil_types::error::{ErrorCode, place};
 use runvil_types::event_lifecycle::{self as lifecycle, Lifecycle};
 use runvil_types::ids::{RoundId, TaskId};
 use runvil_types::tools::ToolOutput;
-use runvil_vfs::{ExecId, VfsError};
+use runvil_vfs::{ExecId, VfsError, VfsOp, VfsOutcome};
 
 use crate::execute::infer::accept_infer;
-use crate::lua::{
-    Answer, ModelCall, ToolCallOutcome, VfsOp, VfsOutcome, prepare_dispatch, prepare_model_dispatch,
-};
+use crate::lua::{Answer, ModelCall, ToolCallOutcome, prepare_dispatch, prepare_model_dispatch};
 use crate::model::Completion;
 use crate::{Error, Result, error};
 
@@ -63,8 +61,9 @@ fn vfs_observations(op: &VfsOp) -> Option<(Lifecycle, Lifecycle)> {
             lifecycle::VFS_EXISTS_SUCCEEDED,
             lifecycle::VFS_EXISTS_FAILED,
         ),
-        // Any op `runvil-lua` adds behind its `#[non_exhaustive]`
-        // `VfsOp` before this crate names it reports nothing.
+        // An operation no `store` function names reports nothing, and so
+        // does any op `runvil-vfs` adds behind its `#[non_exhaustive]`
+        // `VfsOp` before this crate names it.
         _ => return None,
     };
     Some(pair)

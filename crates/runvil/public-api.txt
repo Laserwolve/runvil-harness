@@ -15,6 +15,8 @@
 #[non_exhaustive] pub enum runvil::vfs::PathReason
 #[non_exhaustive] pub enum runvil::vfs::Verdict
 #[non_exhaustive] pub enum runvil::vfs::VfsError
+#[non_exhaustive] pub enum runvil::vfs::VfsOp
+#[non_exhaustive] pub enum runvil::vfs::VfsOutcome
 #[non_exhaustive] pub enum runvil::vfs::Writability
 #[non_exhaustive] pub struct runvil::RunLimits { .. }
 #[non_exhaustive] pub struct runvil::ToolId(/* private fields */)
@@ -143,6 +145,8 @@ auto runvil::vfs::ScopeHandle: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindS
 auto runvil::vfs::Stat: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::vfs::Verdict: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::vfs::VfsError: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
+auto runvil::vfs::VfsOp: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
+auto runvil::vfs::VfsOutcome: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::vfs::VfsPath: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::vfs::VfsPathBuf: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::vfs::VfsRef: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
@@ -243,6 +247,8 @@ derives runvil::vfs::ScopeHandle: Clone, Debug
 derives runvil::vfs::Stat: Clone, Debug, Eq, Hash, PartialEq
 derives runvil::vfs::Verdict: Clone, Debug, Eq, PartialEq
 derives runvil::vfs::VfsError: Clone, Debug, Eq, PartialEq
+derives runvil::vfs::VfsOp: Clone, Debug, Eq, PartialEq
+derives runvil::vfs::VfsOutcome: Clone, Debug, Eq, PartialEq
 derives runvil::vfs::VfsPath: Clone, Debug, Eq, Hash, PartialEq
 derives runvil::vfs::VfsPathBuf: Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd
 derives runvil::vfs::VfsRef: Clone, Debug, Default
@@ -558,6 +564,7 @@ pub fn runvil::vfs::Access::exists(&self, path: &str) -> core::result::Result<bo
 pub fn runvil::vfs::Access::glob(&self, pattern: &str) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, runvil::vfs::VfsError>
 pub fn runvil::vfs::Access::list(&self, path: &str) -> core::result::Result<alloc::vec::Vec<runvil::vfs::Entry>, runvil::vfs::VfsError>
 pub fn runvil::vfs::Access::mkdir(&self, path: &str, recursive: bool) -> core::result::Result<(), runvil::vfs::VfsError>
+pub fn runvil::vfs::Access::perform(&self, op: &runvil::vfs::VfsOp) -> core::result::Result<runvil::vfs::VfsOutcome, runvil::vfs::VfsError>
 pub fn runvil::vfs::Access::read(&self, path: &str) -> core::result::Result<alloc::vec::Vec<u8>, runvil::vfs::VfsError>
 pub fn runvil::vfs::Access::read_range(&self, path: &str, offset: u64, len: u64) -> core::result::Result<alloc::vec::Vec<u8>, runvil::vfs::VfsError>
 pub fn runvil::vfs::Access::read_string(&self, path: &str) -> core::result::Result<alloc::string::String, runvil::vfs::VfsError>
@@ -1151,6 +1158,63 @@ pub runvil::vfs::VfsError::ScopeEnded::path: alloc::string::String
 pub runvil::vfs::VfsError::Unsupported { .. }
 pub runvil::vfs::VfsError::Unsupported::detail: alloc::string::String
 pub runvil::vfs::VfsError::Unsupported::path: alloc::string::String
+pub runvil::vfs::VfsOp::Append { .. }
+pub runvil::vfs::VfsOp::Append::contents: alloc::vec::Vec<u8>
+pub runvil::vfs::VfsOp::Append::path: alloc::string::String
+pub runvil::vfs::VfsOp::Copy { .. }
+pub runvil::vfs::VfsOp::Copy::from: alloc::string::String
+pub runvil::vfs::VfsOp::Copy::to: alloc::string::String
+pub runvil::vfs::VfsOp::Delete { .. }
+pub runvil::vfs::VfsOp::Delete::path: alloc::string::String
+pub runvil::vfs::VfsOp::Exists { .. }
+pub runvil::vfs::VfsOp::Exists::path: alloc::string::String
+pub runvil::vfs::VfsOp::Glob { .. }
+pub runvil::vfs::VfsOp::Glob::pattern: alloc::string::String
+pub runvil::vfs::VfsOp::List { .. }
+pub runvil::vfs::VfsOp::List::path: alloc::string::String
+pub runvil::vfs::VfsOp::Mkdir { .. }
+pub runvil::vfs::VfsOp::Mkdir::path: alloc::string::String
+pub runvil::vfs::VfsOp::Mkdir::recursive: bool
+pub runvil::vfs::VfsOp::Read { .. }
+pub runvil::vfs::VfsOp::Read::end: core::option::Option<i64>
+pub runvil::vfs::VfsOp::Read::path: alloc::string::String
+pub runvil::vfs::VfsOp::Read::start: core::option::Option<i64>
+pub runvil::vfs::VfsOp::ReadNumbered { .. }
+pub runvil::vfs::VfsOp::ReadNumbered::end: core::option::Option<i64>
+pub runvil::vfs::VfsOp::ReadNumbered::path: alloc::string::String
+pub runvil::vfs::VfsOp::ReadNumbered::start: core::option::Option<i64>
+pub runvil::vfs::VfsOp::ReadRange { .. }
+pub runvil::vfs::VfsOp::ReadRange::len: u64
+pub runvil::vfs::VfsOp::ReadRange::offset: u64
+pub runvil::vfs::VfsOp::ReadRange::path: alloc::string::String
+pub runvil::vfs::VfsOp::Remove { .. }
+pub runvil::vfs::VfsOp::Remove::path: alloc::string::String
+pub runvil::vfs::VfsOp::Remove::recursive: bool
+pub runvil::vfs::VfsOp::Rename { .. }
+pub runvil::vfs::VfsOp::Rename::from: alloc::string::String
+pub runvil::vfs::VfsOp::Rename::to: alloc::string::String
+pub runvil::vfs::VfsOp::Stat { .. }
+pub runvil::vfs::VfsOp::Stat::path: alloc::string::String
+pub runvil::vfs::VfsOp::StrReplace { .. }
+pub runvil::vfs::VfsOp::StrReplace::new: alloc::string::String
+pub runvil::vfs::VfsOp::StrReplace::old: alloc::string::String
+pub runvil::vfs::VfsOp::StrReplace::path: alloc::string::String
+pub runvil::vfs::VfsOp::Write { .. }
+pub runvil::vfs::VfsOp::Write::contents: alloc::vec::Vec<u8>
+pub runvil::vfs::VfsOp::Write::path: alloc::string::String
+pub runvil::vfs::VfsOutcome::Bool(..)
+pub runvil::vfs::VfsOutcome::Bool::0: bool
+pub runvil::vfs::VfsOutcome::Bytes(..)
+pub runvil::vfs::VfsOutcome::Bytes::0: alloc::vec::Vec<u8>
+pub runvil::vfs::VfsOutcome::Entries(..)
+pub runvil::vfs::VfsOutcome::Entries::0: alloc::vec::Vec<runvil::vfs::Entry>
+pub runvil::vfs::VfsOutcome::Paths(..)
+pub runvil::vfs::VfsOutcome::Paths::0: alloc::vec::Vec<alloc::string::String>
+pub runvil::vfs::VfsOutcome::Stat(..)
+pub runvil::vfs::VfsOutcome::Stat::0: runvil::vfs::Stat
+pub runvil::vfs::VfsOutcome::Text(..)
+pub runvil::vfs::VfsOutcome::Text::0: alloc::string::String
+pub runvil::vfs::VfsOutcome::Unit
 pub runvil::vfs::Writability::ReadOnly
 pub runvil::vfs::Writability::ReadWrite
 pub struct runvil::Error { .. }

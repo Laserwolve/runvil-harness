@@ -10,7 +10,7 @@
 //! per-message contract.
 //!
 //! The submodules split the protocol along that boundary: `request` the
-//! request vocabulary (the [`Request`] and [`VfsOp`] enums), `record` the
+//! request vocabulary (the [`Request`] enum), `record` the
 //! message-record types a chat request is built from and their
 //! validation, `answer` the answer vocabulary (the [`Answer`] enum and its
 //! payload types), `parse` the yield-to-request validation, and `render`
@@ -28,11 +28,10 @@ mod tests;
 
 pub use answer::{
     Answer, Blocked, ChatOutcome, ChatResult, TaskDelivery, TaskPhase, TaskStatus, ToolCallOutcome,
-    VfsOutcome,
 };
 pub use non_empty::NonEmpty;
 pub use parse::YieldParse;
 pub(crate) use record::parse_record;
 pub use record::{ContentPart, MessageContent, MessageRecord, RecordRole, ToolCallRecord};
 pub(crate) use render::{Retained, render_envelope};
-pub use request::{AdhocToolOutcome, ModelCall, Request, VfsOp};
+pub use request::{AdhocToolOutcome, ModelCall, Request};

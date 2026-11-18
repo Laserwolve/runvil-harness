@@ -12,7 +12,7 @@ use runvil_prompt::test_support::{one_section, prompt};
 use runvil_types::event::ReplyOrigin;
 use runvil_types::ids::{ChainId, RoundId};
 use runvil_types::packs::PackId;
-use runvil_vfs::Store;
+use runvil_vfs::{Store, VfsOp};
 
 use super::fixtures::echo_tool;
 use super::models_loop::{loop_model_name, loop_scenario};
@@ -21,7 +21,6 @@ use super::*;
 use crate::execute::run::{
     AnswerRecord, EffectRecord, PackToolSets, Round, ToolCallOrigin, ToolCaller,
 };
-use crate::lua::{VfsOp, run_store_op};
 use crate::test_support::rig::Rig;
 use crate::test_support::scenario::{fresh_store_view, round_trip};
 
@@ -210,7 +209,7 @@ fn a_store_operation_issues_exactly_one_store_effect() {
                 store: ChainId::root(),
                 op: VfsOp::Write {
                     path: "notes.md".to_owned(),
-                    contents: "kept".to_owned(),
+                    contents: b"kept".to_vec(),
                 },
             },
             EffectRecord::Vfs {
@@ -290,7 +289,7 @@ fn a_runs_store_effect_records_rebuild_its_store() -> std::result::Result<(), Vf
     for (effect, answer) in trace.effects() {
         if let (EffectRecord::Vfs { op, .. }, AnswerRecord::Vfs(Ok(outcome))) = (effect, answer) {
             assert_eq!(
-                &run_store_op(&rebuilt, op.clone())?,
+                &rebuilt.perform(op)?,
                 outcome,
                 "{op:?} gives the outcome the run recorded"
             );

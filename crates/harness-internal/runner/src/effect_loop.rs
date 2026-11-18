@@ -877,7 +877,7 @@ impl Flights {
     reason = "the view is taken by value so that it drops with the operation"
 )]
 fn answer_vfs(access: Arc<Access>, op: VfsOp) -> EffectAnswer {
-    EffectAnswer::Vfs(perform_vfs_op(&access, op))
+    EffectAnswer::Vfs(perform_vfs_op(&access, &op))
 }
 
 /// A panic payload's message, when it carries one.

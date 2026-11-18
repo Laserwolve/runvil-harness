@@ -130,7 +130,7 @@ A `Round` has only these two values, because a caller needs only a round's id an
 
 ### `Effect::Vfs` is one `store` operation
 
-The Engine issues a `Vfs` effect for each `store.*` call. Its fields are `store`, the id of the store that the call works on, `access`, the calling chain's view of that store, and `op`, a `VfsOp` with the call's arguments. A caller answers it with `perform_vfs_op(&access, op)`, a synchronous function ([Files and the VFS](files-and-the-vfs.md)).
+The Engine issues a `Vfs` effect for each `store.*` call. Its fields are `store`, the id of the store that the call works on, `access`, the calling chain's view of that store, and `op`, a `VfsOp` with the call's arguments. A caller answers it with `perform_vfs_op(&access, &op)`, a synchronous function that runs the operation with `Access::perform` ([Files and the VFS](files-and-the-vfs.md)).
 
 A run has more than one store when a prompt executes another, so the effect names its store. The `store` field is a `ChainId`: `0`, the id of the root chain, for the store that a run starts with, and the id of an executed prompt's chain, such as `0.0`, for a store that an `execute` made. The view alone would be enough to perform the operation, and the id is there for the record.
 

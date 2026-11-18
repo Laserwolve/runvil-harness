@@ -1,15 +1,58 @@
 //! The capability's file operations: each gates its path, admits its
-//! claims, and fires its event before it reaches the backend.
+//! claims, and fires its event before it reaches the backend. One
+//! [`VfsOp`] runs as the operation it names.
 
 use super::Access;
 use super::claims::Claims;
+use super::lines::{LineNumbers, read_lines};
 use super::store_view::{strip_root, validate_store_path};
 use crate::error::{PathReason, VfsError};
 use crate::glob::validate_glob_pattern;
 use crate::stat::{Entry, Stat};
 use crate::traits::Op;
+use crate::vfs_op::{VfsOp, VfsOutcome};
 
 impl Access {
+    /// Runs `op`, one operation of the list, and returns its outcome.
+    ///
+    /// Each operation is one method of this access, under the checks that
+    /// method makes. `Read` and `ReadNumbered` read the file as UTF-8
+    /// text and apply their line bounds. `Delete` succeeds on an absent
+    /// path, and `Remove` fails on one.
+    ///
+    /// # Errors
+    /// Returns the error of the method the operation names. A `Read` or a
+    /// `ReadNumbered` also returns [`VfsError::InvalidRange`] for a
+    /// `start` below 1, an `end` before `start`, or an `end` given with no
+    /// `start`. A `Remove` returns [`VfsError::NotFound`] when the path is
+    /// absent.
+    pub fn perform(&self, op: &VfsOp) -> Result<VfsOutcome, VfsError> {
+        let done = |()| VfsOutcome::Unit;
+        match op {
+            VfsOp::Write { path, contents } => self.write(path, contents).map(done),
+            VfsOp::Append { path, contents } => self.append(path, contents).map(done),
+            VfsOp::Read { path, start, end } => {
+                read_lines(self, path, *start, *end, LineNumbers::Omitted).map(VfsOutcome::Text)
+            }
+            VfsOp::ReadNumbered { path, start, end } => {
+                read_lines(self, path, *start, *end, LineNumbers::Prefixed).map(VfsOutcome::Text)
+            }
+            VfsOp::StrReplace { path, old, new } => self.str_replace(path, old, new).map(done),
+            VfsOp::Delete { path } => self.remove(path, false).map(|_| VfsOutcome::Unit),
+            VfsOp::Glob { pattern } => self.glob(pattern).map(VfsOutcome::Paths),
+            VfsOp::Exists { path } => self.exists(path).map(VfsOutcome::Bool),
+            VfsOp::Stat { path } => self.stat(path).map(VfsOutcome::Stat),
+            VfsOp::List { path } => self.list(path).map(VfsOutcome::Entries),
+            VfsOp::ReadRange { path, offset, len } => {
+                self.read_range(path, *offset, *len).map(VfsOutcome::Bytes)
+            }
+            VfsOp::Mkdir { path, recursive } => self.mkdir(path, *recursive).map(done),
+            VfsOp::Remove { path, recursive } => self.remove_present(path, *recursive).map(done),
+            VfsOp::Rename { from, to } => self.rename(from, to).map(done),
+            VfsOp::Copy { from, to } => self.copy(from, to).map(done),
+        }
+    }
+
     /// Reads the bytes of the file at `path`, exactly as stored.
     ///
     /// # Errors
@@ -123,6 +166,19 @@ impl Access {
     /// operation, or when the backend fails. A recursive removal claims
     /// the whole subtree under `path`.
     pub fn remove(&self, path: &str, recursive: bool) -> Result<bool, VfsError> {
+        match self.remove_present(path, recursive) {
+            Ok(()) => Ok(true),
+            // The backend trait reports an absent path as NotFound; the
+            // public capability confirms the absence instead.
+            Err(VfsError::NotFound { .. }) => Ok(false),
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Removes the file, link, or directory at `path` under the checks of
+    /// [`Access::remove`], and reports an absent path as the backend
+    /// does, with [`VfsError::NotFound`].
+    fn remove_present(&self, path: &str, recursive: bool) -> Result<(), VfsError> {
         let path = self.gate(Op::Delete, path)?;
         if recursive {
             self.admit(Claims::claim_subtree, &path)?;
@@ -130,13 +186,7 @@ impl Access {
             self.admit(Claims::claim_write, &path)?;
         }
         self.fire(Op::Delete, &path);
-        match self.inner().remove(&path, recursive) {
-            Ok(()) => Ok(true),
-            // The backend trait reports an absent path as NotFound; the
-            // public capability confirms the absence instead.
-            Err(VfsError::NotFound { .. }) => Ok(false),
-            Err(err) => Err(err),
-        }
+        self.inner().remove(&path, recursive)
     }
 
     /// Reports whether anything exists at `path`.

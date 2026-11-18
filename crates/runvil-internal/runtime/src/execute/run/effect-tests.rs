@@ -442,7 +442,7 @@ fn every_kinds_public_record_is_json_that_round_trips_exactly() {
             access: access(),
             op: VfsOp::Write {
                 path: "note.md".to_owned(),
-                contents: "hello".to_owned(),
+                contents: b"hello".to_vec(),
             },
         },
         Effect::Timer {

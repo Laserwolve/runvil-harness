@@ -12,7 +12,6 @@ use runvil_vfs::Store;
 
 use super::*;
 use crate::execute::run::{AnswerRecord, EffectRecord};
-use crate::lua::run_store_op;
 use crate::test_support::rig::Rig;
 use crate::test_support::scenario::fresh_store_view;
 
@@ -206,7 +205,9 @@ fn the_vfs_records_of_each_store_id_rebuild_that_store() {
             fresh_store_view(&Store::new(), "a rebuilt store").expect("a new store gives a view")
         });
         assert_eq!(
-            &run_store_op(view, op.clone()).expect("the recorded operation succeeds again"),
+            &view
+                .perform(op)
+                .expect("the recorded operation succeeds again"),
             outcome,
             "{op:?} on store {store} gives the outcome the run recorded"
         );

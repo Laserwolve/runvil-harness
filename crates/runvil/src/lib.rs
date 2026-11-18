@@ -205,8 +205,9 @@ pub mod vfs {
     //! A run's files: the handle to the virtual filesystem a Host gives
     //! each run for its tool calls, real directories among its mounts,
     //! the policy that decides what those calls may change, the access
-    //! each tool call receives through its context, and the origin each
-    //! file operation carries to say who asked for it. No store of a run
+    //! each tool call receives through its context, the file operations
+    //! as values that an access performs, and the origin each file
+    //! operation carries to say who asked for it. No store of a run
     //! is part of that filesystem: each run has an empty store of its
     //! own, and one more for each prompt it executes, which a Host
     //! neither fills nor reads.
@@ -233,6 +234,8 @@ pub mod vfs {
     pub use runvil_engine::vfs::Vfs;
     pub use runvil_engine::vfs::VfsAccess;
     pub use runvil_engine::vfs::VfsError;
+    pub use runvil_engine::vfs::VfsOp;
+    pub use runvil_engine::vfs::VfsOutcome;
     pub use runvil_engine::vfs::VfsPath;
     pub use runvil_engine::vfs::VfsPathBuf;
     pub use runvil_engine::vfs::VfsRef;

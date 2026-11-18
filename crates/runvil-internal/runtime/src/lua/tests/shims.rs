@@ -5,11 +5,11 @@
 //! leading model handle, and a model handle's fields and lack of methods.
 
 use runvil_types::metrics::ToolCallEvent;
+use runvil_vfs::{VfsOp, VfsOutcome};
 use serde_json::json;
 
 use crate::lua::{
-    AdhocToolOutcome, Answer, ChatOutcome, ChatResult, Request, ToolCallOutcome, VfsOp, VfsOutcome,
-    YieldParse,
+    AdhocToolOutcome, Answer, ChatOutcome, ChatResult, Request, ToolCallOutcome, YieldParse,
 };
 use crate::model::ModelSet;
 
@@ -240,7 +240,7 @@ fn an_adhoc_tool_handler_runs_inside_the_block_coroutine() {
             op: VfsOp::Write { path, contents },
         } => {
             assert_eq!(path, "grab.txt");
-            assert_eq!(contents, "hi");
+            assert_eq!(contents, b"hi");
         }
         other => panic!("the handler's store call yields from the block, got {other:?}"),
     }

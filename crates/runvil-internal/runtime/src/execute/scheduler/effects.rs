@@ -25,10 +25,10 @@ use std::collections::HashMap;
 
 use runvil_types::event::ReplyOrigin;
 use runvil_types::ids::{Provenance, RoundId, TaskId};
-use runvil_vfs::ExecId;
+use runvil_vfs::{ExecId, VfsOp};
 
 use crate::execute::run::{Effect, EffectId, IssuedEffect, Round};
-use crate::lua::{ScriptReport, ToolBinding, VfsOp};
+use crate::lua::{ScriptReport, ToolBinding};
 use crate::model::ModelBinding;
 
 use super::ChainIndex;

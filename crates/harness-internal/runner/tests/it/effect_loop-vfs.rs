@@ -275,6 +275,54 @@ async fn a_step_with_a_vfs_effect_records_its_inline_answer_before_the_next_effe
     );
 }
 
+/// The operation a store's `Vfs` effect record holds, read from the
+/// record's JSON alone: one object keyed by the operation's name, with
+/// the arguments of the `store` call as its fields.
+fn recorded_op(op: &serde_json::Value) -> VfsOp {
+    let (name, fields) = op
+        .as_object()
+        .and_then(|keyed| keyed.iter().next())
+        .expect("an operation records as one object keyed by its name");
+    let text = |field: &str| {
+        fields[field]
+            .as_str()
+            .unwrap_or_else(|| panic!("{name} records `{field}` as text: {fields}"))
+            .to_owned()
+    };
+    let line = |field: &str| fields[field].as_i64();
+    match name.as_str() {
+        "Write" => VfsOp::Write {
+            path: text("path"),
+            contents: text("contents").into_bytes(),
+        },
+        "Append" => VfsOp::Append {
+            path: text("path"),
+            contents: text("contents").into_bytes(),
+        },
+        "Read" => VfsOp::Read {
+            path: text("path"),
+            start: line("start"),
+            end: line("end"),
+        },
+        "ReadNumbered" => VfsOp::ReadNumbered {
+            path: text("path"),
+            start: line("start"),
+            end: line("end"),
+        },
+        "StrReplace" => VfsOp::StrReplace {
+            path: text("path"),
+            old: text("old"),
+            new: text("new"),
+        },
+        "Delete" => VfsOp::Delete { path: text("path") },
+        "Glob" => VfsOp::Glob {
+            pattern: text("pattern"),
+        },
+        "Exists" => VfsOp::Exists { path: text("path") },
+        other => panic!("no `store` call records as {other}"),
+    }
+}
+
 /// A section that writes, appends to, edits, and deletes store files,
 /// reads the deleted one under a `pcall`, and returns what it reads back
 /// of the file it kept.
@@ -326,9 +374,8 @@ async fn a_runs_vfs_records_rebuild_its_store() {
         if answer.payload["Vfs"].get("Ok").is_none() {
             continue;
         }
-        let op: VfsOp = serde_json::from_value(vfs["op"].clone())
-            .expect("a Vfs effect's record holds its operation whole");
-        perform_vfs_op(&files, op).expect("an operation the store performed applies again");
+        perform_vfs_op(&files, &recorded_op(&vfs["op"]))
+            .expect("an operation the store performed applies again");
         applied += 1;
     }
     assert_eq!(applied, 6, "every operation but the refused read");

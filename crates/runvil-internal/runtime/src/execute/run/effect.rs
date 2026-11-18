@@ -31,11 +31,10 @@ use runvil_types::ids::{ChainId, RoundId};
 use runvil_types::packs::PackId;
 use runvil_types::tools::{OutputTrust, ToolId, ToolInfo, ToolOutput};
 pub use runvil_types::tools::{ToolCallOrigin, ToolCaller};
-use runvil_vfs::{Access, VfsError};
+use runvil_vfs::{Access, VfsError, VfsOp, VfsOutcome};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::lua::{VfsOp, VfsOutcome};
 use crate::model::{Completion, CompletionResult, Message, ToolSchema};
 use crate::model::{ModelBinding, Temperature};
 
@@ -420,7 +419,14 @@ pub(crate) enum EffectRecord {
         /// records that name one store, in order, are every operation on
         /// that store.
         store: ChainId,
-        /// The validated operation.
+        /// The validated operation, written in its record form: one
+        /// object keyed by the operation's name. The bytes of a write or
+        /// an append are text under `contents` when they are UTF-8, and
+        /// hex under `contents_hex` otherwise.
+        #[serde(
+            serialize_with = "super::vfs_record::serialize_op",
+            deserialize_with = "super::vfs_record::deserialize_op"
+        )]
         op: VfsOp,
     },
     /// One sleep.
@@ -524,8 +530,17 @@ pub(crate) enum AnswerRecord {
     /// The tool call's outcome.
     ToolCall(std::result::Result<ToolAnswerRecord, FailureRecord>),
     /// The outcome of the operation on the effect's store view: the
-    /// [`VfsOutcome`] itself on success, or the failure's record.
-    Vfs(std::result::Result<VfsOutcome, FailureRecord>),
+    /// whole [`VfsOutcome`] on success, written in its record form, or
+    /// the failure's record. `Unit` is the bare string `"Unit"`, and
+    /// every other outcome is a one-key object, such as
+    /// `{"Text":"..."}`, `{"Paths":["a.txt"]}`, or `{"Bool":true}`.
+    Vfs(
+        #[serde(
+            serialize_with = "super::vfs_record::serialize_answer",
+            deserialize_with = "super::vfs_record::deserialize_answer"
+        )]
+        std::result::Result<VfsOutcome, FailureRecord>,
+    ),
     /// The timer fired.
     Timer,
     /// The caller gave up on the effect and dropped it.

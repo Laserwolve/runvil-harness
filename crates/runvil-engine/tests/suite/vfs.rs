@@ -60,7 +60,7 @@ fn drive(vfs: &VfsRef, source: &str, tool: Perform) -> TestResult<Ran> {
         for IssuedEffect { id, effect, .. } in effects {
             let answer = match effect {
                 Effect::Vfs { access, op, .. } => {
-                    let outcome = perform_vfs_op(&access, op);
+                    let outcome = perform_vfs_op(&access, &op);
                     views.push(access);
                     EffectAnswer::Vfs(outcome)
                 }
@@ -241,11 +241,11 @@ fn a_store_view_is_the_callers_one_way_to_the_runs_store_and_refuses_every_opera
     let ops = [
         VfsOp::Write {
             path: path(),
-            contents: "late".to_owned(),
+            contents: b"late".to_vec(),
         },
         VfsOp::Append {
             path: path(),
-            contents: "late".to_owned(),
+            contents: b"late".to_vec(),
         },
         VfsOp::Read {
             path: path(),
@@ -271,7 +271,7 @@ fn a_store_view_is_the_callers_one_way_to_the_runs_store_and_refuses_every_opera
     assert_eq!(ran.views.len(), 2, "the write's view and the read's");
     for view in &ran.views {
         for op in &ops {
-            let refused = perform_vfs_op(view, op.clone());
+            let refused = perform_vfs_op(view, op);
             assert!(
                 matches!(refused, Err(VfsError::ScopeEnded { .. })),
                 "{op:?}: {refused:?}"

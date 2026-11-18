@@ -1,6 +1,7 @@
 //! The request vocabulary: the validated suspending Engine calls a shim can
-//! yield and the store operations they hold. The message-record types the
-//! chat request is built from are in `record`.
+//! yield. A store call holds its operation as a `VfsOp` of `runvil-vfs`.
+//! The message-record types the chat request is built from are in
+//! `record`.
 //!
 //! An adhoc tool call spans two requests. The first is the ordinary
 //! [`Request::ToolCall`], which the scheduler answers with the handler.
@@ -14,6 +15,7 @@ use std::time::Duration;
 
 use runvil_model_client::model::ModelBinding;
 use runvil_types::ids::TaskId;
+use runvil_vfs::VfsOp;
 
 use super::non_empty::NonEmpty;
 use super::record::ToolCallRecord;
@@ -233,7 +235,10 @@ pub enum Request {
     /// `store.*(...)`: one run-scoped store operation as a leaf yield.
     /// Every operation takes this path, with no inline fast path.
     Store {
-        /// The validated operation and its author-supplied arguments.
+        /// The validated operation and its author-supplied arguments: one
+        /// of the eight operations a `store` function names. The parse
+        /// checks each argument's shape, and the operation checks line
+        /// ranges when it runs.
         op: VfsOp,
     },
 }
@@ -266,93 +271,4 @@ pub enum AdhocToolOutcome {
     /// The handler raised. The shim raises the handler's own value again
     /// at the call site, so no error crosses the boundary here.
     Raised,
-}
-
-/// One `store.*` call from a prompt script: which operation it is and the
-/// arguments the script passed.
-///
-/// The parse checks each argument's shape; the operation checks line
-/// ranges when it runs.
-///
-/// This type carries the full arguments of one of the eight `store.*`
-/// calls. The separate `vfs::Op` names only the kind of file operation
-/// (`Read`, `Write`, `Rename`, and so on), which a policy matches on and a
-/// watcher is told about.
-///
-/// The read bounds are `i64`. A negative bound converts to 0 when the
-/// operation runs, so the range check rejects it with the same error a
-/// zero bound produces.
-///
-/// The type holds only plain data, so an effect record can carry an
-/// operation through serde intact.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[non_exhaustive]
-pub enum VfsOp {
-    /// `store.write(path, contents)`: creates or overwrites the file at
-    /// `path` with `contents`.
-    Write {
-        /// The author-supplied logical path.
-        path: String,
-        /// The author-supplied file contents.
-        contents: String,
-    },
-    /// `store.append(path, contents)`: appends `contents` to the file at
-    /// `path`, creating the file if it is absent.
-    Append {
-        /// The author-supplied logical path.
-        path: String,
-        /// The author-supplied text to append.
-        contents: String,
-    },
-    /// `store.read(path, start?, end?)`: reads the file at `path` as text.
-    ///
-    /// With both bounds omitted, it reads the whole file. With `start`, it
-    /// reads a 1-based inclusive line range. An `end` given alone is an
-    /// error.
-    Read {
-        /// The author-supplied logical path.
-        path: String,
-        /// The optional 1-based first line.
-        start: Option<i64>,
-        /// The optional 1-based last line.
-        end: Option<i64>,
-    },
-    /// `store.read_numbered(path, start?, end?)`: reads like `store.read`
-    /// and prefixes each line with its absolute line number. The bounds
-    /// work the same way.
-    ReadNumbered {
-        /// The author-supplied logical path.
-        path: String,
-        /// The optional 1-based first line.
-        start: Option<i64>,
-        /// The optional 1-based last line.
-        end: Option<i64>,
-    },
-    /// `store.str_replace(path, old, new)`: replaces `old` with `new` in the
-    /// file at `path`.
-    StrReplace {
-        /// The author-supplied logical path.
-        path: String,
-        /// The anchor text, required to occur exactly once.
-        old: String,
-        /// The replacement text.
-        new: String,
-    },
-    /// `store.delete(path)`: removes the file or empty directory at `path`;
-    /// a directory that still holds entries is refused. Deleting a missing
-    /// path succeeds.
-    Delete {
-        /// The author-supplied logical path.
-        path: String,
-    },
-    /// `store.glob(pattern)`: lists the paths that match `pattern`.
-    Glob {
-        /// The author-supplied glob pattern.
-        pattern: String,
-    },
-    /// `store.exists(path)`: reports whether `path` exists.
-    Exists {
-        /// The author-supplied logical path.
-        path: String,
-    },
 }

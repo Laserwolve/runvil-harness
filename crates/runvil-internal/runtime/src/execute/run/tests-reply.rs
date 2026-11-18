@@ -15,12 +15,12 @@ use std::num::NonZeroUsize;
 use runvil_prompt::test_support::prompt;
 use runvil_types::error::ErrorFact;
 use runvil_types::ids::{AbandonReason, ChainId, TaskId};
+use runvil_vfs::VfsOutcome;
 use serde_json::json;
 
 use super::inbox::{answer_store, done, main_task, pending, run_of_sections};
 use super::*;
 use crate::execute::RunLimits;
-use crate::lua::VfsOutcome;
 
 /// The `index`th task the main chain spawned.
 fn spawned(index: u32) -> TaskId {

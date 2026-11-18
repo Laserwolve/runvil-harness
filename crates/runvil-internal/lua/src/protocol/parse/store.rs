@@ -2,8 +2,9 @@
 //! arguments.
 
 use mlua::Value;
+use runvil_vfs::VfsOp;
 
-use crate::protocol::{Request, VfsOp};
+use crate::protocol::Request;
 
 use super::{FieldFailure, call_error, call_string};
 
@@ -38,17 +39,18 @@ fn call_optional_line(
 }
 
 /// Parses a `store` request: the operation name and its author-supplied
-/// arguments. Every wrong shape is the call's error.
+/// arguments. Every wrong shape is the call's error. The contents of a
+/// write or an append are text, and the operation holds the text's bytes.
 pub(super) fn parse_store(table: &mlua::Table) -> std::result::Result<Request, FieldFailure> {
     let op = call_string(table, "store_op")?;
     let op = match op.as_str() {
         "write" => VfsOp::Write {
             path: call_string(table, "path")?,
-            contents: call_string(table, "contents")?,
+            contents: call_string(table, "contents")?.into_bytes(),
         },
         "append" => VfsOp::Append {
             path: call_string(table, "path")?,
-            contents: call_string(table, "contents")?,
+            contents: call_string(table, "contents")?.into_bytes(),
         },
         "read" => VfsOp::Read {
             path: call_string(table, "path")?,

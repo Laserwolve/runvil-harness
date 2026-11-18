@@ -18,11 +18,11 @@ use runvil_prompt::test_support::prompt;
 use runvil_types::ids::{ChainId, TaskId};
 use runvil_types::models::{ModelRole, ThinkingMode};
 use runvil_types::tools::{ToolCatalog, ToolId, ToolInfo, ToolOutput};
+use runvil_vfs::VfsOutcome;
 use serde_json::json;
 
 use super::inbox::{done, main_task};
 use super::*;
-use crate::lua::VfsOutcome;
 use crate::model::{Completion, CompletionResult, ToolCall};
 use crate::test_support::scenario::{chat_answer, pass_through, test_model_with};
 use crate::test_support::scripted_chat::text;

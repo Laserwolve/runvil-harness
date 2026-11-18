@@ -8,9 +8,9 @@
 
 use runvil_prompt::test_support::{PromptSource, prompt};
 use runvil_types::ids::{ChainId, TaskId};
+use runvil_vfs::VfsOutcome;
 
 use super::*;
-use crate::lua::VfsOutcome;
 
 /// The main chain's task, `0`.
 pub(super) fn main_task() -> TaskId {

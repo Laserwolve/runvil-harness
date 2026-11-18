@@ -222,8 +222,8 @@ derives runvil_engine::vfs::ScopeHandle: Clone, Debug
 derives runvil_engine::vfs::Stat: Clone, Debug, Eq, Hash, PartialEq
 derives runvil_engine::vfs::Verdict: Clone, Debug, Eq, PartialEq
 derives runvil_engine::vfs::VfsError: Clone, Debug, Eq, PartialEq
-derives runvil_engine::vfs::VfsOp: Clone, Debug, Deserialize, Eq, PartialEq, Serialize
-derives runvil_engine::vfs::VfsOutcome: Clone, Debug, Deserialize, Eq, PartialEq, Serialize
+derives runvil_engine::vfs::VfsOp: Clone, Debug, Eq, PartialEq
+derives runvil_engine::vfs::VfsOutcome: Clone, Debug, Eq, PartialEq
 derives runvil_engine::vfs::VfsPath: Clone, Debug, Eq, Hash, PartialEq
 derives runvil_engine::vfs::VfsPathBuf: Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd
 derives runvil_engine::vfs::VfsRef: Clone, Debug, Default
@@ -502,6 +502,7 @@ pub fn runvil_engine::vfs::Access::exists(&self, path: &str) -> core::result::Re
 pub fn runvil_engine::vfs::Access::glob(&self, pattern: &str) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, runvil_engine::vfs::VfsError>
 pub fn runvil_engine::vfs::Access::list(&self, path: &str) -> core::result::Result<alloc::vec::Vec<runvil_engine::vfs::Entry>, runvil_engine::vfs::VfsError>
 pub fn runvil_engine::vfs::Access::mkdir(&self, path: &str, recursive: bool) -> core::result::Result<(), runvil_engine::vfs::VfsError>
+pub fn runvil_engine::vfs::Access::perform(&self, op: &runvil_engine::vfs::VfsOp) -> core::result::Result<runvil_engine::vfs::VfsOutcome, runvil_engine::vfs::VfsError>
 pub fn runvil_engine::vfs::Access::read(&self, path: &str) -> core::result::Result<alloc::vec::Vec<u8>, runvil_engine::vfs::VfsError>
 pub fn runvil_engine::vfs::Access::read_range(&self, path: &str, offset: u64, len: u64) -> core::result::Result<alloc::vec::Vec<u8>, runvil_engine::vfs::VfsError>
 pub fn runvil_engine::vfs::Access::read_string(&self, path: &str) -> core::result::Result<alloc::string::String, runvil_engine::vfs::VfsError>
@@ -570,7 +571,7 @@ pub fn runvil_engine::vfs::VfsRefBuilder::mount(self, prefix: &str, backend: imp
 pub fn runvil_engine::vfs::VfsRefBuilder::on_op(self, sink: impl core::ops::function::Fn(runvil_engine::vfs::OpEvent<'_>) + core::marker::Send + core::marker::Sync + 'static) -> runvil_engine::vfs::VfsRefBuilder
 pub fn runvil_engine::vfs::VfsRefBuilder::policy(self, policy: impl runvil_engine::vfs::Policy + core::marker::Sync + 'static) -> runvil_engine::vfs::VfsRefBuilder
 pub fn runvil_engine::vfs::make_store_error(error: &runvil_engine::vfs::VfsError) -> runvil_engine::Error
-pub fn runvil_engine::vfs::perform_vfs_op(access: &runvil_engine::vfs::Access, op: runvil_engine::vfs::VfsOp) -> core::result::Result<runvil_engine::vfs::VfsOutcome, runvil_engine::vfs::VfsError>
+pub fn runvil_engine::vfs::perform_vfs_op(access: &runvil_engine::vfs::Access, op: &runvil_engine::vfs::VfsOp) -> core::result::Result<runvil_engine::vfs::VfsOutcome, runvil_engine::vfs::VfsError>
 pub mod runvil_engine::cancel
 pub mod runvil_engine::effect
 pub mod runvil_engine::event
@@ -1113,14 +1114,22 @@ pub runvil_engine::vfs::VfsError::Unsupported { .. }
 pub runvil_engine::vfs::VfsError::Unsupported::detail: alloc::string::String
 pub runvil_engine::vfs::VfsError::Unsupported::path: alloc::string::String
 pub runvil_engine::vfs::VfsOp::Append { .. }
-pub runvil_engine::vfs::VfsOp::Append::contents: alloc::string::String
+pub runvil_engine::vfs::VfsOp::Append::contents: alloc::vec::Vec<u8>
 pub runvil_engine::vfs::VfsOp::Append::path: alloc::string::String
+pub runvil_engine::vfs::VfsOp::Copy { .. }
+pub runvil_engine::vfs::VfsOp::Copy::from: alloc::string::String
+pub runvil_engine::vfs::VfsOp::Copy::to: alloc::string::String
 pub runvil_engine::vfs::VfsOp::Delete { .. }
 pub runvil_engine::vfs::VfsOp::Delete::path: alloc::string::String
 pub runvil_engine::vfs::VfsOp::Exists { .. }
 pub runvil_engine::vfs::VfsOp::Exists::path: alloc::string::String
 pub runvil_engine::vfs::VfsOp::Glob { .. }
 pub runvil_engine::vfs::VfsOp::Glob::pattern: alloc::string::String
+pub runvil_engine::vfs::VfsOp::List { .. }
+pub runvil_engine::vfs::VfsOp::List::path: alloc::string::String
+pub runvil_engine::vfs::VfsOp::Mkdir { .. }
+pub runvil_engine::vfs::VfsOp::Mkdir::path: alloc::string::String
+pub runvil_engine::vfs::VfsOp::Mkdir::recursive: bool
 pub runvil_engine::vfs::VfsOp::Read { .. }
 pub runvil_engine::vfs::VfsOp::Read::end: core::option::Option<i64>
 pub runvil_engine::vfs::VfsOp::Read::path: alloc::string::String
@@ -1129,17 +1138,35 @@ pub runvil_engine::vfs::VfsOp::ReadNumbered { .. }
 pub runvil_engine::vfs::VfsOp::ReadNumbered::end: core::option::Option<i64>
 pub runvil_engine::vfs::VfsOp::ReadNumbered::path: alloc::string::String
 pub runvil_engine::vfs::VfsOp::ReadNumbered::start: core::option::Option<i64>
+pub runvil_engine::vfs::VfsOp::ReadRange { .. }
+pub runvil_engine::vfs::VfsOp::ReadRange::len: u64
+pub runvil_engine::vfs::VfsOp::ReadRange::offset: u64
+pub runvil_engine::vfs::VfsOp::ReadRange::path: alloc::string::String
+pub runvil_engine::vfs::VfsOp::Remove { .. }
+pub runvil_engine::vfs::VfsOp::Remove::path: alloc::string::String
+pub runvil_engine::vfs::VfsOp::Remove::recursive: bool
+pub runvil_engine::vfs::VfsOp::Rename { .. }
+pub runvil_engine::vfs::VfsOp::Rename::from: alloc::string::String
+pub runvil_engine::vfs::VfsOp::Rename::to: alloc::string::String
+pub runvil_engine::vfs::VfsOp::Stat { .. }
+pub runvil_engine::vfs::VfsOp::Stat::path: alloc::string::String
 pub runvil_engine::vfs::VfsOp::StrReplace { .. }
 pub runvil_engine::vfs::VfsOp::StrReplace::new: alloc::string::String
 pub runvil_engine::vfs::VfsOp::StrReplace::old: alloc::string::String
 pub runvil_engine::vfs::VfsOp::StrReplace::path: alloc::string::String
 pub runvil_engine::vfs::VfsOp::Write { .. }
-pub runvil_engine::vfs::VfsOp::Write::contents: alloc::string::String
+pub runvil_engine::vfs::VfsOp::Write::contents: alloc::vec::Vec<u8>
 pub runvil_engine::vfs::VfsOp::Write::path: alloc::string::String
 pub runvil_engine::vfs::VfsOutcome::Bool(..)
 pub runvil_engine::vfs::VfsOutcome::Bool::0: bool
+pub runvil_engine::vfs::VfsOutcome::Bytes(..)
+pub runvil_engine::vfs::VfsOutcome::Bytes::0: alloc::vec::Vec<u8>
+pub runvil_engine::vfs::VfsOutcome::Entries(..)
+pub runvil_engine::vfs::VfsOutcome::Entries::0: alloc::vec::Vec<runvil_engine::vfs::Entry>
 pub runvil_engine::vfs::VfsOutcome::Paths(..)
 pub runvil_engine::vfs::VfsOutcome::Paths::0: alloc::vec::Vec<alloc::string::String>
+pub runvil_engine::vfs::VfsOutcome::Stat(..)
+pub runvil_engine::vfs::VfsOutcome::Stat::0: runvil_engine::vfs::Stat
 pub runvil_engine::vfs::VfsOutcome::Text(..)
 pub runvil_engine::vfs::VfsOutcome::Text::0: alloc::string::String
 pub runvil_engine::vfs::VfsOutcome::Unit

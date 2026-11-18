@@ -31,7 +31,6 @@ use runvil_types::event::Event;
 use runvil_types::tools::make_tool_error;
 
 use crate::execute::{Effect, EffectAnswer, EffectId, IssuedEffect, Run, Step};
-use crate::lua::run_store_op;
 
 #[cfg(test)]
 pub(crate) mod recording;
@@ -118,7 +117,7 @@ pub fn perform_locally(
             ErrorCode::ToolOther,
             format!("no tool is bound as {alias} in this test"),
         ))),
-        Effect::Vfs { access, op, .. } => EffectAnswer::Vfs(run_store_op(access, op.clone())),
+        Effect::Vfs { access, op, .. } => EffectAnswer::Vfs(access.perform(op)),
         Effect::Timer { .. } => EffectAnswer::Timer,
     }
 }

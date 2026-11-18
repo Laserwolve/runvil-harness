@@ -175,7 +175,7 @@ pub(crate) fn make_files_error(cause: &runvil_vfs::VfsError) -> Error {
 
 /// One store operation's failure: the store's code and facts, and the
 /// model-facing message rendered with the operation for its wording.
-pub(crate) fn make_store_op_error(op: &crate::lua::VfsOp, cause: &runvil_vfs::VfsError) -> Error {
+pub(crate) fn make_store_op_error(op: &runvil_vfs::VfsOp, cause: &runvil_vfs::VfsError) -> Error {
     runvil_lua::make_store_failure_error(cause, crate::lua::store_error_message(op, cause))
 }
 

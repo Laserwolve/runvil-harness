@@ -8,7 +8,8 @@
 //! [`ToolCallOrigin`] and [`ToolCaller`] it re-exports from
 //! `runvil-types` - comes from the `effect` child module and is
 //! re-exported here. The records of effects and answers stay in that
-//! module; the caller reads them as JSON.
+//! module, with the record forms of a file operation and its outcome in
+//! `vfs_record`; the caller reads them as JSON.
 
 use std::fmt;
 use std::sync::Arc;
@@ -18,6 +19,7 @@ use runvil_types::event::Event;
 use runvil_types::ids::Provenance;
 
 mod effect;
+mod vfs_record;
 
 #[cfg(test)]
 pub(crate) use effect::{AnswerRecord, ChatAnswerRecord, EffectRecord};

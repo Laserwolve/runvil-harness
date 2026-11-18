@@ -21,16 +21,14 @@ pub(crate) use runvil_lua::{
     LibraryBlock, LibraryKey, LuaBlockResult, MessageList, ModelCall, NonEmpty, OfferMode,
     OfferedTool, OverflowReason, ProseState, RenderedTools, Request, RosterEntry, ScriptReport,
     SectionRead, SectionText, SectionVm, TaskDelivery, TaskPhase, TaskStatus, ToolBinding,
-    ToolCallCounts, ToolCallOutcome, ToolCallRecord, ToolSet, Uninjected, UsageAnchor, VfsOp,
-    VfsOutcome, YieldParse, current_catalog_packs, current_dynamic_set, current_static_set,
-    install_preludes, install_ui, output_reserve, precheck, prepare_dispatch,
-    prepare_model_dispatch, project_messages, render_item, wire_name_of,
+    ToolCallCounts, ToolCallOutcome, ToolCallRecord, ToolSet, Uninjected, UsageAnchor, YieldParse,
+    current_catalog_packs, current_dynamic_set, current_static_set, install_preludes, install_ui,
+    output_reserve, precheck, prepare_dispatch, prepare_model_dispatch, project_messages,
+    render_item, wire_name_of,
 };
 
-// The store operation behind `execute::perform_vfs_op`, the entry point
-// a caller answers a `Vfs` effect through, and the
-// model-facing message renderers a store failure carries.
-pub(crate) use runvil_lua::{run_store_op, store_error_message};
+// The model-facing message a store failure carries.
+pub(crate) use runvil_lua::store_error_message;
 
 #[cfg(test)]
 mod tests;

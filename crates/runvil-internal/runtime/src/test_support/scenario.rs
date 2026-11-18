@@ -38,7 +38,7 @@ use crate::Error;
 use crate::execute::{
     AnswerRecord, Effect, EffectAnswer, EffectId, EffectRecord, Run, RunLimits, RunParams,
 };
-use crate::lua::{ToolBinding, run_store_op};
+use crate::lua::ToolBinding;
 use crate::model::{
     ModelBinding, ModelId, ModelInfo, ModelRole, ModelSet, ThinkingMode, make_completion_error,
 };
@@ -182,7 +182,7 @@ impl Answers {
                     "the tool the call names has no implementation in the test driver's tool table",
                 ))),
             },
-            Effect::Vfs { access, op, .. } => EffectAnswer::Vfs(run_store_op(access, op.clone())),
+            Effect::Vfs { access, op, .. } => EffectAnswer::Vfs(access.perform(op)),
             Effect::Timer { .. } => EffectAnswer::Timer,
         }
     }

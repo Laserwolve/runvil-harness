@@ -59,19 +59,17 @@ pub use run::{
     Effect, EffectAnswer, EffectId, IssuedEffect, PackToolSets, Round, Run, Step, ToolCallOrigin,
     ToolCaller,
 };
-// The store vocabulary a `Vfs` effect holds and its answer returns, for
-// the Engine's own store handling; other crates name it from `runvil_lua`.
-use crate::lua::{VfsOp, VfsOutcome};
+use runvil_vfs::{Access, VfsError, VfsOp, VfsOutcome};
 
 /// Performs the store operation of an [`Effect::Vfs`] and returns its answer.
 ///
 /// `access` is the store view the effect carries: a view of the calling
 /// chain's store under the chain's identity, made when the effect is
 /// dispatched.
-/// Each [`VfsOp`] maps onto one `Access` call on that view, so the caller
-/// answers a `Vfs` effect exactly as the Engine's own test drivers do.
-/// Line bounds arrive as `i64` and convert to `usize`. A read that gives
-/// an `end` and omits `start` is refused as an invalid range.
+/// The function runs `op` with [`Access::perform`] on that view, so the
+/// caller answers a `Vfs` effect exactly as the Engine's own test drivers
+/// do. Line bounds arrive as `i64` and convert to `usize`. A read that
+/// gives an `end` and omits `start` is refused as an invalid range.
 ///
 /// The function is synchronous because every file operation is: the
 /// storage underneath is synchronous by nature. The caller runs it
@@ -83,11 +81,8 @@ use crate::lua::{VfsOp, VfsOutcome};
 /// validation, not-found, anchor, range, or conflict).
 /// When the caller resumes the run with that answer, the Engine raises
 /// the failure at the prompt author's call site.
-pub fn perform_vfs_op(
-    access: &runvil_vfs::Access,
-    op: VfsOp,
-) -> std::result::Result<VfsOutcome, runvil_vfs::VfsError> {
-    crate::lua::run_store_op(access, op)
+pub fn perform_vfs_op(access: &Access, op: &VfsOp) -> std::result::Result<VfsOutcome, VfsError> {
+    access.perform(op)
 }
 
 #[cfg(test)]

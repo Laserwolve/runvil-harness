@@ -13,10 +13,10 @@ use runvil_types::error::ErrorCode;
 use runvil_types::event::{Event, ReplyOrigin};
 use runvil_types::ids::{ChainId, RoundId};
 use runvil_types::tools::ToolId;
+use runvil_vfs::{VfsOp, VfsOutcome};
 use serde_json::json;
 
 use super::*;
-use crate::lua::VfsOp;
 use crate::model::Message;
 use crate::model::ModelBinding;
 use crate::test_support::scenario::{TEST_SEED, only_effect, round_trip, test_binding};
@@ -321,7 +321,7 @@ fn an_orphaned_effects_real_answer_is_discarded_and_still_counts_as_the_answer()
     assert!(matches!(run.step(), Step::Pending { .. }));
     // The caller performed the operation before it learned of the cancel:
     // its answer is the effect's one answer, discarded rather than applied.
-    run.resume(id, EffectAnswer::Vfs(Ok(crate::lua::VfsOutcome::Unit)));
+    run.resume(id, EffectAnswer::Vfs(Ok(VfsOutcome::Unit)));
     assert!(
         matches!(
             run.step(),

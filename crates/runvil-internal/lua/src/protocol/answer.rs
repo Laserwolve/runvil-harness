@@ -4,36 +4,11 @@
 use runvil_types::error::ErrorCode;
 use runvil_types::ids::TaskId;
 use runvil_types::metrics::ToolCallEvent;
+use runvil_vfs::VfsOutcome;
 
 use crate::bindings::ToolOutputKind;
 use crate::compactors::OverflowReason;
 use crate::error::{Error, Result, tool};
-
-/// The result of one [`VfsOp`](super::VfsOp) run against a store view of
-/// the run.
-///
-/// The Lua program receives it as the return value of its `store.*` call.
-/// Operations that change the store, such as writes and deletes, produce
-/// `Unit`, which the program receives as nil.
-///
-/// The run log records a successful store answer as this value, so its
-/// JSON form is part of the log format. In serde's externally tagged form,
-/// `Unit` is the bare string `"Unit"` and every other variant is a one-key
-/// object, such as `{"Text": "..."}`, `{"Paths": ["a.txt"]}`, or
-/// `{"Bool": true}`.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[non_exhaustive]
-pub enum VfsOutcome {
-    /// The operation succeeded, and the program receives nil.
-    Unit,
-    /// The text that `read` or `read_numbered` returns: the whole file, or
-    /// only the requested line range.
-    Text(String),
-    /// The paths that match a `glob` pattern, in sorted order.
-    Paths(Vec<String>),
-    /// Whether the path exists, for `exists`.
-    Bool(bool),
-}
 
 /// One dispatched `tools.call`'s successful answer: a bound tool's output,
 /// classified by the binding's declared [`ToolOutputKind`] so the envelope
@@ -318,6 +293,8 @@ pub enum Answer {
     /// texts than calls means the scheduler stopped at the call after the
     /// last one answered.
     ToolCallsResult(Vec<String>),
-    /// The outcome of a `store` request: the operation's return value.
+    /// The outcome of a `store` request, which the call returns: nil for
+    /// an operation that changes the store, the text of a read, the paths
+    /// of a glob, or the answer of an existence check.
     Store(VfsOutcome),
 }

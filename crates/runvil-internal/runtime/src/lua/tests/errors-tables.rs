@@ -85,7 +85,7 @@ fn an_engine_failure_answered_through_the_envelope_is_the_table_its_code_names()
         anchor: "TODO".to_owned(),
         count: 2,
     };
-    let op = crate::lua::VfsOp::StrReplace {
+    let op = runvil_vfs::VfsOp::StrReplace {
         path: "notes.md".to_owned(),
         old: "TODO".to_owned(),
         new: "DONE".to_owned(),

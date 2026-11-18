@@ -286,7 +286,7 @@ fn store_error_values_carry_reason_fields_and_message_for_each_reason() {
                 case.error
             );
         };
-        let op = crate::VfsOp::Read {
+        let op = VfsOp::Read {
             path: "x".to_owned(),
             start: None,
             end: None,
@@ -315,10 +315,10 @@ fn store_error_messages_use_the_operations_wording() {
         path: "a**b".to_owned(),
         reason: PathReason::Wildcard,
     };
-    let glob = crate::VfsOp::Glob {
+    let glob = VfsOp::Glob {
         pattern: "a**b".to_owned(),
     };
-    let read = crate::VfsOp::Read {
+    let read = VfsOp::Read {
         path: "a**b".to_owned(),
         start: None,
         end: None,
@@ -343,7 +343,7 @@ fn a_raised_store_error_renders_an_integer_count_and_the_prose() {
         anchor: "TODO".to_owned(),
         count: 3,
     };
-    let op = crate::VfsOp::StrReplace {
+    let op = VfsOp::StrReplace {
         path: "notes.md".to_owned(),
         old: "TODO".to_owned(),
         new: "DONE".to_owned(),

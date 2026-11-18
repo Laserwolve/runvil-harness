@@ -186,7 +186,7 @@ fn a_re_export_rooted_outside_the_facade_dependencies_is_rejected() {
         ),
         ("pub use std::sync::Arc;", 1),
         ("pub use ::serde::Serialize;", 1),
-        ("pub use runvil_lua::VfsOp;", 1),
+        ("pub use runvil_lua::RosterEntry;", 1),
     ] {
         assert_one(text, line, RULE);
     }

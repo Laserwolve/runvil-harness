@@ -2,8 +2,8 @@
 //! uncaught run errors, the line a store view's failure is placed on, and
 //! write conflicts from library code.
 
-use runvil_lua::VfsOp;
 use runvil_types::error::ErrorCode;
+use runvil_vfs::VfsOp;
 
 use super::*;
 
@@ -59,7 +59,7 @@ fn a_store_view_failure_is_placed_on_the_store_calls_line() {
         .scheduler_for_test()
         .dispatch_store_past_the_scopes_end_for_test(VfsOp::Write {
             path: "a.txt".to_owned(),
-            contents: "x".to_owned(),
+            contents: b"x".to_vec(),
         })
         .expect_err("an ended scope refuses the store view");
     assert_eq!(error.code, ErrorCode::ScopeEnded, "{error:?}");
