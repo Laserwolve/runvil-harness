@@ -226,6 +226,11 @@ fn a_read_takes_a_one_based_inclusive_range_of_lines() -> Result<(), VfsError> {
         "",
         "a start past the last line reads nothing"
     );
+    assert_eq!(
+        lines(Some(5), Some(2))?,
+        "",
+        "and it reads nothing whatever the end is, an end before it included"
+    );
     Ok(())
 }
 

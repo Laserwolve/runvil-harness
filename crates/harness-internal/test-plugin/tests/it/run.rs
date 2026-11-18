@@ -434,9 +434,12 @@ async fn each_file_operation_of_a_library_tool_is_performed_on_the_runs_files_an
     remove(&dir);
 }
 
-/// Denies every read under `/secret` and every change under `/locked`,
-/// and panics on every read under `/broken`. A write elsewhere passes,
-/// so a test can seed what it reads.
+/// Denies each `Read`, `List`, and `Stat` under `/secret` and every
+/// change under `/locked`, and panics on each `Read`, `List`, and `Stat`
+/// under `/broken`. It does not guard the content under `/secret`: a
+/// copy or a rename out of it passes, because a policy is asked about
+/// those as `Copy` and `Rename`. A write elsewhere passes, so a test can
+/// seed what it reads.
 struct Guard;
 
 impl Policy for Guard {

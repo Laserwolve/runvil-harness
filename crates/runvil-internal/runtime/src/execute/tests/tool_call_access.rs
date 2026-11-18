@@ -8,7 +8,7 @@
 //! test of the order of identities has the driver note each call in a
 //! store of the test's own first, through a view under the call's
 //! identity: a store checks claims, and a note that nothing orders after
-//! an earlier note of its file fails the call and so the run.
+//! an earlier note of its file fails the call.
 //! One call hands a file to a later call: the end joins the first call's
 //! work into the chain before the chain's next step, and the fork orders
 //! the chain's earlier work before the later call's. An executed prompt's

@@ -209,8 +209,11 @@ impl Run {
     ///
     /// The chain waiting on the effect resumes with the answer at the next
     /// `step`. For [`EffectAnswer::Dropped`], it resumes with a
-    /// cancellation error. Any events the answer produces come back from
-    /// that next step, or from a [`deliver`](Self::deliver) made before it.
+    /// cancellation error. No chain waits on a `Vfs` effect that a tool
+    /// call asked for, so its answer, `Dropped` included, resumes nothing,
+    /// and the tool call still takes its own answer. Any events the answer
+    /// produces come back from that next step, or from a
+    /// [`deliver`](Self::deliver) made before it.
     ///
     /// Each answer must match the kind of its effect: a chat answer for a
     /// `Chat` effect, a tool answer for a `ToolCall` effect, and so on. A

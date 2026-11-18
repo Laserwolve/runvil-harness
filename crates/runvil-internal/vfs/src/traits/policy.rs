@@ -6,6 +6,12 @@ use crate::path::VfsPath;
 /// The kind of filesystem operation being attempted, which a policy
 /// matches on.
 ///
+/// A copy and a rename ask the policy about each of their two paths, as
+/// [`Op::Copy`] and as [`Op::Rename`], and never about the source as
+/// [`Op::Read`]. So a policy that refuses reads under a path must refuse
+/// those two kinds there as well, or a copy or a rename takes the content
+/// out.
+///
 /// The enum is `#[non_exhaustive]`, so a `match` on it outside this crate
 /// needs a wildcard arm. A policy should deny in that arm, so an operation
 /// added later is refused until the policy names it.
@@ -70,9 +76,12 @@ pub enum Verdict {
 /// A hook that decides whether each filesystem operation may proceed.
 ///
 /// Each `VfsRef` has one policy. `Access` consults it on every
-/// operation, before any other check of the operation. A policy can
-/// change its answers during a run through shared state: the
-/// application holds the same `Arc` and changes the state mid-run.
+/// operation whose path is valid, before the operation goes any further.
+/// An operation whose path is invalid fails before the policy is asked.
+/// A copy and a rename consult it once for each of their two paths,
+/// under their own kinds, as [`Op`] says. A policy can change its answers
+/// during a run through shared state: the application holds the same
+/// `Arc` and changes the state mid-run.
 pub trait Policy: Send {
     /// Decides whether `op` on `path` may proceed.
     fn check(&self, op: Op, path: &VfsPath) -> Verdict;

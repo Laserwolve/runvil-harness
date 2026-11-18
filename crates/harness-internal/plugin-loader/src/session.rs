@@ -260,8 +260,7 @@ impl Field {
     /// of [`Field::bytes`].
     ///
     /// # Safety
-    /// When `s.len` is nonzero, `s.ptr` must be valid for reads of `s.len`
-    /// bytes for the duration of this call.
+    /// The rule of [`Field::bytes`], for `s.ptr` and `s.len`.
     pub(crate) unsafe fn read(&self, s: RvStr) -> Result<String, &'static str> {
         // SAFETY: the caller's guarantee is that of `Field::bytes`.
         let bytes = unsafe { self.bytes(s.ptr.cast::<u8>(), s.len) }?;
@@ -274,8 +273,9 @@ impl Field {
     /// undefined behavior even at length 0.
     ///
     /// # Safety
-    /// When `len` is nonzero, `ptr` must be valid for reads of `len`
-    /// bytes for the duration of this call.
+    /// When `ptr` is not NULL and `len` is from 1 to the cap, `ptr` must
+    /// be valid for reads of `len` bytes for the duration of this call.
+    /// No other `ptr` is read.
     pub(crate) unsafe fn bytes(&self, ptr: *const u8, len: usize) -> Result<Vec<u8>, &'static str> {
         if len > self.cap {
             return Err(self.too_long);

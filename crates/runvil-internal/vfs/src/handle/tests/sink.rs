@@ -95,3 +95,36 @@ fn a_policy_denied_operation_never_fires_the_sink() -> Result<(), VfsError> {
     );
     Ok(())
 }
+
+#[test]
+fn an_operation_of_a_tool_call_that_has_ended_never_fires_the_sink() -> Result<(), VfsError> {
+    let events: Arc<Mutex<Vec<Op>>> = Arc::new(Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&events);
+    let vfs = VfsRef::builder()
+        .mount("/", TestFs::default())
+        .on_op(move |event: OpEvent<'_>| {
+            recorded
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(event.op());
+        })
+        .build();
+    let (owner, scope) = vfs.acquire_scope(test_origin())?;
+    let call = scope.spawn(&owner, test_origin())?;
+    call.write("/f.txt", b"x")?;
+    scope.end_access(Some(owner.id()), call.id());
+    // The policy allows the second write, and admission refuses it.
+    assert!(matches!(
+        call.write("/f.txt", b"y"),
+        Err(VfsError::ScopeEnded { .. })
+    ));
+    assert_eq!(
+        events
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_slice(),
+        &[Op::Write],
+        "the sink saw the write made before the call ended and no other"
+    );
+    Ok(())
+}

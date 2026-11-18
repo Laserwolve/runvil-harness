@@ -182,9 +182,9 @@ impl<'a> Steps<'a> {
     }
 
     /// Asks the call's files for `op`, the request the last step made,
-    /// and polls the request at once, which is when it goes out. A
-    /// request whose outcome is there already wakes the task for the
-    /// step that is lent its answer.
+    /// and polls the request at once, because a request is made at the
+    /// first poll of its future. A request whose outcome is there
+    /// already wakes the task for the step that is lent its answer.
     fn ask(&mut self, op: VfsOp, cx: &mut Context<'_>) {
         let files: &'a dyn ToolFiles = self.files;
         let wanted = Wanted::by(&op);

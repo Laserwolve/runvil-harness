@@ -24,12 +24,17 @@ use runvil_vfs::{VfsError, VfsOp, VfsOutcome};
 pub trait ToolFiles: Send + Sync {
     /// Asks for `op` and resolves with its outcome.
     ///
-    /// The request goes out when the returned future is first polled.
-    /// A future dropped before that sends nothing. Dropping it later
-    /// takes nothing back: the Harness still performs the operation
-    /// while the call is in flight, and the outcome is discarded. A
-    /// call may wait on several requests at once, and the Harness
-    /// performs them one after another, in the order they went out.
+    /// The request joins the call's queue when the returned future is
+    /// first polled, and it goes out when the Harness takes it from the
+    /// queue, which the Harness does only between two polls of the call.
+    /// A future that is never polled, or that is dropped in the poll that
+    /// first polled it, sends nothing. Dropping it later may be too late
+    /// to take the request back: once it has gone out, the Harness
+    /// performs the operation while the call is in flight and discards
+    /// the outcome. A call that must know whether an operation happened
+    /// awaits its outcome. A call may wait on several requests at once,
+    /// and the Harness performs them one after another, in the order the
+    /// call made them.
     ///
     /// The future resolves only while the Harness polls the call, so a
     /// call awaits it in its own future and never blocks on it.

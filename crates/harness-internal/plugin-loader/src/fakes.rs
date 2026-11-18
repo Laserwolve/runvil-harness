@@ -741,9 +741,9 @@ pub(crate) fn text_at(call: &TestCall, path: &str) -> Result<String, VfsError> {
     }
 }
 
-/// Files that take each request and hold it until a test answers it. A
-/// request goes out at the first poll of its future, as it does at the
-/// Harness.
+/// Files that take each request and hold it until a test answers it.
+/// They take a request at the first poll of its future, which is when a
+/// request joins its call's queue at the Harness.
 #[derive(Default)]
 pub(crate) struct HeldFiles {
     held: Mutex<Held>,
@@ -752,7 +752,7 @@ pub(crate) struct HeldFiles {
 /// The requests a [`HeldFiles`] took.
 #[derive(Default)]
 struct Held {
-    /// The operations asked for, in the order the requests went out.
+    /// The operations asked for, in the order the requests were made.
     asked: Vec<VfsOp>,
     /// The outcome a test gave each request, until its future takes it.
     outcomes: Vec<Option<Result<VfsOutcome, VfsError>>>,
@@ -766,14 +766,14 @@ impl HeldFiles {
         self.held.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// The operations asked for so far, in the order the requests went
-    /// out.
+    /// The operations asked for so far, in the order the requests were
+    /// made.
     pub(crate) fn asked(&self) -> Vec<VfsOp> {
         self.held().asked.clone()
     }
 
     /// Answers the request numbered `index`, counted from 0 in the order
-    /// the requests went out, with `outcome`, and wakes its future.
+    /// the requests were made, with `outcome`, and wakes its future.
     pub(crate) fn answer(&self, index: usize, outcome: Result<VfsOutcome, VfsError>) {
         let waker = {
             let mut held = self.held();

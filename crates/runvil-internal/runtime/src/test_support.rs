@@ -99,16 +99,17 @@ pub(crate) fn with_author_prose(error: crate::Error, line: u32) -> crate::Error 
     error
 }
 
-/// Performs one effect locally, with no I/O: a file operation runs on the
-/// effect's own access handle, a timer fires at once, a render passes
-/// every offered tool through, a bound tool is unbound, and a model round
-/// is answered by `chat`, a function of the effect alone so the answer
-/// never depends on arrival order.
+/// Performs one effect locally, with no model, tool, or timer behind it:
+/// a file operation runs on the effect's own access, which reaches real
+/// files only when the run's handle mounts them, a timer fires at once,
+/// a render passes every offered tool through, a bound tool is unbound,
+/// and a model round is answered by `chat`, a function of the effect
+/// alone so the answer never depends on arrival order.
 ///
 /// # Panics
 ///
-/// Only when `chat` panics: a file operation's failure is answered as a
-/// `Vfs` error, not raised.
+/// Only when `chat` panics: a file operation's failure is the error in
+/// the effect's own answer, `Vfs` or `VfsReceipt`, not raised.
 pub fn perform_locally(
     effect: &Effect,
     chat: &mut impl FnMut(&Effect) -> EffectAnswer,

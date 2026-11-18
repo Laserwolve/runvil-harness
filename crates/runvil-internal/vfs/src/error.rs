@@ -154,9 +154,10 @@ pub enum VfsError {
     /// scope at an epoch later than the last one the operation's clock has
     /// seen.
     ///
-    /// Only an access that checks claims returns this error. A view of a
-    /// store checks them, and an access of a handle that a caller builds
-    /// does not.
+    /// The claims check makes this error, and only an access that checks
+    /// claims runs it: a view of a store does, and an access of a handle
+    /// that a caller builds does not. A backend of the caller's own can
+    /// still return it.
     Conflict {
         /// The canonical path or pattern both accesses claimed.
         path: String,

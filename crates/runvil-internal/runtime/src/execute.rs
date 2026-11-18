@@ -81,7 +81,9 @@ use runvil_vfs::{Access, VfsError, VfsOp, VfsOutcome};
 /// Returns the operation's own structured failure (path validation,
 /// not-found, anchor, range, or conflict).
 /// When the caller resumes the run with that answer to a `store` call,
-/// the Engine raises the failure at the prompt author's call site.
+/// the Engine raises the failure at the prompt author's call site,
+/// except a conflict, which ends the run with a determinism error that
+/// no `pcall` catches.
 pub fn perform_vfs_op(access: &Access, op: &VfsOp) -> std::result::Result<VfsOutcome, VfsError> {
     access.perform(op)
 }

@@ -7,8 +7,9 @@
 //! Harness performs and answers, and reports every boundary as an event
 //! returned from `step`. A file operation is a `store` call of the
 //! prompt's Lua, or a request of an open tool call that the caller
-//! reports with [`Run::request_file`]. Other crates reach these items through the
-//! `runvil-engine` facade.
+//! reports with [`Run::request_file`]. A tool call's file request has no
+//! event: its effect and the answer are its whole report. Other crates
+//! reach these items through the `runvil-engine` facade.
 //!
 //! ## Invariants
 //!

@@ -1,7 +1,8 @@
-//! Tests for a tool call's desk: a request goes out at its future's first
-//! poll and announces its call, an outcome wakes and resolves the oldest
-//! request the loop took, a dropped future's request is never reported
-//! or has its outcome discarded, and the run's queue wakes the loop.
+//! Tests for a tool call's desk: a request joins its desk at its future's
+//! first poll and announces its call, an outcome wakes and resolves the
+//! oldest request the loop took, a dropped future's request is never
+//! reported or has its outcome discarded, and the run's queue wakes the
+//! loop.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::Wake;
@@ -76,7 +77,7 @@ fn announced(asked: &Asked) -> Option<EffectId> {
 }
 
 #[test]
-fn a_request_goes_out_at_its_first_poll_and_resolves_with_the_outcome_the_loop_delivers() {
+fn a_request_joins_its_desk_at_its_first_poll_and_resolves_with_the_outcome_the_loop_delivers() {
     let asked = Arc::new(Asked::default());
     let call = call_id();
     let desk = CallDesk::open(call, &asked);
@@ -85,7 +86,7 @@ fn a_request_goes_out_at_its_first_poll_and_resolves_with_the_outcome_the_loop_d
     let mut request = desk.request(write("/a.md", "a"));
     assert!(
         desk.next_request().is_none(),
-        "an unpolled request is not out"
+        "an unpolled request is not at the desk"
     );
     assert_eq!(announced(&asked), None);
 

@@ -336,7 +336,9 @@ const NANOS_PER_SECOND: u32 = 1_000_000_000;
 
 /// A point in time as a record holds it: `secs` whole seconds after the
 /// Unix epoch, negative for a time before it, and `nanos` nanoseconds
-/// after that second. Both are integers, so the time reads back exactly.
+/// after that second. Both are integers, so the time reads back exactly
+/// on the platform that recorded it. A platform with a coarser clock
+/// rounds a finer time down: Windows keeps 100-nanosecond steps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 struct TimeRecord {
     /// Whole seconds after the Unix epoch.

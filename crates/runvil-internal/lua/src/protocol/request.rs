@@ -194,11 +194,12 @@ pub enum Request {
     },
     /// The unanswered calls of one model round, yielded by the loop's
     /// step: the scheduler issues every catalog call up to the first call
-    /// that must run alone (an adhoc tool) and answers
-    /// once each issued call has landed, with one text per issued call in
-    /// call order. The loop sends the call it stopped at as an ordinary
-    /// [`Request::ToolCall`]. Shim-produced in every field, so a wrong
-    /// shape is a malformed yield.
+    /// that must run alone (a call that the catalog does not route, such
+    /// as an adhoc tool, or a call to a tool that changes files) and
+    /// answers once each issued call has landed, with one text per issued
+    /// call in call order. The loop sends the call it stopped at as an
+    /// ordinary [`Request::ToolCall`]. Shim-produced in every field, so a
+    /// wrong shape is a malformed yield.
     ToolCalls {
         /// The calls in the model's order, each with its call id.
         calls: Vec<ToolCallRecord>,

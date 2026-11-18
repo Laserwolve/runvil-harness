@@ -382,17 +382,17 @@ async fn two_calls_in_flight_at_once_each_get_the_outcomes_of_their_own_requests
     assert_eq!(files.read_string("/right.out"), Ok("right".to_owned()));
 
     let records = recorder.records(report.run_id);
-    let first_request = records
+    // Each call makes two requests, so the first two file effects name
+    // two calls only when the second call asked before the first call's
+    // second request.
+    let askers: Vec<&Value> = records
         .iter()
-        .position(is_call_file_effect)
-        .expect("the calls asked for files");
-    let calls_out = records[..first_request]
-        .iter()
-        .filter(|record| record.payload.get("ToolCall").is_some())
-        .count();
-    assert_eq!(
-        calls_out, 2,
-        "both calls were in flight when the first request went out"
+        .filter(|record| is_call_file_effect(record))
+        .map(|record| &record.payload["Vfs"]["call"])
+        .collect();
+    assert_ne!(
+        askers[0], askers[1],
+        "both calls were in flight when the second file effect went out: {askers:?}"
     );
     for (from, to, text) in [
         ("/left.md", "/left.out", "left"),

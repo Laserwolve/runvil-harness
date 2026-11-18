@@ -80,10 +80,11 @@ pub enum Mode {
 /// A policy that limits changes to storage according to the current
 /// `Mode`.
 ///
-/// A `VfsRef` holds one policy and consults it on every operation,
-/// before any other check of the operation. The mode limits only operations
-/// that change storage: writes, appends, deletes, renames, directory
-/// creation, copies, symbolic links, and permission changes.
+/// A `VfsRef` holds one policy and consults it on every operation whose
+/// path is valid, before the operation goes any further. The mode limits
+/// only operations that change storage: writes, appends, deletes,
+/// renames, directory creation, copies, symbolic links, and permission
+/// changes.
 ///
 /// The policy shares its current mode with every [`ModeHandle`] it
 /// returns. The caller keeps a handle and can change the mode mid-run.

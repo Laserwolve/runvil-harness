@@ -8,8 +8,9 @@ use crate::{Access, Op, VfsError};
 /// One file operation with its arguments, which [`Access::perform`] runs.
 ///
 /// The list serves two askers. The `store` functions of a prompt's Lua
-/// use the first eight operations. A tool uses `Write`, `Append`, and the
-/// last seven.
+/// use the first eight operations. A tool call may ask for any operation
+/// of the list, and the file functions of the C contract ask for
+/// `Write`, `Append`, and the last seven.
 ///
 /// The separate [`Op`] names only the kind of a file operation (`Read`,
 /// `Write`, `Rename`, and so on), which a policy matches on and a watcher
@@ -48,7 +49,8 @@ pub enum VfsOp {
     ///
     /// With both bounds omitted, it reads the whole file. With `start`, it
     /// reads a 1-based inclusive range of lines. An `end` given alone is
-    /// an error.
+    /// an error. A `start` past the last line reads as empty text,
+    /// whatever `end` is.
     Read {
         /// The path of the file.
         path: String,

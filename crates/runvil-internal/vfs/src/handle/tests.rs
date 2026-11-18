@@ -21,6 +21,7 @@ mod claims;
 mod happens_before;
 mod operations;
 mod perform;
+mod policy;
 mod read_range;
 mod refusals;
 mod regions;

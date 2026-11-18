@@ -25,8 +25,9 @@ impl Access {
     /// Returns the error of the method the operation names. A `Read` or a
     /// `ReadNumbered` also returns [`VfsError::InvalidRange`] for a
     /// `start` below 1, an `end` before `start`, or an `end` given with no
-    /// `start`. A `Remove` returns [`VfsError::NotFound`] when the path is
-    /// absent.
+    /// `start`. A `start` past the last line comes first: it reads as
+    /// empty text, whatever `end` is. A `Remove` returns
+    /// [`VfsError::NotFound`] when the path is absent.
     pub fn perform(&self, op: &VfsOp) -> Result<VfsOutcome, VfsError> {
         let done = |()| VfsOutcome::Unit;
         match op {

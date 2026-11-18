@@ -268,7 +268,7 @@ fn a_request_goes_to_the_calls_files_at_once_and_the_call_gets_no_step_until_its
     assert_eq!(
         files.asked(),
         [three_bytes()],
-        "the request went out in the poll that sent its step"
+        "the request was made in the poll that sent its step"
     );
     assert!(future.as_mut().poll(&mut cx).is_pending());
     assert_eq!(
