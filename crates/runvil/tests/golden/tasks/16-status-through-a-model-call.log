@@ -1,0 +1,26 @@
+0 0 event - {"kind":"run_started","provenance":{"seq":0,"task":"0"},"section":"status-through-a-model-call"}
+0 1 event - {"kind":"section_started","provenance":{"seq":1,"task":"0"},"section":"Main"}
+0 2 event - {"kind":"lua_chunk_started","provenance":{"seq":2,"task":"0"},"section":"Main"}
+0 3 event - {"kind":"lua","message":"before: queued","provenance":{"seq":3,"task":"0"},"section":"Main"}
+0 5 event - {"args":null,"index":null,"item":null,"kind":"task_started","provenance":{"seq":5,"task":"0"},"section":"Main","target":"Worker","task":"0.0","var":{}}
+0.0 0 event - {"kind":"section_started","provenance":{"seq":0,"task":"0.0"},"section":"Worker"}
+0.0 1 event - {"kind":"lua_chunk_started","provenance":{"seq":1,"task":"0.0"},"section":"Worker"}
+0 4 effect 0 {"Timer":{"seconds":1.0}}
+0.0 2 effect 1 {"Chat":{"after":null,"alias":"default","keep":0,"max_tokens":null,"messages":[{"content":"after 5 reply done","role":"user"}],"round":0,"temperature":null,"thinking":null,"tools":[]}}
+0 4 answer 0 "Timer"
+0 6 event - {"kind":"lua","message":"during: chat","provenance":{"seq":6,"task":"0"},"section":"Main"}
+0.0 2 answer 1 {"Chat":{"Ok":{"finish_reason":null,"model":"mock-model","reply":"done","tool_calls":[]}}}
+0.0 3 event - {"kind":"model_turn_completed","provenance":{"seq":3,"task":"0.0"},"section":"Worker"}
+0.0 4 event - {"finish_reason":null,"kind":"assistant_reply","metrics":null,"model":"mock-model","origin":"infer","provenance":{"seq":4,"task":"0.0"},"round":0,"section":"Worker","text":"done","turn":1}
+0.0 5 event - {"kind":"lua_chunk_succeeded","provenance":{"seq":5,"task":"0.0"},"section":"Worker"}
+0.0 6 event - {"kind":"lua_teardown_started","provenance":{"seq":6,"task":"0.0"},"section":"Worker"}
+0.0 7 event - {"kind":"lua_teardown_succeeded","provenance":{"seq":7,"task":"0.0"},"section":"Worker"}
+0.0 8 event - {"kind":"section_finished","provenance":{"seq":8,"task":"0.0"},"section":"Worker"}
+0.0 9 event - {"kind":"task_succeeded","provenance":{"seq":9,"task":"0.0"},"section":"Worker","task":"0.0"}
+0 7 event - {"kind":"lua","message":"after: done, ok true","provenance":{"seq":7,"task":"0"},"section":"Main"}
+0 8 event - {"kind":"lua_chunk_succeeded","provenance":{"seq":8,"task":"0"},"section":"Main"}
+0 9 event - {"kind":"lua_teardown_started","provenance":{"seq":9,"task":"0"},"section":"Main"}
+0 10 event - {"kind":"lua_teardown_succeeded","provenance":{"seq":10,"task":"0"},"section":"Main"}
+0 11 event - {"kind":"section_finished","provenance":{"seq":11,"task":"0"},"section":"Main"}
+0 12 event - {"kind":"run_succeeded","provenance":{"seq":12,"task":"0"},"section":"status-through-a-model-call"}
+result ok "read three times"

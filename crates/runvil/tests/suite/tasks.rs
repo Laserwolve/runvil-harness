@@ -64,3 +64,28 @@ async fn an_owner_reads_a_tasks_store_write_after_joining_it() {
 async fn a_timed_join_ends_and_a_later_join_collects_the_task() {
     check("12-timed-join").await;
 }
+
+#[tokio::test(start_paused = true)]
+async fn pending_lists_the_tasks_still_live() {
+    check("13-pending").await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn ready_reads_false_before_a_task_ends_and_true_after() {
+    check("14-ready-after-end").await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn ready_reads_true_while_a_reply_waits_and_false_once_it_is_taken() {
+    check("15-ready-with-reply").await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn status_reads_queued_then_chat_then_done_around_a_model_call() {
+    check("16-status-through-a-model-call").await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn status_shows_the_latest_note_a_task_set() {
+    check("17-note").await;
+}
