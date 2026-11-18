@@ -1,6 +1,5 @@
 #[non_exhaustive] pub enum runvil_engine::OutputTrust
 #[non_exhaustive] pub enum runvil_engine::effect::ToolCaller
-#[non_exhaustive] pub enum runvil_engine::effect::VfsAsker
 #[non_exhaustive] pub enum runvil_engine::effect::VfsReceipt
 #[non_exhaustive] pub enum runvil_engine::event::Event
 #[non_exhaustive] pub enum runvil_engine::event::ReplyOrigin
@@ -15,8 +14,6 @@
 #[non_exhaustive] pub enum runvil_engine::vfs::PathReason
 #[non_exhaustive] pub enum runvil_engine::vfs::Verdict
 #[non_exhaustive] pub enum runvil_engine::vfs::VfsError
-#[non_exhaustive] pub enum runvil_engine::vfs::VfsOp
-#[non_exhaustive] pub enum runvil_engine::vfs::VfsOutcome
 #[non_exhaustive] pub enum runvil_engine::vfs::Writability
 #[non_exhaustive] pub struct runvil_engine::RunLimits { .. }
 #[non_exhaustive] pub struct runvil_engine::ToolCatalog { /* private fields */ }
@@ -311,7 +308,10 @@ pub enum runvil_engine::ErrorFact
 pub enum runvil_engine::Step
 pub enum runvil_engine::effect::Effect
 pub enum runvil_engine::effect::EffectAnswer
+pub enum runvil_engine::effect::VfsAsker
 pub enum runvil_engine::packs::RosterEntry
+pub enum runvil_engine::vfs::VfsOp
+pub enum runvil_engine::vfs::VfsOutcome
 pub fn runvil_engine::Error::canceled() -> runvil_engine::Error
 pub fn runvil_engine::Error::is_canceled(&self) -> bool
 pub fn runvil_engine::Error::located_message(&self) -> alloc::string::String

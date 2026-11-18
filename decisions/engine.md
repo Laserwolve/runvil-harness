@@ -82,11 +82,15 @@ The fields of `Step::Pending` are `effects`, `events`, `withdrawn`, and `waiting
 
 Because a step returns effects and events as values, the Engine is pure, the Harness receives one ordered stream, and a test asserts on a vector. The caller receives events one step at a time, and a step runs at the speed of its Lua.
 
-### `Step`, `Effect`, and `EffectAnswer` are closed enums
+### `Step`, `Effect`, `EffectAnswer`, `VfsAsker`, `VfsOp`, and `VfsOutcome` are closed enums
 
-The three enums omit the `#[non_exhaustive]` attribute, so a caller's `match` names every variant, and a variant that the Engine adds fails every caller's build.
+These enums omit the `#[non_exhaustive]` attribute. A `match` that names every variant of one of them needs no wildcard arm, and a variant that the Engine adds fails the build at each such `match`.
 
-The Harness matches these values. With `#[non_exhaustive]` it would need wildcard arms, and it would still compile after the Engine gains a variant.
+The Harness matches `Step`, `Effect`, and `EffectAnswer` values. With `#[non_exhaustive]` it would need wildcard arms, and it would still compile after the Engine gains a variant.
+
+`VfsAsker`, `VfsOp`, and `VfsOutcome` are closed for the same reason. The asker of a `Vfs` effect settles the answer that the effect takes, so a caller has a rule for each asker. Each place with a rule for every operation or every outcome, such as the code that performs a file operation, records it, or makes its receipt, names every variant, so a variant that the Engine adds fails the build there. With `#[non_exhaustive]`, each such place would need a wildcard arm, and the record of a run would hold nothing for an operation or an outcome that the record code does not know. The owner's words on the attribute: "I would expect that if they are extended, then all call sites should break, no?" The owner's rule: "also VfsAsker, and VfsOp I think should fail to build if a new thing is added and call sites are not updated." And on `VfsOutcome`: "Yeah close VfsOutcome too."
+
+`VfsReceipt` and `VfsError` keep the attribute. Only the crate that defines `VfsReceipt` matches on it, and the attribute asks no wildcard arm of that crate. The owner wants an error type that can grow without breaking a build.
 
 ### Every effect gets exactly one answer, and `Dropped` is an answer
 
@@ -252,7 +256,7 @@ The crates share one `Error` because they once had dozens of error types, and ev
 
 The owner has made no decision about how the codes are grouped. `call_depth_exceeded` is 204, in the Lua family. Before the codes had numbers, a depth failure was reported under the same kind as the Lua log quotas, which is the likely reason it has the number after `lua_quota`. The grouping and the numbers may change while Runvil has no users. The owner's reason: "there's no users that are comparing error codes yet, so it's easy to change". A code that moves to another family takes a new number, so a move keeps the rule that a number is never reused.
 
-`Error`, `ErrorCode`, and `ErrorFact` omit the `#[non_exhaustive]` attribute, so a code that the Engine adds breaks the build of a Host whose `match` on `ErrorCode` names every variant. No decision closed the three types. The owner's rule of 2026-10-15 keeps `Step`, `Effect`, and `EffectAnswer` closed and marks every other facade type `#[non_exhaustive]`, and the error types arrived after it without the attribute. The owner's words: "it just happened", and "we should probably mark the type as non-exhaustive". Adding the attribute is planned work.
+`Error`, `ErrorCode`, and `ErrorFact` omit the `#[non_exhaustive]` attribute, so a code that the Engine adds breaks the build of a Host whose `match` on `ErrorCode` names every variant. No decision closed the three types. The owner's rule marks every facade type `#[non_exhaustive]` except the enums that it keeps closed (see the entry on closed enums), and the error types arrived after that rule without the attribute. The owner's words: "it just happened", and "we should probably mark the type as non-exhaustive". Adding the attribute is planned work.
 
 ### An error's `message` includes each cause once, and its `prose` is the text a model reads
 

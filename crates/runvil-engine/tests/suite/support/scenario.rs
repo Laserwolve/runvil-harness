@@ -349,7 +349,7 @@ impl Driver {
                     VfsAsker::Tool { .. } => {
                         EffectAnswer::VfsReceipt(outcome.map(|outcome| VfsReceipt::of(&outcome)))
                     }
-                    _ => EffectAnswer::Vfs(outcome),
+                    VfsAsker::Lua { .. } => EffectAnswer::Vfs(outcome),
                 }
             }
             Effect::Timer { .. } => EffectAnswer::Timer,

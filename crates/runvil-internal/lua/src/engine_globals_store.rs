@@ -31,13 +31,23 @@ pub fn store_error_message(op: &VfsOp, error: &VfsError) -> String {
         VfsError::NotUtf8 { path, valid_up_to } => {
             format!("file in store is not UTF-8 after byte {valid_up_to}: {path}")
         }
-        VfsError::InvalidPath { path, reason } => {
-            if matches!(op, VfsOp::Glob { .. }) {
-                format!("invalid glob pattern {path:?}: {reason}")
-            } else {
-                format!("invalid path {path:?}: {reason}")
-            }
-        }
+        VfsError::InvalidPath { path, reason } => match op {
+            VfsOp::Glob { .. } => format!("invalid glob pattern {path:?}: {reason}"),
+            VfsOp::Write { .. }
+            | VfsOp::Append { .. }
+            | VfsOp::Read { .. }
+            | VfsOp::ReadNumbered { .. }
+            | VfsOp::StrReplace { .. }
+            | VfsOp::Delete { .. }
+            | VfsOp::Exists { .. }
+            | VfsOp::Stat { .. }
+            | VfsOp::List { .. }
+            | VfsOp::ReadRange { .. }
+            | VfsOp::Mkdir { .. }
+            | VfsOp::Remove { .. }
+            | VfsOp::Rename { .. }
+            | VfsOp::Copy { .. } => format!("invalid path {path:?}: {reason}"),
+        },
         VfsError::InvalidRange { path, reason } => {
             format!("invalid line range for {path}: {reason}")
         }

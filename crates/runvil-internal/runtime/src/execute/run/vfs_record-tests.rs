@@ -202,7 +202,6 @@ fn the_bytes_of_a_write_record_as_text_when_they_are_utf8_and_as_hex_otherwise()
 #[test]
 fn a_form_that_names_no_operation_is_refused() {
     for (line, reason) in [
-        ("null", "names no file operation"),
         (
             r#"{"Write":{"path":"a","contents_hex":"abc"}}"#,
             "two digits for each byte, got 3 digits",
@@ -310,7 +309,6 @@ fn every_kind_of_file_records_under_its_own_name() {
 #[test]
 fn a_form_that_names_no_outcome_is_refused() {
     for (line, reason) in [
-        (r#"{"Ok":null}"#, "names no outcome"),
         (
             r#"{"Ok":{"Stat":{"file_type":"other","size":0,"mode":null,"modified":null,"created":null}}}"#,
             "names no kind of file",

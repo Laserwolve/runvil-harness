@@ -128,10 +128,11 @@ impl<T> PackToolSets<T> {
 /// chain's store, and a tool call works on the filesystem the caller gave
 /// the run.
 ///
-/// The enum is `#[non_exhaustive]`, so a `match` on it outside this crate
-/// needs a wildcard arm.
+/// Closed on purpose, like [`Effect`]: the caller's `match` names every
+/// asker and needs no wildcard arm. A new asker breaks every caller's
+/// build, rather than reaching a caller that gives its effect the answer
+/// of another asker.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum VfsAsker {
     /// A `store` call of the prompt's Lua, on the store made for this
     /// chain.
@@ -193,9 +194,7 @@ impl VfsReceipt {
             VfsOutcome::Entries(entries) => VfsReceipt::Count(count(entries.len())),
             VfsOutcome::Bool(flag) => VfsReceipt::Bool(*flag),
             VfsOutcome::Stat(stat) => VfsReceipt::Stat(stat.clone()),
-            // `Unit`, and any outcome `runvil-vfs` adds behind its
-            // `#[non_exhaustive]` `VfsOutcome` before this crate names it.
-            _ => VfsReceipt::Done,
+            VfsOutcome::Unit => VfsReceipt::Done,
         }
     }
 }

@@ -416,11 +416,11 @@ impl Driver {
     /// Answers one Vfs effect inline: performs the operation through the
     /// effect's access, records the answer, and resumes the run with it.
     ///
-    /// A tool call that asked gets the whole outcome at its desk, which
-    /// wakes it, once the run has the outcome's receipt. When that call
-    /// has landed or was aborted since it asked, the effect is answered
-    /// `Dropped` unperformed. Any other asker is the prompt's Lua, whose
-    /// `store` call takes the whole outcome as the answer.
+    /// The prompt's Lua that asked takes the whole outcome as the answer
+    /// of its `store` call. A tool call that asked gets the whole outcome
+    /// at its desk, which wakes it, once the run has the outcome's
+    /// receipt. When that call has landed or was aborted since it asked,
+    /// the effect is answered `Dropped` unperformed.
     ///
     /// The access is this function's own, so it drops when the function
     /// returns, and the Harness holds no way to a store between effects.
@@ -434,12 +434,12 @@ impl Driver {
         vfs: InlineVfs,
     ) -> Result<(), Error> {
         let InlineVfs { asker, access, op } = vfs;
-        // `VfsAsker` is `#[non_exhaustive]`. An asker the Engine adds
-        // takes the whole outcome here until this loop names it, and the
-        // run ends with an internal error should that be the wrong form.
-        let VfsAsker::Tool { call } = asker else {
-            let answer = EffectAnswer::Vfs(perform_vfs_op(&access, &op));
-            return self.answer(id, provenance, answer).await;
+        let call = match asker {
+            VfsAsker::Lua { .. } => {
+                let answer = EffectAnswer::Vfs(perform_vfs_op(&access, &op));
+                return self.answer(id, provenance, answer).await;
+            }
+            VfsAsker::Tool { call } => call,
         };
         let Some(desk) = self.flights.desk(call).cloned() else {
             return self.drop_effect(id, provenance).await;

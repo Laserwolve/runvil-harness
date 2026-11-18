@@ -21,8 +21,12 @@ use crate::{Access, Op, VfsError};
 ///
 /// The type holds only plain data, so an operation can be kept, compared,
 /// and written to a record.
+///
+/// The enum is closed on purpose: it has no `#[non_exhaustive]`, so a
+/// `match` on it names every operation and needs no wildcard arm. A new
+/// operation breaks the build at each such `match`, rather than reaching
+/// code that cannot perform it, record it, or pass it on.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum VfsOp {
     /// Creates the file at `path`, or replaces its content, with
     /// `contents`.
@@ -142,8 +146,11 @@ pub enum VfsOp {
 }
 
 /// What one performed [`VfsOp`] returns.
+///
+/// Closed on purpose, like [`VfsOp`]: a new outcome breaks the build at
+/// each `match` that names every outcome, rather than reaching code that
+/// has no record form for it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum VfsOutcome {
     /// The operation succeeded and returns nothing: a write, an append, a
     /// replacement, a delete, a directory creation, a removal, a rename,

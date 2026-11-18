@@ -20,10 +20,10 @@
 //! outcome of an operation that a tool call asked for records as its
 //! [`VfsReceipt`]: `"Done"`, or a one-key object such as `{"Bytes":12}`.
 //!
-//! [`VfsOp`], [`VfsOutcome`], and the kind of a file are
-//! `#[non_exhaustive]`. An operation or an outcome this module has no
-//! form for records as `null`, and a kind of file it does not name
-//! records as `other`. None of the three reads back.
+//! [`VfsOp`] and [`VfsOutcome`] are closed enums, so every operation and
+//! every outcome has a form here. The kind of a file is
+//! `#[non_exhaustive]`: a kind this module does not name records as
+//! `other`, which does not read back.
 
 use std::fmt::Write as _;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -210,10 +210,9 @@ enum VfsOpRecord {
 }
 
 impl VfsOpRecord {
-    /// The record form of `op`, or `None` for an operation this module
-    /// has no form for.
-    fn of(op: &VfsOp) -> Option<VfsOpRecord> {
-        Some(match op.clone() {
+    /// The record form of `op`.
+    fn of(op: &VfsOp) -> VfsOpRecord {
+        match op.clone() {
             VfsOp::Write { path, contents } => VfsOpRecord::Write {
                 path,
                 contents: BytesRecord::of(contents),
@@ -237,8 +236,7 @@ impl VfsOpRecord {
             VfsOp::Remove { path, recursive } => VfsOpRecord::Remove { path, recursive },
             VfsOp::Rename { from, to } => VfsOpRecord::Rename { from, to },
             VfsOp::Copy { from, to } => VfsOpRecord::Copy { from, to },
-            _ => return None,
-        })
+        }
     }
 
     /// The operation this record holds.
@@ -485,10 +483,9 @@ enum VfsOutcomeRecord {
 }
 
 impl VfsOutcomeRecord {
-    /// The record form of `outcome`, or `None` for an outcome this module
-    /// has no form for.
-    fn of(outcome: &VfsOutcome) -> Option<VfsOutcomeRecord> {
-        Some(match outcome.clone() {
+    /// The record form of `outcome`.
+    fn of(outcome: &VfsOutcome) -> VfsOutcomeRecord {
+        match outcome.clone() {
             VfsOutcome::Unit => VfsOutcomeRecord::Unit,
             VfsOutcome::Text(text) => VfsOutcomeRecord::Text(text),
             VfsOutcome::Paths(paths) => VfsOutcomeRecord::Paths(paths),
@@ -498,8 +495,7 @@ impl VfsOutcomeRecord {
                 VfsOutcomeRecord::Entries(entries.iter().map(EntryRecord::of).collect())
             }
             VfsOutcome::Bytes(bytes) => VfsOutcomeRecord::Bytes(BytesRecord::of(bytes)),
-            _ => return None,
-        })
+        }
     }
 
     /// The outcome this record holds.
@@ -665,12 +661,11 @@ pub(super) fn serialize_op<S: Serializer>(op: &VfsOp, serializer: S) -> Result<S
 ///
 /// # Errors
 /// Returns the deserializer's error for a value that is no operation's
-/// record form, `null` included, or whose hex bytes do not decode.
+/// record form, or whose hex bytes do not decode.
 pub(super) fn deserialize_op<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<VfsOp, D::Error> {
-    Option::<VfsOpRecord>::deserialize(deserializer)?
-        .ok_or_else(|| D::Error::custom("a recorded `null` names no file operation"))?
+    VfsOpRecord::deserialize(deserializer)?
         .into_op()
         .map_err(D::Error::custom)
 }
@@ -699,8 +694,8 @@ where
 ///
 /// # Errors
 /// Returns the deserializer's error for a value of another form, or for
-/// an outcome that does not read back: `null`, a kind of file of `other`,
-/// a time outside the clock's range, or hex bytes that do not decode.
+/// an outcome that does not read back: a kind of file of `other`, a time
+/// outside the clock's range, or hex bytes that do not decode.
 pub(super) fn deserialize_answer<'de, D, E>(
     deserializer: D,
 ) -> Result<Result<VfsOutcome, E>, D::Error>
@@ -708,11 +703,8 @@ where
     D: Deserializer<'de>,
     E: Deserialize<'de>,
 {
-    match Result::<Option<VfsOutcomeRecord>, E>::deserialize(deserializer)? {
-        Ok(Some(record)) => record.into_outcome().map(Ok).map_err(D::Error::custom),
-        Ok(None) => Err(D::Error::custom(
-            "a recorded `null` names no outcome of a file operation",
-        )),
+    match Result::<VfsOutcomeRecord, E>::deserialize(deserializer)? {
+        Ok(record) => record.into_outcome().map(Ok).map_err(D::Error::custom),
         Err(failure) => Ok(Err(failure)),
     }
 }

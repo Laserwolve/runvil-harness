@@ -38,7 +38,7 @@ use super::{
 };
 
 /// The succeeded/failed observation pair one store operation reports;
-/// nothing for an op this crate does not name.
+/// nothing for an operation that no `store` function asks for.
 fn vfs_observations(op: &VfsOp) -> Option<(Lifecycle, Lifecycle)> {
     let pair = match op {
         VfsOp::Write { .. } => (lifecycle::VFS_WRITE_SUCCEEDED, lifecycle::VFS_WRITE_FAILED),
@@ -64,10 +64,13 @@ fn vfs_observations(op: &VfsOp) -> Option<(Lifecycle, Lifecycle)> {
             lifecycle::VFS_EXISTS_SUCCEEDED,
             lifecycle::VFS_EXISTS_FAILED,
         ),
-        // An operation no `store` function names reports nothing, and so
-        // does any op `runvil-vfs` adds behind its `#[non_exhaustive]`
-        // `VfsOp` before this crate names it.
-        _ => return None,
+        VfsOp::Stat { .. }
+        | VfsOp::List { .. }
+        | VfsOp::ReadRange { .. }
+        | VfsOp::Mkdir { .. }
+        | VfsOp::Remove { .. }
+        | VfsOp::Rename { .. }
+        | VfsOp::Copy { .. } => return None,
     };
     Some(pair)
 }

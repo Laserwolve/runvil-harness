@@ -70,8 +70,9 @@ fn store_value(lua: &Lua, outcome: VfsOutcome) -> mlua::Result<Value> {
         VfsOutcome::Text(text) => Value::String(lua.create_string(&text)?),
         VfsOutcome::Paths(paths) => Value::Table(lua.create_sequence_from(paths)?),
         VfsOutcome::Bool(exists) => Value::Boolean(exists),
-        // `Unit`, and every outcome no `store` function returns.
-        _ => Value::Nil,
+        VfsOutcome::Unit | VfsOutcome::Stat(_) | VfsOutcome::Entries(_) | VfsOutcome::Bytes(_) => {
+            Value::Nil
+        }
     })
 }
 

@@ -15,8 +15,6 @@
 #[non_exhaustive] pub enum runvil::vfs::PathReason
 #[non_exhaustive] pub enum runvil::vfs::Verdict
 #[non_exhaustive] pub enum runvil::vfs::VfsError
-#[non_exhaustive] pub enum runvil::vfs::VfsOp
-#[non_exhaustive] pub enum runvil::vfs::VfsOutcome
 #[non_exhaustive] pub enum runvil::vfs::Writability
 #[non_exhaustive] pub struct runvil::RunLimits { .. }
 #[non_exhaustive] pub struct runvil::ToolId(/* private fields */)
@@ -340,6 +338,8 @@ pub const runvil::plugin::TOKIO_RUNTIME: &str
 pub enum runvil::ErrorCode
 pub enum runvil::ErrorFact
 pub enum runvil::harness::RecordKind
+pub enum runvil::vfs::VfsOp
+pub enum runvil::vfs::VfsOutcome
 pub fn runvil::Error::canceled() -> runvil::Error
 pub fn runvil::Error::is_canceled(&self) -> bool
 pub fn runvil::Error::located_message(&self) -> alloc::string::String

@@ -212,9 +212,24 @@ impl Wanted {
             VfsOp::Stat { .. } => Wanted::Stat,
             VfsOp::List { .. } => Wanted::Entries,
             VfsOp::ReadRange { len, .. } => Wanted::Bytes(*len),
-            // The file functions take no other read, so every other
-            // operation is one of their six changes.
-            _ => Wanted::Nothing,
+            // A change asks for nothing but a status: the six changes of
+            // the file functions, and `StrReplace` and `Delete`, which no
+            // file function asks for. No file function asks for a `Read`,
+            // a `ReadNumbered`, a `Glob`, or an `Exists` either. An answer
+            // has no field for what one of them returns, so `Answer::to`
+            // makes a failed answer of its outcome.
+            VfsOp::Write { .. }
+            | VfsOp::Append { .. }
+            | VfsOp::Mkdir { .. }
+            | VfsOp::Remove { .. }
+            | VfsOp::Rename { .. }
+            | VfsOp::Copy { .. }
+            | VfsOp::StrReplace { .. }
+            | VfsOp::Delete { .. }
+            | VfsOp::Read { .. }
+            | VfsOp::ReadNumbered { .. }
+            | VfsOp::Glob { .. }
+            | VfsOp::Exists { .. } => Wanted::Nothing,
         }
     }
 }

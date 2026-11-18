@@ -55,7 +55,7 @@ pub fn answer(effect: Effect) -> EffectAnswer {
                 }
                 // A `store` call of the prompt's Lua resumes with the
                 // whole outcome.
-                _ => EffectAnswer::Vfs(outcome),
+                VfsAsker::Lua { .. } => EffectAnswer::Vfs(outcome),
             }
         }
         Effect::Chat { .. } => {
