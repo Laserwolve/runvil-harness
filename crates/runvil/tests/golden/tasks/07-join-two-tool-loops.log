@@ -1,0 +1,57 @@
+0 0 event - {"kind":"run_started","provenance":{"seq":0,"task":"0"},"section":"join-two-tool-loops"}
+0 1 event - {"kind":"section_started","provenance":{"seq":1,"task":"0"},"section":"Main"}
+0 2 event - {"kind":"lua_chunk_started","provenance":{"seq":2,"task":"0"},"section":"Main"}
+0 3 event - {"args":null,"index":null,"item":"first","kind":"task_started","provenance":{"seq":3,"task":"0"},"section":"Main","target":"Worker","task":"0.0","var":{}}
+0 4 event - {"args":null,"index":null,"item":"second","kind":"task_started","provenance":{"seq":4,"task":"0"},"section":"Main","target":"Worker","task":"0.1","var":{}}
+0.0 0 event - {"kind":"section_started","provenance":{"seq":0,"task":"0.0"},"section":"Worker"}
+0.1 0 event - {"kind":"section_started","provenance":{"seq":0,"task":"0.1"},"section":"Worker"}
+0.0 1 event - {"kind":"lua_chunk_started","provenance":{"seq":1,"task":"0.0"},"section":"Worker"}
+0.1 1 event - {"kind":"lua_chunk_started","provenance":{"seq":1,"task":"0.1"},"section":"Worker"}
+0.0 2 effect 0 {"Render":{"alias":"default","entry":"0.0.0","offered":[{"dynamic_set":[],"pack":"echo","static_set":["echo/say"]}]}}
+0.1 2 effect 1 {"Render":{"alias":"default","entry":"0.1.0","offered":[{"dynamic_set":[],"pack":"echo","static_set":["echo/say"]}]}}
+0.0 2 answer 0 {"Render":[{"dynamic_set":[],"pack":"echo","static_set":[{"changes_files":false,"describes_tools":false,"description":"Says back the text it is given.","id":"echo/say","model_only_call":false,"parameters_schema":{"properties":{"text":{"type":"string"}},"required":["text"],"type":"object"},"structured_output":false,"survives_stop":false}]}]}
+0.1 2 answer 1 {"Render":[{"dynamic_set":[],"pack":"echo","static_set":[{"changes_files":false,"describes_tools":false,"description":"Says back the text it is given.","id":"echo/say","model_only_call":false,"parameters_schema":{"properties":{"text":{"type":"string"}},"required":["text"],"type":"object"},"structured_output":false,"survives_stop":false}]}]}
+0.0 3 event - {"kind":"tool_scope_validation_started","provenance":{"seq":3,"task":"0.0"},"section":"Worker"}
+0.0 4 event - {"kind":"tool_scope_validation_succeeded","provenance":{"seq":4,"task":"0.0"},"section":"Worker"}
+0.1 3 event - {"kind":"tool_scope_validation_started","provenance":{"seq":3,"task":"0.1"},"section":"Worker"}
+0.1 4 event - {"kind":"tool_scope_validation_succeeded","provenance":{"seq":4,"task":"0.1"},"section":"Worker"}
+0.0 5 effect 2 {"Chat":{"after":null,"alias":"default","keep":0,"max_tokens":null,"messages":[{"content":"call echo_say {\"text\":\"first\"} then reply first done","role":"user"}],"round":0,"temperature":null,"thinking":null,"tools":["echo_say"]}}
+0.1 5 effect 3 {"Chat":{"after":null,"alias":"default","keep":0,"max_tokens":null,"messages":[{"content":"call echo_say {\"text\":\"second\"} then reply second done","role":"user"}],"round":1,"temperature":null,"thinking":null,"tools":["echo_say"]}}
+0.0 5 answer 2 {"Chat":{"Ok":{"finish_reason":null,"model":"mock-model","reply":null,"tool_calls":["echo_say"]}}}
+0.1 5 answer 3 {"Chat":{"Ok":{"finish_reason":null,"model":"mock-model","reply":null,"tool_calls":["echo_say"]}}}
+0.0 6 event - {"kind":"model_turn_completed","provenance":{"seq":6,"task":"0.0"},"section":"Worker"}
+0.0 7 event - {"calls":[{"arguments":{"text":"first"},"id":"call-0","name":"echo_say","tool":"echo/say","vendor":"acme"}],"kind":"assistant_tool_calls","model":"mock-model","provenance":{"seq":7,"task":"0.0"},"round":0,"section":"Worker","turn":1}
+0.1 6 event - {"kind":"model_turn_completed","provenance":{"seq":6,"task":"0.1"},"section":"Worker"}
+0.1 7 event - {"calls":[{"arguments":{"text":"second"},"id":"call-1","name":"echo_say","tool":"echo/say","vendor":"acme"}],"kind":"assistant_tool_calls","model":"mock-model","provenance":{"seq":7,"task":"0.1"},"round":1,"section":"Worker","turn":1}
+0.0 8 effect 4 {"ToolCall":{"alias":"echo_say","args":{"text":"first"},"origin":{"caller":"model","entry":"0.0.0","model":"mock-model","section":"Worker"},"tool":"echo/say"}}
+0.1 8 effect 5 {"ToolCall":{"alias":"echo_say","args":{"text":"second"},"origin":{"caller":"model","entry":"0.1.0","model":"mock-model","section":"Worker"},"tool":"echo/say"}}
+0.0 8 answer 4 {"ToolCall":{"Ok":{"text":"first","trust":"trusted"}}}
+0.1 8 answer 5 {"ToolCall":{"Ok":{"text":"second","trust":"trusted"}}}
+0.0 9 event - {"kind":"tool_call_succeeded","provenance":{"seq":9,"task":"0.0"},"section":"Worker"}
+0.0 10 event - {"alias":"echo_say","content":"first","kind":"tool_result","provenance":{"seq":10,"task":"0.0"},"section":"Worker","tool":"echo/say","tool_call_id":"call-0","trusted":true,"turn":1,"vendor":"acme"}
+0.1 9 event - {"kind":"tool_call_succeeded","provenance":{"seq":9,"task":"0.1"},"section":"Worker"}
+0.1 10 event - {"alias":"echo_say","content":"second","kind":"tool_result","provenance":{"seq":10,"task":"0.1"},"section":"Worker","tool":"echo/say","tool_call_id":"call-1","trusted":true,"turn":1,"vendor":"acme"}
+0.0 11 effect 6 {"Chat":{"after":0,"alias":"default","keep":1,"max_tokens":null,"messages":[{"content":"","role":"assistant","tool_calls":[{"function":{"arguments":"{\"text\":\"first\"}","name":"echo_say"},"id":"call-0","type":"function"}]},{"content":"first","role":"tool","tool_call_id":"call-0"}],"round":2,"temperature":null,"thinking":null,"tools":["echo_say"]}}
+0.1 11 effect 7 {"Chat":{"after":1,"alias":"default","keep":1,"max_tokens":null,"messages":[{"content":"","role":"assistant","tool_calls":[{"function":{"arguments":"{\"text\":\"second\"}","name":"echo_say"},"id":"call-1","type":"function"}]},{"content":"second","role":"tool","tool_call_id":"call-1"}],"round":3,"temperature":null,"thinking":null,"tools":["echo_say"]}}
+0.0 11 answer 6 {"Chat":{"Ok":{"finish_reason":null,"model":"mock-model","reply":"first done","tool_calls":[]}}}
+0.1 11 answer 7 {"Chat":{"Ok":{"finish_reason":null,"model":"mock-model","reply":"second done","tool_calls":[]}}}
+0.0 12 event - {"kind":"model_turn_completed","provenance":{"seq":12,"task":"0.0"},"section":"Worker"}
+0.0 13 event - {"finish_reason":null,"kind":"assistant_reply","metrics":null,"model":"mock-model","origin":"chat","provenance":{"seq":13,"task":"0.0"},"round":2,"section":"Worker","text":"first done","turn":2}
+0.1 12 event - {"kind":"model_turn_completed","provenance":{"seq":12,"task":"0.1"},"section":"Worker"}
+0.1 13 event - {"finish_reason":null,"kind":"assistant_reply","metrics":null,"model":"mock-model","origin":"chat","provenance":{"seq":13,"task":"0.1"},"round":3,"section":"Worker","text":"second done","turn":2}
+0.0 14 event - {"kind":"lua_chunk_succeeded","provenance":{"seq":14,"task":"0.0"},"section":"Worker"}
+0.0 15 event - {"kind":"lua_teardown_started","provenance":{"seq":15,"task":"0.0"},"section":"Worker"}
+0.0 16 event - {"kind":"lua_teardown_succeeded","provenance":{"seq":16,"task":"0.0"},"section":"Worker"}
+0.0 17 event - {"kind":"section_finished","provenance":{"seq":17,"task":"0.0"},"section":"Worker"}
+0.0 18 event - {"kind":"task_succeeded","provenance":{"seq":18,"task":"0.0"},"section":"Worker","task":"0.0"}
+0.1 14 event - {"kind":"lua_chunk_succeeded","provenance":{"seq":14,"task":"0.1"},"section":"Worker"}
+0.1 15 event - {"kind":"lua_teardown_started","provenance":{"seq":15,"task":"0.1"},"section":"Worker"}
+0.1 16 event - {"kind":"lua_teardown_succeeded","provenance":{"seq":16,"task":"0.1"},"section":"Worker"}
+0.1 17 event - {"kind":"section_finished","provenance":{"seq":17,"task":"0.1"},"section":"Worker"}
+0.1 18 event - {"kind":"task_succeeded","provenance":{"seq":18,"task":"0.1"},"section":"Worker","task":"0.1"}
+0 5 event - {"kind":"lua_chunk_succeeded","provenance":{"seq":5,"task":"0"},"section":"Main"}
+0 6 event - {"kind":"lua_teardown_started","provenance":{"seq":6,"task":"0"},"section":"Main"}
+0 7 event - {"kind":"lua_teardown_succeeded","provenance":{"seq":7,"task":"0"},"section":"Main"}
+0 8 event - {"kind":"section_finished","provenance":{"seq":8,"task":"0"},"section":"Main"}
+0 9 event - {"kind":"run_succeeded","provenance":{"seq":9,"task":"0"},"section":"join-two-tool-loops"}
+result ok "second done | first done"
