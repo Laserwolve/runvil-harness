@@ -4,25 +4,25 @@ overview: Add 30 tests of Lua's `tasks` table to the `runvil` crate's suite. Eac
 todos:
   - id: plan-copy
     content: "Copy this plan to plan/2026-11-18-1-tasks-golden-tests.plan.md on branch tasks-golden-tests and commit it alone"
-    status: pending
+    status: completed
   - id: runner
     content: "Add the runner, the mock model, and test 1, and show that a changed log line fails the test"
-    status: pending
+    status: completed
   - id: cases
     content: "Add tests 2 to 30, one commit per area, checking each generated log against its row in the table"
-    status: pending
+    status: completed
   - id: overlap
     content: "List which existing tests already cover each of the 30, for the PR description"
-    status: pending
+    status: completed
   - id: gist
     content: "Reword Test #29 in the gist to drop \"the same seed\""
-    status: pending
+    status: completed
   - id: verify
     content: "Run every verification command and vibelight"
-    status: pending
+    status: completed
   - id: pr
     content: "Push the branch to the fork and open one PR against cppalliance/runvil-harness"
-    status: pending
+    status: in_progress
 ---
 
 # Golden tests for tasks
@@ -72,7 +72,7 @@ A developer writes a prompt file, runs the suite once in bless mode to write its
     - `call <tool> <json>` asks for one tool call. Steps joined by ` then ` are taken one per round, so `call echo {} then reply done` is a two-round tool loop.
     - Any other text fails the round with an error that quotes the text.
 - States and validation:
-  - A guard test fails when a prompt file has no log, a log has no prompt, or a prompt file is not named in the suite.
+  - A guard test fails when a prompt file has no log, a log has no prompt, or a prompt file is not named in the suite. While a run is storing logs, the guard checks only that each prompt is named.
   - A missing log outside bless mode fails the test and names the bless command.
 - Errors and recovery:
   - A mismatch reports the file, the first differing line number, the expected line, and the actual line.
@@ -142,7 +142,7 @@ A developer writes a prompt file, runs the suite once in bless mode to write its
 | 22 | `22-self-and-unknown-not-owned` | A task tries to cancel itself and the made-up id `9.9`. | Each raises `task_not_owned`. | 22, 23 |
 | 23 | `23-own-status` | A task reads `tasks.status(sys.taskid)`. | Its own status, with state `running`. | 22 |
 | 24 | `24-return-with-live-task` | Returns while a task that owns a task runs. | The run fails with `tasks_live` and both end `abandoned`. | 24, 25 |
-| 25 | `25-error-with-live-task` | Raises an error while a task runs. | The run fails with that error, and the task ends `abandoned`. | 24 |
+| 25 | `25-error-with-live-task` | Makes a call that is refused, uncaught, while a task runs. | The run fails with that call's error, `task_not_owned`, and the task ends `abandoned`. | 24 |
 | 26 | `26-return-with-waiting-task` | Returns while a task waits after a reply. | The run ends normally and the task ends `abandoned`. | 24 |
 | 27 | `27-nested-ids` | A task spawns a task. | Ids `0.0` and `0.0.0`, each with one start and one terminal event. | 26, 27 |
 | 28 | `28-ids-skip-other-children` | Makes a `call` and an `execute`, spawns a task, waits on it with a time limit, spawns another. | The tasks are `0.2` and `0.4`. | 26 |
@@ -162,8 +162,8 @@ The change is test code and test data in the `runvil` crate, plus one dev-depend
   - The clock is tokio's, paused. A sleep completes in the order of its deadline with no real waiting, which fixes the order in which timers and delayed model replies answer.
 - Modules and interfaces:
   - `golden`: builds the Host and the `RunSetup`, runs a prompt by file stem, renders the record, and compares or blesses. Its Host finds prompts by file name in the test folder, sleeps on the paused clock, and stamps every run's start as the Unix epoch.
-  - `mock_model`: an `InferenceBroker` that lists two models, `mock-model` and `mock-model-2`, and answers by the instruction grammar in the Functional Specification.
-  - `tasks`: one line per test naming its file stem, the guard test, and the two tests that compare logs with each other (29 and 30).
+  - `mock_model`: an `InferenceBroker` that lists one model, `mock-model`, and answers by the instruction grammar in the Functional Specification.
+  - `tasks`: one short test per prompt naming its file stem, the guard test, and the two tests that compare logs with each other (29 and 30).
   - One fixture Pack with a single `echo` tool, for the tool loops of test 7, registered as `crates/runvil/tests/suite/vfs.rs` registers its `acme/desk` Pack.
 - File and public API changes:
   - New: `crates/runvil/tests/suite/golden.rs`, `mock_model.rs`, `tasks.rs`, and three `mod` lines in `main.rs`.
@@ -217,6 +217,9 @@ The 30 tests are the deliverable, so the plan for testing is about trusting the 
   - The clock is paused, not real. Tests of timeouts and of "while a task waits on the model" need a fixed order of answers, and real sleeps would make the order depend on the machine.
   - The tests join the existing `suite` target. A new test target or crate would add a link step and nothing else.
   - The existing tests stay untouched, and a new test may cover what an existing one covers. The new suite's purpose is a readable prompt and outcome for each behavior. The PR description lists the overlap.
+  - The mock model lists one model. Test 4 switches models with `models.use('strong')`, and the switch shows in the label that `models.current()` reports, so a second model would add nothing.
+  - In test 25 the owner fails through a refused call, `tasks.cancel('9.9')`, left uncaught. Lua's `error()` puts a stack trace in the run's error, and the trace names line numbers of `crates/runvil-internal/lua/src/__impl_coro.lua`, so the stored log would change with any edit of that file.
+  - A prompt reports what it observed with `log()`, which the record holds as an event, and returns a short summary. Each observation is then one line of the stored log.
 - Rejected alternatives:
   - A runner on the Engine with its scripted model. It could fix the seed, but it would not go through the Harness or a Host's broker. Revisit if a test needs a fixed seed.
   - A log of events only. It is about a third shorter, and it hides timers and model requests. Revisit if the logs prove too noisy to review.
@@ -228,6 +231,11 @@ The 30 tests are the deliverable, so the plan for testing is about trusting the 
   - A change to any event's fields changes every stored log. Bless mode rewrites them, and the commit's diff shows what changed.
   - Two sleeps with the same deadline could complete in either order. Prompts give concurrent model replies different delays.
   - Justin's command-line Host and Kirill's replay need the same answer to what a stored log holds. This plan's format is a proposal to them, not a decision for them.
+  - What the build found: every stored log matched its row of the table, with the one change to test 25 above. No row of the list of behaviors had to change.
+  - Verification on 2026-11-18: the workspace has 4,083 passing tests, 34 of them new (31 in `tasks`, 2 in `mock_model`, 1 in `golden`), and the lint, format, docs, facade surface, structural, and wording commands pass. `cargo dylint` did not run, because it is not installed on this machine.
+  - `vibelight` outlines a crate's `src`, so its run over the workspace says nothing about a test tree. Run on the three new files, it gave three `test-knob` leads, for the words `mock` and `test` in names inside test code. Nothing was changed for them.
+  - The 31 stored logs hold 931 lines in total.
+  - A search of the existing tests found tests that assert each of the 30 behaviors, in full for 21 and in part for 9. All of them step the Engine, and none runs through the Harness. The PR description lists the closest existing tests for each.
 
 ### Deferred and Out of Scope
 
