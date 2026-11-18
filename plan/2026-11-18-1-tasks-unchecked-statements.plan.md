@@ -4,25 +4,25 @@ overview: Four statements about Lua's `tasks` table have a part that no existing
 todos:
   - id: plan-copy
     content: "Copy this plan to plan/2026-11-18-1-tasks-unchecked-statements.plan.md on a new branch and commit it alone"
-    status: pending
+    status: completed
   - id: ownership
     content: "Add the non-owner `ready` and `status` checks to a_non_owner_is_refused_with_task_not_owned"
-    status: pending
+    status: completed
   - id: owner-ended
     content: "Give the abandoned task of a_returning_owner_abandons_its_running_task_as_owner_returned a started task of its own, and check how that task ends"
-    status: pending
+    status: completed
   - id: owner-canceled
     content: "Give the canceled task of cancel_ends_a_parked_task_idempotently_and_reports_task_canceled_once a started task of its own, and check how that task ends"
-    status: pending
+    status: completed
   - id: breaks
     content: "Apply each of the five breaks, confirm a test now fails, and revert it"
-    status: pending
+    status: completed
   - id: verify
     content: "Run every verification command and vibelight"
-    status: pending
+    status: completed
   - id: pr
     content: "Push the branch to the fork and open one PR against cppalliance/runvil-harness"
-    status: pending
+    status: in_progress
 ---
 
 # Check four unchecked statements about tasks
@@ -97,9 +97,9 @@ The change is confined to two test files and this plan. It reuses the helpers th
 - Modules and interfaces:
   - The sibling in the ownership test is spawned second, so the caller stays task `0.0`, which the test already asserts, and the caller names its sibling by the id `0.1`.
   - In both stopped-owner tests the inner task parks the same way its owner does, on the same held effect, so it is running when the stop lands.
-  - The "one start and one ending" check uses `terminals_per_started_task` from `crates/runvil-internal/runtime/src/execute/tests/fixtures.rs`, which fails on a second start or a missing ending.
+  - Both stopped-owner tests make their checks on the inner task through one helper, `TaskRecorder::assert_aborted_with_its_owner` in `crates/runvil-internal/runtime/src/execute/tests/tasks.rs`. It requires the task's observations to be exactly one start and one `TaskAbandoned` naming `OwnerAborted`, and that ending to come before its owner's.
 - File and public API changes:
-  - Changed: `crates/runvil-internal/runtime/src/execute/tests/waits.rs` and `crates/runvil-internal/runtime/src/execute/tests/tasks-chain-end.rs`.
+  - Changed: `waits.rs`, `tasks-chain-end.rs`, and `tasks.rs` in `crates/runvil-internal/runtime/src/execute/tests/`. The third gains the helper.
   - New: `plan/2026-11-18-1-tasks-unchecked-statements.plan.md`, this plan.
   - Public API: none.
 - Data, persistence, failure, security, and privacy constraints: None
@@ -148,6 +148,11 @@ The proof that the checks work is the five breaks: each must pass unnoticed befo
   - `OwnerAborted` is the one abandon reason of five that no test names today.
   - The cancel test steps its run by hand and holds one store write. The inner task needs a second held write, and it must be admitted before the cancel. If that cannot be arranged without weakening the test, the fallback above applies and is recorded here.
   - A wait, a send, and a cancel by a caller that is not the owner are already checked from Lua, so the ownership test gains only `ready` and `status`.
+  - What the build found: the cancel test took an inner task without the fallback. Its last assertion, that no task reports another terminal, became the exact list of the canceled task's observations, one start and one `TaskCanceled`.
+  - The helper exists because the cancel test, with the checks written out, was 107 lines against the limit of 100 on a function. Both tests now share it.
+  - The five breaks after the change, each run with `cargo nextest run --locked -p runvil-runtime`: breaks 1, 2, and 3 each fail `a_returning_owner_abandons_its_running_task_as_owner_returned` and `cancel_ends_a_parked_task_idempotently_and_reports_task_canceled_once`, and breaks 4 and 5 each fail `a_non_owner_is_refused_with_task_not_owned`. Every break was reverted.
+  - Verification on 2026-11-18: the workspace has 4,049 passing tests, the same count as before, and the lint, format, docs, facade surface, structural, and wording commands pass. `cargo dylint` did not run, because it is not installed on this machine.
+  - `vibelight` outlines a crate's `src`, so its run over the workspace says nothing about test files. Run on `waits.rs` and `tasks-chain-end.rs` alone, it gave two leads for each, the same two as before the change, all on code that was already there.
 
 ### Deferred and Out of Scope
 
