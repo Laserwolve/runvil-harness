@@ -463,12 +463,13 @@ impl Policy for Guard {
     }
 }
 
-/// A receipt of a failed operation as the kind of its failure, and any
-/// other receipt as the record holds it.
+/// A receipt that holds a success alone as the record holds it, a
+/// receipt that holds a failure alone as the kind of that failure, and
+/// anything else as null.
 fn kind_or_receipt(receipt: Value) -> Value {
-    match receipt.get("Err") {
-        Some(failure) => failure["kind"].clone(),
-        None => receipt,
+    match (receipt.get("Ok"), receipt.get("Err")) {
+        (Some(_), None) => receipt,
+        (ok, err) => ok.xor(err).map_or(Value::Null, |it| it["kind"].clone()),
     }
 }
 

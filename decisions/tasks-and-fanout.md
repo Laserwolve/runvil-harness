@@ -170,7 +170,7 @@ The cap bounds memory: an idle task still has its Lua VM, which the Engine is un
 
 ## 7. Planned work
 
-- **Replay and resume.** A Harness driver that builds `RunParams` from a recorded run's seed and start time and passes the recorded answers to `Run::resume`, and a way to spawn a canceled task again under its original id. Today the Harness builds `RunParams` for every run from a random seed and the clock, and a spawn assigns the next child id.
+- **Replay and resume.** A Harness driver that builds `RunParams` from a recorded run's seed and start time and repeats the recorded answers, messages, and file requests, and a way to spawn a canceled task again under its original id. Today the Harness builds `RunParams` for every run from a random seed and the clock, and a spawn assigns the next child id.
 - **A read of task history.** A Lua call that returns the events that a task has reported. The design waits for a concrete use, and today a prompt reads a task's state at the time of the call with `tasks.status`.
 - **Task tools for models.** Tools with which a model starts tasks itself, as the tools of the Pack `runvil/subagents` ([Tools and Packs](tools-and-packs.md)). Today the Pack reserves the name, and only Lua starts a task, with `tasks.spawn` or `tasks.fanout`.
 - **Inbox messages other than text.** Images, files, audio, and video as inbox messages. Today an inbox message is a text string.
