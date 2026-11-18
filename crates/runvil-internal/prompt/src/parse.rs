@@ -152,14 +152,18 @@ impl Prompt {
     fn parse_source(input: &str, file: &str) -> std::result::Result<Prompt, Error> {
         // Everything past the frontmatter postdates the prompt's name, so a
         // failure from there on names it.
-        let (name, result) = match Self::parse_frontmatter(input) {
-            Ok((frontmatter, split)) => (
-                Some(frontmatter.name().to_owned()),
-                Self::parse_body(frontmatter, split, file),
-            ),
-            Err(error) => (None, Err(error)),
-        };
-        result.map_err(|error| error::with_prompt_context(error, name.as_deref(), file))
+        let (frontmatter, split) = Self::parse_frontmatter(input)
+            .map_err(|error| error::with_prompt_context(error, None, file))?;
+        let sections = Self::parse_body(&split, file)
+            .map_err(|error| error::with_prompt_context(error, Some(frontmatter.name()), file))?;
+
+        Ok(Prompt {
+            file: file.to_owned(),
+            frontmatter,
+            sections,
+            key_lines: split.key_lines,
+            linked: BTreeMap::new(),
+        })
     }
 
     /// Splits the frontmatter from the body, decodes it, and checks its
@@ -178,12 +182,11 @@ impl Prompt {
         Ok((frontmatter, split))
     }
 
-    fn parse_body(frontmatter: Frontmatter, split: SplitSource, file: &str) -> Result<Prompt> {
+    fn parse_body(split: &SplitSource, file: &str) -> Result<Vec<Section>> {
         let frontmatter_lines = split.frontmatter_lines;
-        let shared: Arc<str> = Arc::from(split.body);
-        let body: &str = &shared;
-        let headings = sections::collect_headings(body)?;
-        if let Some(violation) = fence::first_fence_violation(body, frontmatter_lines) {
+
+        let headings = sections::collect_headings(&split.body)?;
+        if let Some(violation) = fence::first_fence_violation(&split.body, frontmatter_lines) {
             return Err(violation);
         }
 
@@ -191,16 +194,11 @@ impl Prompt {
         // every heading at that level is a top-level section, and a first
         // heading deeper than a later one fails the walker's level check.
         let top = headings.iter().map(|h| h.level).min().unwrap_or(1);
+        let shared = Arc::clone(&split.body);
         let mut walker = SectionWalker::new(&shared, &headings, frontmatter_lines, file);
         let mut sections: Vec<Section> = walker.build_preamble(top)?.into_iter().collect();
         sections.extend(walker.build_sections(top.saturating_sub(1))?);
 
-        Ok(Prompt {
-            file: file.to_owned(),
-            frontmatter,
-            sections,
-            key_lines: split.key_lines,
-            linked: BTreeMap::new(),
-        })
+        Ok(sections)
     }
 }

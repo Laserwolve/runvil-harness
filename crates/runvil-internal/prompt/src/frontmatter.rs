@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
+use std::sync::Arc;
 
 use runvil_types::error::ErrorCode;
 use runvil_types::models::ModelRole;
@@ -161,7 +162,7 @@ pub(crate) struct SplitSource {
     /// The YAML text between the two `---` delimiters.
     pub(crate) yaml: String,
     /// The markdown body after the closing `---` line.
-    pub(crate) body: String,
+    pub(crate) body: Arc<str>,
     /// The number of lines consumed by the frontmatter block (both `---`
     /// delimiters and everything between them).
     pub(crate) frontmatter_lines: u32,
@@ -234,7 +235,7 @@ pub(crate) fn split_frontmatter(input: &str) -> Result<SplitSource> {
     let body = lines.collect::<Vec<_>>().join("\n");
     Ok(SplitSource {
         yaml,
-        body,
+        body: Arc::from(body),
         frontmatter_lines: line_count,
         key_lines: declared
             .into_iter()
