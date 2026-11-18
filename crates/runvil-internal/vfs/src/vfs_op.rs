@@ -18,7 +18,9 @@ use crate::{Access, Op, VfsError};
 ///
 /// The line bounds of `Read` and `ReadNumbered` are `i64`. A negative
 /// bound converts to 0 when the operation runs, so the range check
-/// rejects it with the same error a zero bound produces.
+/// rejects it with the same error a zero bound produces. A positive
+/// bound that `usize` cannot hold, which a 32-bit target has, counts as
+/// past the last line.
 ///
 /// The type holds only plain data, so an operation can be kept, compared,
 /// and written to a record.

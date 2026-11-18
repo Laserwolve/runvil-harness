@@ -21,7 +21,9 @@ pub(super) enum LineNumbers {
 /// No `start` reads the whole file; a present `start` slices a 1-based
 /// inclusive line range. A negative bound converts to 0, which the range
 /// validation rejects with the same error a zero bound produces, and an
-/// `end` without a `start` is refused rather than silently ignored.
+/// `end` without a `start` is refused rather than silently ignored. A
+/// positive bound that `usize` cannot hold counts as past the last line,
+/// as every bound beyond the file does.
 pub(super) fn read_lines(
     access: &Access,
     path: &str,
@@ -41,11 +43,27 @@ pub(super) fn read_lines(
         None if numbers == LineNumbers::Omitted => access.read_string(path),
         None => with_read_range(access, path, 1, None, render),
         Some(start) => {
-            let start = usize::try_from(start).unwrap_or(0);
-            let end = end.map(|line| usize::try_from(line).unwrap_or(0));
+            let start = line_bound(start);
+            let end = end.map(line_bound);
             with_read_range(access, path, start, end, render)
         }
     }
+}
+
+/// Converts a 1-based line bound to a `usize`. A negative bound becomes
+/// 0, which the range validation rejects. A positive bound that `usize`
+/// cannot hold, which a 32-bit target has, becomes `usize::MAX`, a line
+/// past the end of every file.
+fn line_bound(bound: i64) -> usize {
+    bound_in(bound, usize::MAX)
+}
+
+/// Converts `bound` to the unsigned type of `most`, the largest value of
+/// that type: a negative bound becomes zero, and a bound above `most`
+/// becomes `most`. The type is a parameter so that a test on a 64-bit
+/// target can run the conversion for a type of 32 bits.
+fn bound_in<T: TryFrom<i64>>(bound: i64, most: T) -> T {
+    T::try_from(bound.max(0)).unwrap_or(most)
 }
 
 /// Reads and resolves one line range while its owned contents remain live.
@@ -114,4 +132,32 @@ fn number_lines_from(lines: &[&str], start: usize) -> String {
         let _ = write!(out, "{number:>width$}| {line}");
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{bound_in, line_bound};
+
+    #[test]
+    fn a_negative_bound_is_zero_and_a_bound_too_large_for_the_type_is_its_largest_value() {
+        assert_eq!(line_bound(i64::MIN), 0);
+        assert_eq!(line_bound(-1), 0);
+        assert_eq!(line_bound(0), 0);
+        assert_eq!(line_bound(1), 1);
+        assert_eq!(line_bound(4_096), 4_096);
+
+        // The conversion for a `usize` of 32 bits, which a 32-bit target
+        // has. No positive bound becomes 0 there, which the range
+        // validation would reject.
+        let narrow = |bound| bound_in(bound, u32::MAX);
+        assert_eq!(narrow(-1), 0);
+        assert_eq!(narrow(4_096), 4_096);
+        assert_eq!(narrow(4_294_967_295), u32::MAX);
+        assert_eq!(
+            narrow(4_294_967_296),
+            u32::MAX,
+            "one past the largest value"
+        );
+        assert_eq!(narrow(i64::MAX), u32::MAX);
+    }
 }

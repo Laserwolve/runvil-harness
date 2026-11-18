@@ -231,6 +231,16 @@ fn a_read_takes_a_one_based_inclusive_range_of_lines() -> Result<(), VfsError> {
         "",
         "and it reads nothing whatever the end is, an end before it included"
     );
+    assert_eq!(
+        lines(Some(i64::MAX), None)?,
+        "",
+        "the largest start is past the last line, on a target of any width"
+    );
+    assert_eq!(
+        lines(Some(2), Some(i64::MAX))?,
+        "b\nc\nd",
+        "and the largest end is the last line"
+    );
     Ok(())
 }
 
