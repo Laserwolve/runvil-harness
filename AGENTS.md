@@ -31,13 +31,15 @@ Seven terms have exactly one meaning each, everywhere in this repository: code c
 
 ## Design decisions
 
-`decisions/` holds the design decisions for the code in this repository, with the reason for each. Read the page for a part before changing how that part behaves.
+`decisions/` describes the design as it stands today, with the reason for each part where one is known. Runvil is an exploration, so a page is the current answer, and it changes when the code does.
 
 - Pages: `prompt-language.md` (the prompt file, sections, Lua globals, `jump`, `call`, `execute`), `models-and-conversations.md` (the `models` API, the model loop, messages, compaction), `tasks-and-fanout.md` (tasks, fanout, the scheduler's order, inboxes), `files-and-the-vfs.md` (the `store` API, the VFS, conflicts), `engine.md` (parsing, the run state machine, effects, limits, `Error`, the facades), `harness-and-host.md` (the `runvil` crate, `Host`, `RunSetup`, the effect loop, the recorder, stop and cancel), `tools-and-packs.md` (tools, Packs, Plugins, the C contract), and `testing-and-debugging.md` (test support, fixtures, the rules for test code, logs).
-- An entry states one decision: the rule as a prompt author, a Host, or a caller of the Engine sees it, then the reason, with the owner's words quoted exactly where the page has them. Never write, shorten, or reword a quote of the owner.
-- A change that makes, changes, or removes a decision edits its entry in the same change. A change to how the code works inside leaves the pages alone.
-- An entry holds no file path, internal name, count of things in the code, test name, date, or history. The code has those, and they go out of date in a page. Names of the prompt language, error codes, crates, and items a facade re-exports are fine, and so is a rule quoted from an `AGENTS.md`.
-- When the code and an entry disagree, say so and ask which is right. Neither wins by default.
+- Read the page for a part as background before changing how that part behaves.
+- The code is the fact. When a page differs from the code, correct the page in the same change.
+- A change to what a prompt author, a Host, or a caller of the Engine sees updates its entry in the same change. A change to how the code works inside leaves the pages alone.
+- An entry states the rule as its reader sees it, then the reason, in plain words. A quote stays word for word, or it goes with the sentence that holds it.
+- An entry is free of file paths, internal names, counts of things in the code, test names, dates, and history.
+- Settle a small open point yourself and state the choice in the entry. Questions stay out of the pages.
 
 ## Engineering
 
