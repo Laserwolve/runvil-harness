@@ -100,7 +100,7 @@ The rule is the owner's, quoted in the entry "A store call is one `Access` call 
 
 `RealBackend::rooted(dir)` maps the virtual root to one real directory and refuses a path that resolves outside it with `OutsideRoot`. `RealBackend::identity()` maps each virtual path to the same real path. `remove`, `exists`, `stat`, `mkdir`, and `rename` act on a link itself, and the content operations follow a link whose target is inside the root. `with_writability` makes a backend read-only. A failed write leaves the file as it was, because the backend writes a temporary sibling file and renames it.
 
-Those operations act on the link itself because a `remove` that followed the link would delete the link's target. `RealBackend` is part of `runvil-vfs` itself: the file system calls it uses belong to the standard library, so the backend fits the crate's zero-dependency rule ([Crates, build, and CI](https://github.com/cppalliance/runvil-design/blob/master/decisions/crates-build-and-ci.md)).
+Those operations act on the link itself because a `remove` that followed the link would delete the link's target. `RealBackend` is part of `runvil-vfs` itself: the file system calls it uses belong to the standard library, so the backend fits the crate's zero-dependency rule.
 
 ### A mount is for storage that answers quickly, and a remote system is a tool's job
 
@@ -214,7 +214,7 @@ The `Vfs` effect of a tool's request names the tool call, by the id of its `Tool
 
 ### A run's store ends with the run, and the files of its tools last as long as the Host's mounts
 
-A run's store is memory: it is empty when the run starts and is gone when the run ends, so no run finds a file of an earlier run in its store. The store of an executed prompt is gone sooner, when that prompt ends. A prompt that built a file returns the file's text, as in `return store.read('report.md')`. The files of a run's tools are in the mounts of the run's handle: a `MemoryBackend` drops with its handle, and the files below a `RealBackend::rooted` mount are in a real directory, which outlasts the run. Workshop builds a default `VfsRef` for each run, so the files of a Workshop run's tools exist in memory until the run ends, and Workshop's workspace document is a separate file ([Workshop: how the app is built](https://github.com/cppalliance/runvil-design/blob/master/decisions/workshop-app.md)).
+A run's store is memory: it is empty when the run starts and is gone when the run ends, so no run finds a file of an earlier run in its store. The store of an executed prompt is gone sooner, when that prompt ends. A prompt that built a file returns the file's text, as in `return store.read('report.md')`. The files of a run's tools are in the mounts of the run's handle: a `MemoryBackend` drops with its handle, and the files below a `RealBackend::rooted` mount are in a real directory, which outlasts the run. Workshop builds a default `VfsRef` for each run, so the files of a Workshop run's tools exist in memory until the run ends, and Workshop's workspace document is a separate file.
 
 A run has one way in, its arguments, and one way out, its result. The owner's reason: "If a prompt wants to return a file, it should return it as the string of its return value."
 

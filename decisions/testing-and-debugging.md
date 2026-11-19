@@ -28,7 +28,7 @@ The names follow the Engine facade's suite, so that tests read alike across the 
 
 ### The `test-support` feature of `runvil-runtime` compiles the serial driver for a bench
 
-`runvil-runtime` declares the empty feature `test-support`, which compiles the serial driver and the scripted model for a bench. `runvil-lua`, `runvil-prompt`, and `runvil-plugin` declare a feature of the same name for the tests of sibling crates. A structural check fails when a production dependency enables the feature (see [Crates, build, and CI](https://github.com/cppalliance/runvil-design/blob/master/decisions/crates-build-and-ci.md)).
+`runvil-runtime` declares the empty feature `test-support`, which compiles the serial driver and the scripted model for a bench. `runvil-lua`, `runvil-prompt`, and `runvil-plugin` declare a feature of the same name for the tests of sibling crates. A structural check fails when a production dependency enables the feature.
 
 The feature exists because `#[cfg(test)]` code is invisible to a bench, and this bench needs the serial driver and the scripted model.
 
@@ -62,7 +62,7 @@ A public scripted broker would be test API that only the Harness's own tests use
 
 ### Every clock value, seed, and answer in an Engine-crate test is a value the test supplies
 
-The clippy configuration bans sleeps, clock reads, timed waits, and `RandomState::new` in `runvil-engine`, `runvil-plugin`, and the internal Engine crates, tests included (see [Crates, build, and CI](https://github.com/cppalliance/runvil-design/blob/master/decisions/crates-build-and-ci.md)). The test runner, nextest, ends a hung test after three 60-second periods.
+The clippy configuration bans sleeps, clock reads, timed waits, and `RandomState::new` in `runvil-engine`, `runvil-plugin`, and the internal Engine crates, tests included. The test runner, nextest, ends a hung test after three 60-second periods.
 
 The owner's rule: "my instinct tells me that no runvil test should ever sleep or be non-deterministic". The rule covers the Engine crates only, because some Gateway tests are timing-based by nature. The Engine's own determinism rules are on [The Engine](engine.md) and [Tasks and fanout](tasks-and-fanout.md).
 
@@ -78,7 +78,7 @@ Some async tests run with tokio's clock paused: in the Harness runner, in Worksh
 
 `AGENTS.md` states the rule in its Engineering section. One test shows the reason: a test of the shipped research prompt runs the prompt and inspects every `Chat` effect for a tool id. A scan of the prompt files would check only the shape of the source, and the test on `Chat` effects protects the actual contract.
 
-Two build rules apply to tests: a change that removes a feature also deletes the feature's tests, and a test file beside its module takes the name that `AGENTS.md` gives it (see [Crates, build, and CI](https://github.com/cppalliance/runvil-design/blob/master/decisions/crates-build-and-ci.md)).
+Two build rules apply to tests: a change that removes a feature also deletes the feature's tests, and a test file beside its module takes the name that `AGENTS.md` gives it.
 
 ## 4. Fixtures and stand-ins
 

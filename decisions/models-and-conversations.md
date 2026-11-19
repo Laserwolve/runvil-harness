@@ -94,7 +94,7 @@ The Engine refuses the nested loop because its records would precede the records
 
 ### A prompt writes its own chat loop from `tasks.receive` and `models.loop`
 
-A conversation with a person is a Lua loop in one section: `messages:user(tasks.receive())`, then `models.loop()`. The built-in chat prompt is that loop ([Prompts that ship](https://github.com/cppalliance/runvil-design/blob/master/decisions/shipped-prompts.md)). A task that waits for follow-up messages loops over `models.loop()` and `tasks.reply` ([Tasks and fanout](tasks-and-fanout.md)).
+A conversation with a person is a Lua loop in one section: `messages:user(tasks.receive())`, then `models.loop()`. The built-in chat prompt is that loop. A task that waits for follow-up messages loops over `models.loop()` and `tasks.reply` ([Tasks and fanout](tasks-and-fanout.md)).
 
 ## 4. Rounds, replies, and limits
 
@@ -214,7 +214,7 @@ The call and `compactors.clear` let a section start over or rewrite its history 
 
 ### A compactor may call `models.infer` and `tools.call`
 
-Inside a compactor, Lua may ask a model for a summary with `models.infer` and may call a tool with `tools.call`. The built-in chat prompt's compactor summarizes older turns with `models.infer` ([Prompts that ship](https://github.com/cppalliance/runvil-design/blob/master/decisions/shipped-prompts.md)).
+Inside a compactor, Lua may ask a model for a summary with `models.infer` and may call a tool with `tools.call`. The built-in chat prompt's compactor summarizes older turns with `models.infer`.
 
 A failed compaction restores the records and leaves a tool's side effects in place. The Engine allows the tool call because a refusal would only block a call that works.
 
@@ -240,7 +240,7 @@ The client is a crate of its own for two reasons. Inference is a Host service an
 
 ### The client sends tools in the OpenAI function-calling format
 
-The client writes each tool as an object of type `function` with a name, a description, and JSON Schema parameters, and sets `tool_choice` to `auto`. A reply is text or a list of tool calls: `CompletionResult::Text` or `CompletionResult::ToolCalls`. One function builds the request body, and the client's `AGENTS.md` makes that function "the only place the chat-completions body is shaped". A model with another tool format is the Gateway's concern ([The Gateway](https://github.com/cppalliance/runvil-design/blob/master/decisions/gateway.md)).
+The client writes each tool as an object of type `function` with a name, a description, and JSON Schema parameters, and sets `tool_choice` to `auto`. A reply is text or a list of tool calls: `CompletionResult::Text` or `CompletionResult::ToolCalls`. One function builds the request body, and the client's `AGENTS.md` makes that function "the only place the chat-completions body is shaped". A model with another tool format is the Gateway's concern.
 
 ### One function normalizes every reply, and reasoning text is separate from the answer
 
@@ -270,7 +270,7 @@ Lua has these two kinds because a single kind, `internal`, would cover three unr
 
 The client stores the Gateway's bearer key as a secret value and prints `<redacted>` in its debug output. It cuts a backend's error body to 2000 characters and escapes the control characters, and the code's docs say why: "The escaping stops a backend body from forging log lines". The client's constructor from the environment reads `RUNVIL_GATEWAY_URL` and `RUNVIL_GATEWAY_API_KEY`, and builds a keyless client when the URL names a loopback address and the key is absent.
 
-The client has the Gateway's key, and the Gateway has the model provider's key. A Gateway can admit a loopback caller that omits the key, and the keyless client is for that case ([The Gateway](https://github.com/cppalliance/runvil-design/blob/master/decisions/gateway.md)).
+The client has the Gateway's key, and the Gateway has the model provider's key. A Gateway can admit a loopback caller that omits the key, and the keyless client is for that case.
 
 ## 8. Planned work
 

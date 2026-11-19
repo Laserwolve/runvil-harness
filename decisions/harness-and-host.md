@@ -30,7 +30,7 @@ The owner's goal: "I want the outside world to only see one runvil crate, not ru
 
 `harness-gateway-client` contains what a Host needs to call the Gateway: `GatewayBroker`, which implements `InferenceBroker`; `GatewayChat`, the HTTP client it uses; `fetch_model_catalog`; and `GatewaySearch`, the search provider for the `web` Pack. It is the one Harness crate besides `runvil` that an outside crate may depend on.
 
-The client is a crate of its own for two reasons. Inference is a Host service and `runvil` excludes tokio, so `runvil` leaves HTTP to the Host. Every Host still needs a standard Gateway client. [The Gateway](https://github.com/cppalliance/runvil-design/blob/master/decisions/gateway.md) covers the routes it calls.
+The client is a crate of its own for two reasons. Inference is a Host service and `runvil` excludes tokio, so `runvil` leaves HTTP to the Host. Every Host still needs a standard Gateway client.
 
 ### The Harness's async code uses `futures-util`, and any executor can poll a run
 
@@ -48,7 +48,7 @@ The two structs sort every input by lifetime: `Host` contains what every run of 
 
 ### `Harness::new` takes the `Host`, a parsed `Prompt`, and the `RunSetup`, and `run` consumes the Harness
 
-`Harness::new(host, prompt, setup)` creates the Harness for one run. `Harness::control()` returns a `RunControl`. `Harness::run()` takes the Harness by value and returns a `Send` future, so the Host takes the control first. A chat conversation is Workshop's own code around one run; see [Workshop: how the app is built](https://github.com/cppalliance/runvil-design/blob/master/decisions/workshop-app.md).
+`Harness::new(host, prompt, setup)` creates the Harness for one run. `Harness::control()` returns a `RunControl`. `Harness::run()` takes the Harness by value and returns a `Send` future, so the Host takes the control first. A chat conversation is Workshop's own code around one run.
 
 ### `Host::parse` parses the prompt before a run exists, and a parse failure returns to the caller unrecorded
 

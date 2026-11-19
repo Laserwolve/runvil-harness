@@ -6,7 +6,7 @@ This page covers the Engine as a library: parsing a prompt, the run state machin
 
 ### The Engine returns the work it needs as an effect, and its caller performs it
 
-An effect is a Rust value that describes one piece of outside work, such as a model round. `Run::step` returns the effects a run needs, and the run waits until the caller passes each answer to `Run::resume`. In production the caller is the Harness ([The Harness and the Host API](harness-and-host.md)). `Run::step` and `Run::resume` are synchronous functions, and a structural check fails when an Engine crate depends on an async runtime or an HTTP client ([Crates, build, and CI](https://github.com/cppalliance/runvil-design/blob/master/decisions/crates-build-and-ci.md)).
+An effect is a Rust value that describes one piece of outside work, such as a model round. `Run::step` returns the effects a run needs, and the run waits until the caller passes each answer to `Run::resume`. In production the caller is the Harness ([The Harness and the Host API](harness-and-host.md)). `Run::step` and `Run::resume` are synchronous functions, and a structural check fails when an Engine crate depends on an async runtime or an HTTP client.
 
 The Engine returns this work as values so that it is independent of any runtime and is a deterministic function of its inputs.
 
@@ -280,7 +280,7 @@ The code names the party at fault, and a failure with the wrong one of the two c
 
 ### `runvil-engine` contains re-exports, and each item has one path
 
-The crate consists of `pub use` lines, at the root and in `pub mod` blocks, and private crates define every item. The code calls such a crate a facade. Each line re-exports one item by name from the crate that defines it. A structural check rejects a glob, a list, and an item definition, and `cargo xtask api` rejects a re-exported module ([Crates, build, and CI](https://github.com/cppalliance/runvil-design/blob/master/decisions/crates-build-and-ci.md)). The `runvil` crate, which a Host depends on, is a second facade ([The Harness and the Host API](harness-and-host.md)).
+The crate consists of `pub use` lines, at the root and in `pub mod` blocks, and private crates define every item. The code calls such a crate a facade. Each line re-exports one item by name from the crate that defines it. A structural check rejects a glob, a list, and an item definition, and `cargo xtask api` rejects a re-exported module. The `runvil` crate, which a Host depends on, is a second facade ([The Harness and the Host API](harness-and-host.md)).
 
 A caller finds every item in this one crate. The owner's reason: "I dont want types scattered around different crates. I have discovered it becomes hard to browse the cargo doc that way." Each line names a single item because a re-exported module or crate would expose everything that the module later gains, and a second path to an item would make the API ambiguous.
 
@@ -304,7 +304,7 @@ The operations are free functions because a free function in a module outside th
 
 ### The Engine is a set of private crates, each with one job
 
-Code outside the Engine's private crates imports them through `runvil-engine` and `runvil-plugin` ([Crates, build, and CI](https://github.com/cppalliance/runvil-design/blob/master/decisions/crates-build-and-ci.md)). The crates are:
+Code outside the Engine's private crates imports them through `runvil-engine` and `runvil-plugin`. The crates are:
 
 - `runvil-types` defines ids, events, metrics, `Error`, the cancel flag, and the untrusted envelope.
 - `runvil-vfs` is the virtual file system.
