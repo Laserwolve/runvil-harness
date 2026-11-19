@@ -266,9 +266,9 @@ A message leaves tool calls running. To cut a long tool call short, the Host sto
 
 Each of these items is still to be built.
 
-- **Replay and resume.** A driver that builds a run from a recorded seed and start time, passes the recorded answers to `Run::resume` and the messages to `Run::deliver`, and reports where the second run diverges. Today the recorder receives the seed, the start time, every answer, and every message of a run.
+- **Replay and resume.** A driver that builds a run from a recorded seed and start time, passes the recorded answers to `Run::resume`, the messages to `Run::deliver`, and the file requests of tool calls to `Run::request_file`, and reports where the second run diverges. Today the recorder receives the seed, the start time, every answer, every message, and each file request of a tool call as the record of its `Vfs` effect.
 - **A model for each role.** Today `RunSetup` has one `selected_model`, which fills every role.
-- **Small records for large answers.** Today an answer record stores the whole tool output or file text, so the record contains a copy of everything a script reads.
+- **Small records for large answers.** Today an answer record stores the whole tool output, or the whole file text for a `store` call, so the record contains a copy of everything a script reads. For a file operation of a tool call the answer record holds a receipt, such as the number of bytes of a read.
 - **Request limits for a Host.** Today `GatewayBroker` always uses a receive timeout of 120 seconds and a reply cap of 16 MiB.
 - **A step hook.** Pack code that rewrites an effect or its answer between `Run::step` and the performers. Today the loop starts each effect as `Run::step` returned it and resumes the run with each answer as its performer returned it.
 - **More Host services.** Secrets, a schedule, a model client for Packs, the parent environment of a sub-run, and a way for a contract Plugin to read a service. Today `plugin-web` and `plugin-mcp` read `runvil/tokio-runtime`, the Host's runtime handle, `plugin-web` reads `runvil/search-provider`, the search provider for the `web` Pack, and a contract Plugin reads none.

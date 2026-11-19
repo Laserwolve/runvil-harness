@@ -292,7 +292,7 @@ The goal is a minimal surface in which every item is necessary. The owner's rule
 
 ### A signature on the surface names only facade items, the standard library, and the serde crates
 
-`cargo xtask api` reads rustdoc's JSON for the facade and fails when a signature, field, or impl on the surface names anything else. The serde crates are `serde`, `serde_core`, `serde_json`, and `serde_yaml_ng`.
+`cargo xtask api` reads rustdoc's JSON for the facade and fails when a signature, field, or impl on the surface names anything else. The serde crates are `serde`, `serde_core`, and `serde_json`.
 
 The limit applies to the surface only: the internal crates may use many external crates, and the surface is restricted to a few basic ones.
 
@@ -309,6 +309,7 @@ Code outside the Engine's private crates imports them through `runvil-engine` an
 - `runvil-types` defines ids, events, metrics, `Error`, the cancel flag, and the untrusted envelope.
 - `runvil-vfs` is the virtual file system.
 - `runvil-model-client` defines messages, tool schemas, completions, and model bindings.
+- `runvil-markdown` reads Markdown text into blocks, writes blocks back as text, and defines the grammars that name a section and a block.
 - `runvil-lua` runs the Lua sandbox and defines the Engine globals and the request protocol.
 - `runvil-prompt` parses a prompt and compiles its Lua, and uses `runvil-lua` for the compiled form of a block.
 - `runvil-runtime` contains `Run`, the scheduler, and the effects.
