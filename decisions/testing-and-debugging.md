@@ -84,7 +84,7 @@ Two build rules apply to tests: a change that removes a feature also deletes the
 
 ### Whole prompt files are fixtures for the Engine's suite and for the facade's parser tests
 
-Complete prompt files are fixtures. The Engine's suite has valid, invalid, and execution fixtures, and it names each file by hand in an `include_str!`. The facade's parser tests have invalid fixtures of their own. A fixture is a complete prompt, and inline tests cover the narrow cases.
+Complete prompt files are fixtures. The Engine's suite has valid, invalid, and execution fixtures. A test that uses a fixture names the file by hand in an `include_str!`, and one test also walks the `valid` and `execution` folders and parses every prompt there, so a fixture that the other tests leave out still has to parse. The facade's parser tests have invalid fixtures of their own. A fixture is a complete prompt, and inline tests cover the narrow cases.
 
 The fixtures exist because the inline tests leave a gap: a complete document, written the way an author writes one.
 
@@ -94,7 +94,7 @@ The `test-support` feature of `runvil-plugin` exports a helper for one test call
 
 A Plugin that follows the C contract tests through the test support of the Plugin SDK, which the SDK's own `test-support` feature exports. It is a fake Host: it sends `RV_PLUGIN_LOAD` to the Plugin's entry point, sends `RV_PACK_NEW`, and runs one tool call to its end. It holds one file tree for the calls of a run, performs each file request of a call on that tree once the step that asked has returned, and lends the tree back, so a test reads what a call left there. The fake Host checks each call that the Plugin makes back the way the loader does, so a Plugin that passes there loads in the Harness. The `std` Plugin and the bashkit Plugin test their tools this way.
 
-The loader's end-to-end tests load `harness-test-plugin`, a dynamic library with a private copy of the C types. The private copy proves that a library Plugin depends on zero Runvil crates. The loader's unit tests insert entry points that are compiled into the test binary, through `insert_plugin`.
+The loader's end-to-end tests load `harness-test-plugin`, a dynamic library with a private copy of the C types. The private copy proves that a library Plugin builds independently of every Runvil crate. The loader's unit tests insert entry points that are compiled into the test binary, through `insert_plugin`.
 
 ## 5. Logs, traces, and dev tools
 
@@ -108,7 +108,7 @@ Stored JSON reads back as the identical value, so that a replay can compare the 
 
 `log(message)` accepts one single-line string of at most 256 characters, and the Engine reports it as an `Event::Lua` under the current section (see [The prompt language](prompt-language.md)). The execution fixtures assert the exact list of these checkpoints.
 
-`RunParams::with_report_debug(true)` adds two events to each model round: `Request`, the JSON body sent, and `Response`, the body returned. The events exist so that a developer can diagnose an empty reply, and they are optional so that a production run pays zero for them. A Harness run leaves them off.
+`RunParams::with_report_debug(true)` adds two events to each model round: `Request`, the JSON body sent, and `Response`, the body returned. The events exist so that a developer can diagnose an empty reply, and they are optional so that only a run that asks for them pays their cost. A Harness run leaves them off.
 
 ### The Harness reports operational problems through `tracing`, and Workshop discards those lines
 

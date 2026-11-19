@@ -38,11 +38,11 @@ Prompts refer to each other by these names. A prompt's `prompts:` list names the
 
 ### `Prompt::parse` also parses every prompt that the `prompts:` lists reach
 
-A prompt lists the prompts that its Lua may run with `execute` under `prompts:` in its front matter ([The prompt language](prompt-language.md)). `Prompt::parse` finds each listed prompt through the same finder, parses it as it parses the named prompt, and reads that prompt's own list in turn, until it has every prompt the lists reach, each once. An entry that names a prompt the parse has already reached, the named prompt included, finds nothing again, so prompts may list each other and a prompt may list itself. The `Prompt` that the parse returns holds the others in one flat table by name, and `Prompt::linked` returns them in the order of their names. Each prompt in that table has an empty table of its own.
+A prompt lists the prompts that its Lua may run with `execute` under `prompts:` in its front matter ([The prompt language](prompt-language.md)). `Prompt::parse` finds each listed prompt through the same finder, parses it as it parses the named prompt, and reads that prompt's own list in turn, until it has every prompt the lists reach, each once. An entry that names a prompt the parse has already reached, the named prompt included, refers to the prompt already parsed, so prompts may list each other and a prompt may list itself. The `Prompt` that the parse returns holds the others in one flat table by name, and `Prompt::linked` returns them in the order of their names. Each prompt in that table has an empty table of its own.
 
-A listed prompt that the finder lacks, or one that fails to parse, fails the whole parse. A find failure with no location is placed on the `prompts:` line of the prompt that lists the name, and a parse failure is placed in the prompt that failed. An empty entry and a repeated entry fail with the code `frontmatter_invalid`.
+A listed prompt that the finder lacks, or one that fails to parse, fails the whole parse. A find failure whose location is unset is placed on the `prompts:` line of the prompt that lists the name, and a parse failure is placed in the prompt that failed. An empty entry and a repeated entry fail with the code `frontmatter_invalid`.
 
-The parse reads every prompt so that a run has nothing to find. A run holds all its prompts from its first step, so a prompt file that changes later changes no run that has started, and a missing prompt is an error when the prompt loads, before any section runs. The owner's rule: "I want to parse each of those named prompts so that we don't have to find it later". The table is flat because of the owner's design: "when we parse a prompt, we have a table. We have the initial prompt, and then we have a map for the other prompts to their parsed sections".
+The parse reads every prompt so that every find is done before a run starts. A run holds all its prompts from its first step, so a prompt file that changes later leaves each started run as it was, and a missing prompt is an error when the prompt loads, before any section runs. The owner's rule: "I want to parse each of those named prompts so that we don't have to find it later". The table is flat because of the owner's design: "when we parse a prompt, we have a table. We have the initial prompt, and then we have a map for the other prompts to their parsed sections".
 
 ### `Prompt::parse` compiles every Lua block
 
@@ -70,7 +70,7 @@ The request goes through the Engine so that the run's record holds every file op
 
 ### `Run::new` always succeeds, and the first `step` checks that the run can start
 
-The first `Run::step` makes the start checks, in this order. The prompt and every prompt it links declare `runvil: 0`. The arguments are one JSON object that matches the prompt's `args:` declaration ([The prompt language](prompt-language.md)): `Run::new` reads the text and keeps a mismatch for this check, which returns it with the code `args_invalid` and no location. The params meet what each of those prompts requires: each Pack under a `uses:` is `Usable` in the roster that the caller passed to `RunParams::with_packs`, and the model in each role that a prompt declares meets that prompt's requirements for the role. A requirements failure has the code `requirements_unmet`, and its message names every gap.
+The first `Run::step` makes the start checks, in this order. The prompt and every prompt it links declare `runvil: 0`. The arguments are one JSON object that matches the prompt's `args:` declaration ([The prompt language](prompt-language.md)): `Run::new` reads the text and keeps a mismatch for this check, which returns it with the code `args_invalid` and its location unset. The params meet what each of those prompts requires: each Pack under a `uses:` is `Usable` in the roster, when the caller passed one to `RunParams::with_packs`, and the model in each role that a prompt declares meets that prompt's requirements for the role. The step skips the model checks for an empty role map, and it counts as gaps a role map that has entries and lacks `default`, and a Pack id that the Engine reserves, such as `adhoc`, in the caller's tool catalog or roster. A requirements failure has the code `requirements_unmet`, and its message names every gap.
 
 `Run::new` always returns a `Run`, so every failure of a run, a failed start check included, reaches the caller in one place: the `result` of `Step::Done`. The caller handles a failed run there already, and a failure out of `Run::new` would need a second path that records and reports the same thing. A failure inside `Run::step` or `Run::resume` reaches the caller there too. The owner's reason: "having one place for the error is better than two".
 
@@ -120,7 +120,7 @@ A prompt has the contract of a tool: it takes one JSON object and returns text. 
 
 ### A run where every chain waits ends as `stalled` or as `internal`
 
-A run stalls when no chain is ready to run, all its awaited effects have their answers, and its main chain waits on something other than its inbox. The Engine then ends it. When tasks wait on their inboxes, the error has the code `stalled` and names them. Otherwise the error is `internal`, because only an Engine fault produces that state.
+A run stalls when every chain that remains waits, all its awaited effects have their answers, and its main chain waits on something other than its inbox. The Engine then ends it. When tasks wait on their inboxes, the error has the code `stalled` and names them. Otherwise the error is `internal`, because only an Engine fault produces that state.
 
 A main chain that waits on its inbox is a different case: `Run::step` returns `Step::Pending` with `waiting_for_input` set, and the caller continues with `Run::deliver` or a cancel. The case differs because the main chain's inbox is the only one that code outside the Engine can fill.
 
@@ -177,7 +177,7 @@ The Engine creates the VM and applies the run's memory and log limits. It then i
 
 The `store` functions wait by yielding, so they are installed with the other calls that yield, before the preludes. A prelude runs on the main Lua state, outside any coroutine, where a yield fails. A prelude that calls the store or a tool while it installs therefore fails to load, and the run ends with the code `lua_runtime` before it issues any effect. A function that the prelude defines may call the store or a tool when a block calls that function.
 
-The `store` functions are in place before the preludes on the owner's instruction: "refuse store calls during a prelude's install". The call fails the way a tool call there fails, with no code path of its own, and the run's record holds every store operation of the run. The limits apply before any install, so each prelude runs under the run's own limits.
+The `store` functions are in place before the preludes on the owner's instruction: "refuse store calls during a prelude's install". The call fails the way a tool call there fails, on the same code path, and the run's record holds every store operation of the run. The limits apply before any install, so each prelude runs under the run's own limits.
 
 ### A Lua call that waits yields a request from a coroutine
 
@@ -197,7 +197,7 @@ Runvil's needs are modest, and for them a small request protocol that the projec
 
 Every call that suspends a block is one variant of a single request enum, with typed fields that the parse checks. A leaf request, such as a `models.infer` or a `store` call, becomes an effect. A structural request, such as a `call`, an `execute`, or a task spawn, changes which chains the Engine runs. The enum is closed because it is the audit surface: one file lists everything a script can cause.
 
-The Engine resumes a block with a success or a failure. Every answer variant is a success, and a failure is never an answer variant, because the Lua side reads the variant of an answer only when the answer is a success.
+The Engine resumes a block with a success or a failure. Every answer variant is a success, and a failure stays outside the variants, because the Lua side reads the variant of an answer only when the answer is a success.
 
 ### The rules of `models.loop` run in Rust, and a Lua trampoline performs each action
 
@@ -215,9 +215,9 @@ Each prompt has a tool set and a model set of its own because both depend on its
 
 ### `execute` starts a `call` chain in another of the run's prompts
 
-An `execute` has a name and optional arguments. The Engine makes its checks in this order: the depth cap, the name against the `prompts:` list of the prompt that the caller runs, and the arguments against the `args:` declaration of the named prompt. A failed check raises its error at the `execute`, and no chain starts. The chain that starts has the named prompt, the checked arguments, and a store of its own, and its parent is the caller. It starts at the first top-level section of the named prompt, with an empty `var`, on the `default` model of that prompt's model set, under the caller's file access and the caller's concurrency limit.
+An `execute` has a name and optional arguments. The Engine makes its checks in this order: the depth cap, the name against the `prompts:` list of the prompt that the caller runs, and the arguments against the `args:` declaration of the named prompt. A failed check raises its error at the `execute`, before any chain starts. The chain that starts has the named prompt, the checked arguments, and a store of its own, and its parent is the caller. It starts at the first top-level section of the named prompt, with an empty `var`, on the `default` model of that prompt's model set, under the caller's file access and the caller's concurrency limit.
 
-The chain is a `call` chain in all but the prompt it runs, so the Engine has one code path for both. The caller is parked as on a `call`, and the chain's end answers it with the final text or with no text. The finish, the abort of a subtree, a cancel, the depth count, and the admission of tasks work as they do for a `call`, and the run reports no event of its own for an `execute`. The owner's reason: "it's not a separate run. The run is somewhat integrated into the whole."
+The chain is a `call` chain in all but the prompt it runs, so the Engine has one code path for both. The caller is parked as on a `call`, and the chain's end answers it with the chain's final text, or with nil when the chain ends with a nil result. The finish, the abort of a subtree, a cancel, the depth count, and the admission of tasks work as they do for a `call`, and the events of an `execute` are those of the sections that its chain runs. The owner's reason: "it's not a separate run. The run is somewhat integrated into the whole."
 
 A run that a caller builds over a prompt from another prompt's `Prompt::linked` holds that one prompt. An `execute` of a second prompt fails there with the code `internal`, because a run is built over the prompt that a parse returned.
 

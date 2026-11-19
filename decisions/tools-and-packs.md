@@ -6,7 +6,7 @@ This page covers tools, Packs, Plugins, the Plugin C contract, and the Packs tha
 
 ### "Pack" names the set of tools, and "Plugin" names the entry point that installs it
 
-A Pack installs tools, and a Rust Pack can also set a Lua prelude. A Plugin is an entry point that installs Packs. A Plugin that follows the C contract reports a name and a version, which the Host lists. A Rust `install` function reports neither.
+A Pack installs tools, and a Rust Pack can also set a Lua prelude. A Plugin is an entry point that installs Packs. A Plugin that follows the C contract reports a name and a version, which the Host lists. A Rust `install` function inserts its Packs and reports only success or an error.
 
 "Plugin" is the usual word for what a loadable crate or library provides, and the names of the Plugin crates, such as `plugin-std` and `plugin-web`, fit it.
 
@@ -18,7 +18,7 @@ A Pack's fully qualified name has two segments, a vendor and a name, as in `runv
 
 `PackRegistry` refuses a Pack whose id it already holds, whatever the vendor of either Pack. The first Pack that a Plugin inserts keeps the id, and the second insert fails with the reason `pack_id_taken` and a message that names the holder, as in ``Pack `acme/web` cannot take the Pack id web, which `runvil/web` holds``. A Pack that a Plugin inserted as unavailable holds its id too. The built-in Packs, `subagents` and `user`, are in every registry from the start, so the same rule keeps those ids for them. The owner's rule: "runvil/web and acme/web cannot both be in the host's PackRegistry".
 
-The rule follows from the tool id. A tool id starts with the Pack id and has no vendor, and the Harness finds the Pack for a tool call from that first segment. With one Pack for each id, `web/fetch` names one tool on a Host, and a prompt reaches every Pack of a run by its bare Pack id.
+The rule follows from the tool id. A tool id starts with the Pack id and leaves the vendor out, and the Harness finds the Pack for a tool call from that first segment. With one Pack for each id, `web/fetch` names one tool on a Host, and a prompt reaches every Pack of a run by its bare Pack id.
 
 ### Lua uses a tool's id, and the model uses its wire name
 
@@ -50,23 +50,23 @@ A prompt names Packs under `uses:` in its front matter. For each entry, `Host::p
 
 A prelude runs only for a declared Pack because it defines Lua globals, and so decides what a prompt's Lua can call. The Lua globals of a prompt therefore depend on its own `uses:` list and are the same on every Host.
 
-Every entry is required. A prompt that can run with or without a Pack tests `tools.packs.get('name')`, which returns the Pack object when the run has the Pack.
+Every entry is required. A prompt that treats a Pack as optional tests `tools.packs.get('name')`, which returns the Pack object when the run has the Pack.
 
 ### A run includes every Pack the Host installed, and a section opts in to the undeclared ones
 
-A run includes every Pack in the Host's registry, whatever the Pack's vendor and whatever the prompt declares. A `uses:` entry adds no Pack to a run and removes none. It marks a Pack as required, so that the run is refused when the Pack is missing or cannot serve, and it runs the Pack's prelude. The owner's rule: "Packs are determined by the host, not the prompts. The frontmatter just indicates which packs are *required*."
+A run includes every Pack in the Host's registry, whatever the Pack's vendor and whatever the prompt declares. A `uses:` entry marks a Pack as required, so that the run is refused when the Pack is missing or unavailable, and it runs the Pack's prelude. It leaves the run's Packs as they are, except that an entry that names the wrong vendor keeps the installed Pack of that id out of its run, which the first step refuses (see the entry on a bare name). The owner's rule: "Packs are determined by the host, not the prompts. The frontmatter just indicates which packs are *required*."
 
 The guide calls the undeclared Packs extras. A section offers them with `tools.offer(tools.packs.extras())`, as the built-in chat prompt does. The owner's rule: "extras should be a per-section setting. Disabled by default, and opt-in".
 
-The Host decides because it is the party that installs Plugins. With this rule the Packs and tools that a prompt can reach on one Host are the same for every prompt, and the front matter of one prompt has no effect on what another prompt's run holds.
+The Host decides because it is the party that installs Plugins. With this rule the Packs and tools that a prompt can reach on one Host are the same for every prompt, and a prompt's run holds the same Packs whatever the front matter of another prompt says.
 
 ### A linked prompt's `uses:` requires its Packs for the run and runs their preludes in its own sections
 
-A prompt may list other prompts under `prompts:`, and a run of it holds each of them for `execute` ([The prompt language](prompt-language.md)). `Host::parse` and the run's first step read the `uses:` of every one of those prompts. A Pack that a linked prompt declares is required for the run, so the run is refused when the Host lacks the Pack or the Pack cannot serve. The refusal names the linked prompt, as in `- review.md: web is unavailable: runvil/web is not installed`, and a Pack that two prompts declare counts once.
+A prompt may list other prompts under `prompts:`, and a run of it holds each of them for `execute` ([The prompt language](prompt-language.md)). `Host::parse` and the run's first step read the `uses:` of every one of those prompts. A Pack that a linked prompt declares is required for the run, so the parse refuses the prompt, or the first step refuses the run, when the Host lacks the Pack or the Pack is unavailable (see the entry on the three stages of a refusal). Each refusal names the linked prompt. The parse writes each one in the form `- review.md: web is unavailable: runvil/web is not installed`, and the first step writes the same form with its own reason, or `- review.md: missing required Pack: web` for a bare entry whose Pack id is absent from the registry. A Pack that two prompts declare counts once.
 
-A linked prompt's `uses:` does nothing else to the run. The run still has every Pack in the Host's registry, one instance of each, and a tool of any Pack answers a call from any of the run's prompts. In each section, `tools.packs` marks as required the Packs under the `uses:` of that section's own prompt, and `tools.packs.extras()` lists every other Pack of the run. A caller's Packs are therefore the same before and after it executes a prompt.
+A linked prompt's `uses:` leaves the rest of the run as it is. The run still has every Pack in the Host's registry, one instance of each, and a tool of any Pack answers a call from any of the run's prompts. In each section, `tools.packs` marks as required the Packs under the `uses:` of that section's own prompt, and `tools.packs.extras()` lists every other Pack of the run. A caller's Packs are therefore the same before and after it executes a prompt.
 
-A Pack's prelude runs in the sections of each prompt that declares the Pack, and in no section of a prompt that leaves it out. The owner's rule: "A prompt's sections should only have preludes injected for the packs it names. It should not inject preludes for packs named by other prompts in prompts: frontmatter". The Lua globals of a prompt therefore depend on its own `uses:` list, whichever prompt executes it, and two Packs whose preludes define one global collide only in a prompt that declares both.
+A Pack's prelude runs in the sections of each prompt that declares the Pack, and in those sections alone. The owner's rule: "A prompt's sections should only have preludes injected for the packs it names. It should not inject preludes for packs named by other prompts in prompts: frontmatter". The Lua globals of a prompt therefore depend on its own `uses:` list, whichever prompt executes it, and two Packs whose preludes define one global collide only in a prompt that declares both.
 
 A prompt's preludes run in the order of its `uses:`. A prelude that fails to load fails the section entry that installs it. For an executed prompt, that entry is its first section, so the failure is the error that the `execute` raises.
 
@@ -80,7 +80,7 @@ The third case exists because a factory's result is unknown at parse time. The n
 
 ### The Harness reads each Pack's tools once, when the run starts
 
-The Harness makes the run's instance of each installed Pack, waits for each `ready`, and reads each tool list. The run uses that catalog until it ends. A run waits for every Pack, declared or not, because the tools of an undeclared Pack are in its catalog too. `Pack::ready` resolves within a bound that the Pack owns, so a Pack that cannot start fails its `ready` within that bound, and the run goes on without its tools. An error from `ready` is temporary. A Pack that recovers is available to the runs that start afterward.
+The Harness makes the run's instance of each installed Pack, waits for each `ready`, and reads each tool list. The run uses that catalog until it ends. A run waits for every Pack, declared or undeclared, because the tools of an undeclared Pack are in its catalog too. `Pack::ready` resolves within a bound that the Pack owns, so a Pack that cannot start fails its `ready` within that bound, and the Pack is unavailable to that run. An error from `ready` is temporary. A Pack that recovers is available to the runs that start afterward.
 
 ### Lua reads one catalog for the whole run, and the Engine builds the model's tool list once for each section entry
 
@@ -146,7 +146,7 @@ A handler that Rust called outside any coroutine would fail at every `store` cal
 
 ### A failing adhoc handler raises at `models.loop`
 
-When a handler raises an error, the Engine raises the same value at the place the tool was called. For a call the model made, that place is `models.loop`, so the loop ends unless the prompt wraps it in `pcall`. The Engine raises the value unaltered so that a structured error table still has its `kind`. The Engine sends a successful result to the model as written, marked trusted, because the prompt author wrote the handler. The exception is a handler whose own `tools.call` read an untrusted tool listing: the Engine wraps that handler's result and marks it untrusted.
+When a handler raises an error, the Engine raises the same value at the place the tool was called. For a call the model made, that place is `models.loop`, so the loop ends unless the prompt wraps it in `pcall`. The Engine raises the value unaltered so that a structured error table still has its `kind`. The Engine sends a successful result to the model as written, marked trusted, because the prompt author wrote the handler. The exception is a handler whose own `tools.call` read an untrusted tool listing: the Engine wraps that handler's result and marks it untrusted. Of the shipped tools, `mcp/get_dynamic_tools` is the one flagged `describes_tools`, and the `mcp` Pack marks a script's listing trusted (see Trust of tool output). A handler that returns that listing therefore sends the servers' text to the model unwrapped, and the author wraps the text with `untrusted`.
 
 The Engine raises because a handler is the author's own Lua, so its failure is a bug in the prompt. A prompt that wants the model to read a handler's failure calls `pcall` inside the handler and returns the text.
 
@@ -154,7 +154,7 @@ The Engine raises because a handler is the author's own Lua, so its failure is a
 
 The Engine uses the handler's first return value as the tool's result: `nil` becomes the empty string, and a string, a number, or a boolean becomes its text. A table fails the call with the error "cannot return a table as a result".
 
-A block's `return` turns its value into text the same way and refuses a table with the same error. The two differ for `nil`: a handler's `nil` is the empty string, and a block's `return` of `nil` ends its chain with no text ([The prompt language](prompt-language.md)).
+A block's `return` turns its value into text the same way and refuses a table with the same error. The two differ for `nil`: a handler's `nil` is the empty string, and a block's `return` of `nil` ends its chain with a nil result ([The prompt language](prompt-language.md)).
 
 ### `jump` raises inside an adhoc handler
 
@@ -250,7 +250,7 @@ Lua reads `tool.description`, `tool.parameters`, and a Pack's `name` and `tools`
 
 ### The `mcp` Pack marks its output by caller
 
-The `mcp` Pack reads the caller from its `ToolContext`. For a call the model made, it marks the server's text untrusted. For a script's `tools.call`, it marks the same text trusted, so the script receives the raw string and can decode the listing JSON. The cost is that a script that forwards MCP text into a prompt sends it unwrapped, and that is the script author's decision. Only a Rust Pack receives the call's origin: the loader passes a library Pack the tool's name, the arguments, and the file functions, so the contract needs the origin before `mcp` can move to it, which is planned work.
+The `mcp` Pack reads the caller from its `ToolContext`. For a call the model made, it marks the server's text untrusted. For a script's `tools.call`, it marks the same text trusted, so the script receives the raw string and can decode the listing JSON. The cost is that a script that forwards MCP text into a prompt, or an adhoc handler that returns it to the model, sends it unwrapped, and that is the script author's decision. Only a Rust Pack receives the call's origin: the loader passes a library Pack the tool's name, the arguments, and the file functions, so the contract needs the origin before `mcp` can move to it, which is planned work.
 
 ## 7. Writing a Pack
 
@@ -282,7 +282,7 @@ The Harness calls `new_pack` while it prepares the run, so a factory returns qui
 
 ### `ToolContext` lends each call the tool id, its files, and the call's origin
 
-`ToolContext::tool` returns the id of the called tool. `ToolContext::files` returns the call's files, a `ToolFiles`: the call asks for one operation of the `VfsOp` list with `request` and awaits its `VfsOutcome`. A request works under the call's own identity, on paths rooted at `/` of the file system that the Host gave the run. It reaches no store, so a tool sees no file that `store.write` wrote ([Files and the VFS](files-and-the-vfs.md)). The Engine keeps the file access of the call, so a request is the call's one way to the run's files. `ToolContext::origin` says which section and which caller made the call. The context lends each of them only until the call ends, so the Rust compiler rejects a Pack that stores the files.
+`ToolContext::tool` returns the id of the called tool. `ToolContext::files` returns the call's files, a `ToolFiles`: the call asks for one operation of the `VfsOp` list with `request` and awaits its `VfsOutcome`. A request works under the call's own identity, on paths rooted at `/` of the file system that the Host gave the run. Each store is a separate value outside that file system, so a file that `store.write` wrote stays out of a tool's reach ([Files and the VFS](files-and-the-vfs.md)). The Engine keeps the file access of the call, so a request is the call's one way to the run's files. `ToolContext::origin` says which section and which caller made the call. The context lends each of them only until the call ends, so the Rust compiler rejects a Pack that stores the files.
 
 The owner's rule: "The tool can't keep the access. ... it has to give it up, after the call is done". A Rust Pack reads the services it needs at `install` and stores them in its factory.
 
@@ -314,7 +314,7 @@ A long file job yields so that the Harness can cancel it. Grep, in the `std` lib
 
 ### The run's mode policy decides each file change that a tool makes
 
-The Harness performs every file operation of a tool on the file access of its call, and the file system applies the run's mode policy to each one. In Ask mode it refuses each change, and in Plan mode it accepts changes to markdown paths. A `store` call is outside the policy, because the run's store is no part of the file system that tools work in. Workshop's runs use the file system's default policy, `AllowAll` ([Files and the VFS](files-and-the-vfs.md)).
+The Harness performs every file operation of a tool on the file access of its call, and the file system applies the run's mode policy to each one. In Ask mode it refuses each change, and in Plan mode it accepts changes to markdown paths. A `store` call is outside the policy, because the run's store is a separate value, outside the file system that tools work in. Workshop's runs use the file system's default policy, `AllowAll` ([Files and the VFS](files-and-the-vfs.md)).
 
 The check is in the file system because every operation passes through the access, so the check covers every tool, including each tool written later.
 
@@ -366,7 +366,7 @@ A Pack from the contract has tools only, and a tool has a name, a wire name, a d
 
 A loaded Plugin stays loaded while the `PluginReport`, one of its Packs in the registry, or a run's instance of one of its Packs holds it, so it unloads after its last Pack instance is deleted. `insert_plugin_dir` records a library that fails to load in the `PluginReport` and continues with the next one.
 
-Loading happens in the Harness, and the Engine receives data: the tool catalog, the roster of the run's Packs, and the prelude text. The reason is that the Engine is pure: tool calls are effects that the Harness performs, and a replay can feed recorded results back to the Engine without the Plugins present.
+Loading happens in the Harness, and the Engine receives data: the tool catalog, the roster of the run's Packs, and the prelude text. The reason is that the Engine is pure: tool calls are effects that the Harness performs, and a replay can feed recorded results back to the Engine in place of calls to the Plugins.
 
 ## 9. The Packs that ship with Runvil
 
@@ -382,7 +382,7 @@ The Pack copies Cursor's text because the model was trained against that exact t
 
 `bash` is the Pack of a library Plugin. The bashkit Plugin has a repository of its own, `runvil-plugin-bashkit`, and is written against `runvil-plugin-sdk`. It reports the name `bashkit` and inserts one Pack, `runvil/bash`. The Pack has one tool, `bash/shell`, and the model sees it as `Shell`, which is Cursor's name for its shell tool. The definition is Cursor's, with a recorded list of edits. Workshop loads the Plugin's library from the Plugin directory, beside the library of `std`. The built-in chat prompt requires `bash` under `uses:` and offers it.
 
-The shell is a bash interpreter from the `bashkit` crate, and it runs inside the run. Every command is built into bashkit, so the shell works without a child process and without a network. Each call builds a shell of its own, which starts at the root of the run's files and goes when the call ends. The working directory, variables, and functions of one call end with it, so the run's files, as the earlier calls left them, are all that a call finds of an earlier call. A tool's result depends on the call's arguments, the run's files, and what the tool reaches outside the run (see Writing a Pack), and a shell for each call is how the shell follows that rule. The owner's reason: "Its the easiest to implement and doesn't expand the API surface." A command ends after 30 seconds, or after the `block_until_ms` of its call when that is less. The answer is the exit code and the output, marked untrusted.
+The shell is a bash interpreter from the `bashkit` crate, and it runs inside the run. Every command is built into bashkit and runs in the Host's process, and the bashkit features that reach the network are off. Each call builds a shell of its own, which starts at the root of the run's files and goes when the call ends. The working directory, variables, and functions of one call end with it, so the run's files, as the earlier calls left them, are all that a call finds of an earlier call. A tool's result depends on the call's arguments, the run's files, and what the tool reaches outside the run (see Writing a Pack), and a shell for each call is how the shell follows that rule. The owner's reason: "Its the easiest to implement and doesn't expand the API surface." A command ends after 30 seconds, or after the `block_until_ms` of its call when that is less. The answer is the exit code and the output, marked untrusted.
 
 The shell's files are the run's files. The call that runs a script performs each file operation of the shell, a read or a change, through the contract's file functions, so every operation goes through the Host: the run's policy applies to it, and the run's record holds it. Redirects, `tee`, `sed -i`, `cp -r`, `mv`, `rm -r`, `mkdir -p`, `touch`, and `mktemp` work. The tool sets `changes_files`, so the Engine runs the Shell calls of one reply one after another, in the order the model listed them (see Tool calls). Each operation that goes to the Host ends a step of the call, so the Host can abandon a script between two operations, and a change that reached the Host before then has happened.
 
@@ -438,7 +438,7 @@ Each of these items is still to be built.
 
 - **One Plugin API.** `plugin-web` and `plugin-mcp` written against the C contract and inserted with `insert_plugin`, so that a Pack compiled into the Host goes through the same contract as a Pack from a library and the two `install` functions, which is what both Plugins are, go away. The contract first needs what the two Packs use and contract 0.5 lacks: for `mcp`, a configuration for its list of servers, the call's origin, and the `describes_tools` flag, for `web`, the Host's search provider, and for both, the Host's runtime handle, a Pack inserted as unavailable with a reason, a call that waits on work outside its step, and error causes.
 - **Glob in `std`.** A `std/glob` that finds files by a name pattern and returns their paths. The tool answers a fixed text that says it is missing from this build.
-- **Approval by a person.** The step that asks the operator to approve a file change. When the run's policy answers `Ask`, the file system refuses the operation with `VfsError::ApprovalRequired` and a reason, which a library Pack's tool receives as a denied file error with the same reason, and a run under Workshop cannot reach that error, because Workshop's runs use `AllowAll`.
+- **Approval by a person.** The step that asks the operator to approve a file change. When the run's policy answers `Ask`, the file system refuses the operation with `VfsError::ApprovalRequired` and a reason, which a library Pack's tool receives as a denied file error with the same reason, and under Workshop the policy allows every operation, because Workshop's runs use `AllowAll`.
 - **Ignore files.** Applying `.gitignore`, so that Grep skips a folder such as `target/` and spends its budget of 100,000 files elsewhere. Walks skip `.git` and names that contain a control character.
 - **Shell state that lasts across calls.** A shell that saves its state to a file of the run and loads it at its next call. Each `bash/shell` call builds a new shell, so the working directory, variables, and functions of one call end with it.
 - **Subagent tools.** The tools of `runvil/subagents`, and the wrapping of text that one model writes for another. The Pack only reserves its name.

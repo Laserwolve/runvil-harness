@@ -42,7 +42,7 @@ The chain owns the selection so that one model choice applies across sections an
 
 ### A `call` child, a task, and a fanout arm start on a copy of the parent's current model, and an executed prompt starts on `default`
 
-A `call` child, a `tasks.spawn` task, and each fanout arm copy the parent chain's current model when the Engine dispatches the call or the spawn. A later `models.use` in the child changes only the child. A prompt that an `execute` runs copies nothing: it starts on the `default` role of its own model set, whatever model its caller is on, and a `models.use` in it never reaches the caller ([The prompt language](prompt-language.md)). The main walk starts on the `default` role. The preamble, the Lua before a prompt's first heading, is the first section of that walk ([The prompt language](prompt-language.md)), so a `models.use` there is still in effect in the sections after it.
+A `call` child, a `tasks.spawn` task, and each fanout arm copy the parent chain's current model when the Engine dispatches the call or the spawn. A later `models.use` in the child changes only the child. A prompt that an `execute` runs starts on the `default` role of its own model set, whatever model its caller is on, and a `models.use` in it leaves the caller's model as it is ([The prompt language](prompt-language.md)). The main walk starts on the `default` role. The preamble, the Lua before a prompt's first heading, is the first section of that walk ([The prompt language](prompt-language.md)), so a `models.use` there is still in effect in the sections after it.
 
 The Engine copies at dispatch because a spawned task can wait in a queue before it starts, and a copy taken at the task's start would include a later switch in the parent. [Tasks and fanout](tasks-and-fanout.md) describes the model-first form of `tasks.fanout`.
 
@@ -106,7 +106,7 @@ A reply with tool calls starts a tool round whatever its finish reason, because 
 
 ### An empty reply raises `empty_model_reply`, except after an answered tool call
 
-A reply that lacks both text and tool calls is empty, even when it has reasoning text. The Gateway client fails such a round with the code `EmptyReply` and adds the provider's finish reason. The loop accepts the round as its normal end when the finish reason is `stop` and this loop call has answered a tool call. It then appends an assistant record with empty content.
+A reply is empty when its text is blank and its list of tool calls is empty, even when it has reasoning text. The Gateway client fails such a round with the code `EmptyReply` and adds the provider's finish reason. The loop accepts the round as its normal end when the finish reason is `stop` and this loop call has answered a tool call. It then appends an assistant record with empty content.
 
 A reply with only reasoning text is empty because the client refuses to promote reasoning into the answer. The exception exists because a prompt may ask only for tool calls: the model then does all its work through the calls and legally exits the loop with an empty reply.
 
@@ -160,7 +160,7 @@ The owner's reason: "Because of prefix cache invalidation, changes to the prefix
 
 ### The list checks a record when Lua adds it, and the projection checks the whole list before each request
 
-At the builder call, the list checks one record's role, content, and tool fields, and drops any field outside a record's own fields. Before each request, the projection checks the rules that span records: every tool call id is unique, and one result for each call follows an assistant record's tool calls directly. It then builds the request's messages and joins consecutive user records into one message.
+At the builder call, the list checks one record's role, content, and tool fields, and drops any field outside a record's own fields. Before each request, the projection checks the rules that span records: every tool call id is unique, and one result for each call follows an assistant record's tool calls directly. It then builds the request's messages. It joins consecutive user records into one message, and it joins consecutive assistant records that hold text alone into one message. A text-only assistant record also joins the assistant record with tool calls that follows it.
 
 The first check runs at the builder call so that a malformed record fails there, before `models.loop` runs. The projection enforces the pairing because OpenAI-shaped models reject unanswered tool calls.
 
@@ -168,7 +168,7 @@ The first check runs at the builder call so that a malformed record fails there,
 
 `meta` is any JSON value of at most 8192 bytes as compact JSON. Lua sets it as the last argument of a builder or as a field of an appended record, and reads it from a view. The projection sends `role`, `content`, `tool_call_id`, and `tool_calls` to the model. The records that the loop appends have plain text content and omit `meta`.
 
-The field exists because a compactor needs hints that survive in the list, and a view lacks a stable identity.
+The field exists because a compactor needs hints that survive in the list, and each read of a record returns a new view.
 
 ### A Chat record logs the messages that are new since the list's previous send
 
@@ -178,9 +178,9 @@ A record of the whole list for every round would make the run log grow with the 
 
 ## 6. The context window and compaction
 
-### The Engine checks before each request that the conversation fits the model's context window
+### The Engine checks before each round of `models.loop` that the conversation fits the model's context window, and a `models.infer` request goes out unchecked
 
-This check is the precheck. It estimates four characters per token plus four tokens for each message, adds a reserve for the reply, and compares the sum with the model's context window. The reserve is the binding's `max_tokens`, or one eighth of the window up to 8192 tokens, and at most half the window. When the chain's previous round reported token usage and the request extends that round, the count starts from the provider's numbers.
+This check is the precheck. It estimates four characters per token plus four tokens for each message, adds a reserve for the reply, and compares the sum with the model's context window. The reserve is the binding's `max_tokens`, or one eighth of the window up to 8192 tokens, and at most half the window. When the chain's previous round reported token usage and the request extends that round, the count starts from the provider's numbers. A `models.infer` request skips the precheck and goes to the provider as written, and when the provider refuses it as too large, the call raises an error of kind `model_failure`.
 
 The estimate omits tool schemas and image parts. A count for both is planned work.
 
@@ -192,7 +192,7 @@ A request overflows in two ways: the precheck refuses it, or the provider reject
 
 `models.loop()` uses `compactors.fail`, which raises an error of kind `context_exhausted` with the reason. An uncaught one ends the run with the code `ContextExhausted`. `compactors.clear` removes every record. A prompt runs it as a compactor, as in `models.compact(compactors.clear, reason)`, and a call from outside a compactor raises an error.
 
-The Engine refuses `compactors.clear` outside a compactor because a call from anywhere else would empty `messages` without a snapshot. A direct `compactors.fail(reason)` call in a block raises `context_exhausted` as well, and the run ends the same way.
+The Engine refuses `compactors.clear` outside a compactor because the snapshot that restores `messages` exists only while a compactor runs. A direct `compactors.fail(reason)` call in a block raises `context_exhausted` as well, and the run ends the same way.
 
 ### A compacted list must pass the structural rules, and after an overflow it must shrink
 
@@ -234,7 +234,7 @@ The swap happens inside the run because a separate run for each pick would cost 
 
 ### The Engine defines the model vocabulary, and `harness-gateway-client` sends the HTTP requests
 
-`runvil-model-client` defines `Message`, `ToolSchema`, `Completion`, `ModelBinding`, and the model error phrases. `harness-gateway-client` contains all the HTTP and wire parsing: the chat client, the standard broker, the fetch of the model list, and public wire functions such as the one that builds the request body. The wire functions are public so that another broker can reuse them.
+`runvil-model-client` defines `Message`, `ToolSchema`, `Completion`, `ModelBinding`, and the model error phrases. `harness-gateway-client` contains the HTTP and the wire parsing: the chat client, the standard broker, the fetch of the model list, and public wire functions such as the one that builds the request body. The Engine's projection also writes wire format: it writes each tool call of an assistant record in the OpenAI function-call shape. The wire functions are public so that another broker can reuse them.
 
 The client is a crate of its own for two reasons. Inference is a Host service and the Harness excludes tokio, so the Harness leaves HTTP to the Host. Every Host still needs a standard Gateway client.
 
@@ -268,9 +268,9 @@ Lua has these two kinds because a single kind, `internal`, would cover three unr
 
 ### The client redacts its key and builds a keyless client for a loopback Gateway
 
-The client stores the Gateway's bearer key as a secret value and prints `<redacted>` in its debug output. It cuts a backend's error body to 2000 characters and escapes the control characters, and the code's docs say why: "The escaping stops a backend body from forging log lines". The client's constructor from the environment reads `RUNVIL_GATEWAY_URL` and `RUNVIL_GATEWAY_API_KEY`, and builds a keyless client when the URL names a loopback address and the key is absent.
+The client stores the Gateway's bearer key as a secret value and prints `<redacted>` in its debug output. It cuts a backend's error body and escapes the control characters, and the code's docs say why: "The escaping stops a backend body from forging log lines". For a chat request it reads the body up to the reply cap, 16 MiB by default, and keeps the first 2000 characters. For the model list and for a search it stops reading at 2000 bytes. The client's constructor from the environment reads `RUNVIL_GATEWAY_URL` and `RUNVIL_GATEWAY_API_KEY`, and builds a keyless client when the URL names a loopback address and the key is absent.
 
-The client has the Gateway's key, and the Gateway has the model provider's key. A Gateway can admit a loopback caller that omits the key, and the keyless client is for that case.
+The client has the Gateway's key, and the Gateway has the model provider's key. A Gateway can admit a loopback caller that omits the key, and the keyless client is for that case. The keyless form exists for the chat client alone. The standard broker, the fetch of the model list, and the search provider each require a key, so a Host that uses them needs the Gateway's key for a run, on a loopback Gateway too.
 
 ## 8. Planned work
 
