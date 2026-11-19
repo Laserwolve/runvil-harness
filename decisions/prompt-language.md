@@ -118,7 +118,7 @@ With these explicit channels, a section behaves the same whether the run enters 
 
 ### A `return` ends the chain, and a walk past its last section returns `done`
 
-A `return` at the top level of a Lua block ends the chain the block runs in. A returned string, number, or boolean is the chain's result as text, and on the main walk that result is the run's result. A `return` of nil, or a bare one, ends the chain with a nil result, the way a walk past its last section ends. A returned table fails with `cannot return a table as a result`. After a block that ends with no `return`, the Engine runs the next block. The rule makes Lua control flow compact: one `return` both ends the chain and states its result.
+A `return` at the top level of a Lua block ends the chain the block runs in. A returned string, number, or boolean is the chain's result as text, and on the main walk that result is the run's result. A `return` of nil, or a bare one, ends the chain with a nil result, the way a walk past its last section ends. A returned table fails with `cannot return a table as a result`. After a block that ends without a `return`, the Engine runs the next block. The rule makes Lua control flow compact: one `return` both ends the chain and states its result.
 
 A `return` ends the chain whatever its value, because the author wrote it to end the chain. If a nil value moved the run on to the next block, `return x` would end the chain or continue it depending on what `x` holds, and `return call(...)` would depend on what the called section did. A `return` inside a function is that function's, and it leaves the chain running.
 
@@ -192,7 +192,7 @@ Shared code exists for reuse, so a library runs only where a section asks for it
 
 ### A library runs once in each section VM, and `require` returns the value of its first `return`
 
-A library's blocks run in order. After a block that ends with no `return`, the next block runs. The first block that executes a `return` ends the load, and `require` returns its value, which may be a table or a function, or `true` when the `return` is bare or gives nil. For a library whose blocks all end with no `return`, `require` returns `true`. Later calls in the same VM return the saved value, and a library that requires itself raises an error that begins `require cycle:`.
+A library's blocks run in order. After a block that ends without a `return`, the next block runs. The first block that executes a `return` ends the load, and `require` returns its value, which may be a table or a function, or `true` when the `return` is bare or gives nil. For a library whose blocks all end without a `return`, `require` returns `true`. Later calls in the same VM return the saved value, and a library that requires itself raises an error that begins `require cycle:`.
 
 `require` returns a value of any type because a library returns its module as a table. A `return` ends the load the way a block's `return` ends a chain, and the result `true` in place of a nil value matches standard Lua. The cycle error exists because standard Lua 5.5 lacks cycle detection and recurses until the stack overflows.
 
