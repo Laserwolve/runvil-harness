@@ -1,6 +1,6 @@
 ---
 name: Return Ends The Chain
-overview: Any `return` at a block's top level ends the chain it runs in, and only a block that runs off its end lets the next block run. Every block is compiled with a trailer that tells the two apart, `require` follows the same rule, and the design pages and the guide are brought in line.
+overview: Any `return` at a block's top level ends the chain it runs in, and only a block that runs off its end lets the next block run. Every block is compiled with a trailer that tells the two apart, `require` follows the same rule, and the guide is brought in line.
 todos:
   - id: plan-copy
     content: "runvil-harness: on `master`, copy this plan to `plan/2026-11-13-1-return-ends-the-chain.plan.md` before any other change"
@@ -13,9 +13,6 @@ todos:
     status: completed
   - id: verify
     content: "runvil-harness: run every check in AGENTS.md"
-    status: completed
-  - id: design-docs
-    content: "runvil-design: bring the decision pages and the language spec in line, one commit"
     status: completed
   - id: guide
     content: "runvil-docs: bring chapters 3, 4, and 8 and the smaller mentions in line, with example values from the built code, one commit"
@@ -140,12 +137,8 @@ end
 
 ## Documents: one commit each
 
-They are written once the code passes its checks, and committed in their own repositories before the `runvil-harness` commit, so the plan copy can record them as done. The two can be written at the same time.
+They are written once the code passes its checks, and committed in their own repositories before the `runvil-harness` commit, so the plan copy can record them as done.
 
-- **`runvil-design`:**
-  - [decisions/prompt-language.md](https://github.com/cppalliance/runvil-design/blob/master/decisions/prompt-language.md): the section "A returned scalar ends the chain", the `require` section titled "returns its first non-nil block value", and the lines that say a block that returns nil lets the next block run. Open question 4, `done` against the empty string, stays open.
-  - [decisions/tools-and-packs.md](https://github.com/cppalliance/runvil-design/blob/master/decisions/tools-and-packs.md): the line that says a handler's first rule is also the rule for a block's `return`.
-  - [architect-runvil-prompting-language.md](https://github.com/cppalliance/runvil-design/blob/master/design/architect-runvil-prompting-language.md): "Returning nil continues" in the paragraph on Lua fences.
 - **`runvil-docs`:**
   - [04-how-a-prompt-runs.md](https://github.com/cppalliance/runvil-docs/blob/master/src/language/04-how-a-prompt-runs.md): "How a block ends" gains a fourth ending, running off the end. "The scalar return rule" and "A return ends the chain" state the new rule. The table of results gains rows for `return nil` and a bare `return`, and its `return nil, 'text'` row ends the chain. "Returning nothing" becomes a section about a block with no `return`. "Returning from the H1 pass" covers a return with no value.
   - [03-blocks-and-prose.md](https://github.com/cppalliance/runvil-docs/blob/master/src/language/03-blocks-and-prose.md): "What `require` returns" and its `block_returns` example, whose result is no longer `ran then third`.
@@ -155,7 +148,7 @@ They are written once the code passes its checks, and committed in their own rep
 
 ## Git
 
-- The three commits stay local, each on `master` of its repository. Pushing them is yours to call.
+- The two commits stay local, each on `master` of its repository. Pushing them is yours to call.
 - The Workshop pins `runvil-harness` by commit, so it gets the new rule when its pin moves. Its one prompt needs no change.
 
 ## Verification
@@ -177,6 +170,5 @@ The design held. These points differ from the plan above, or add to it.
 - **Tests.** `runvil-lua` has 17 more tests and `runvil-runtime` has 13 more. The whole workspace runs 3,604 tests, all passing.
 - **The guide.** Chapters 1 and 5 changed as well, by one and two sentences, and chapter 9 needed no change. The timed `tasks.join_any` example of chapter 15 is unchanged: its documented run does not time out, and by a reading of the code a `Child` whose wait times out fails as `tasks_live` under either rule, because the grandchild is still live when `Child` ends. That case was not run.
 - **The guide's books build.** `cargo xtask site --books-only`, run from `runvil` with `RUNVIL_DOCS` set, built both books and found no broken link, and the new anchor `returning-no-value` is in the built chapter 4. The 21 prompts behind the changed example values ran through `runvil-engine` in a scratch program outside this repository.
-- **The design pages.** `tools-and-packs.md` now says where a handler's `nil` and a block's `return` of `nil` differ. The language spec's `call` entry still says nil for a child with no text, which the code gives as the empty string. That was left alone with the decision it belongs to.
 - **Verification.** Every check listed passed.
-- **Documents.** `runvil-design` commit `44834c6` and `runvil-docs` commit `3d03fe7` hold the document changes.
+- **Documents.** `runvil-docs` commit `3d03fe7` holds the document changes.

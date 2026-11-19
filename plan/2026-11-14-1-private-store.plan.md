@@ -26,9 +26,6 @@ todos:
   - id: store-tests
     content: "Commit 3 tests: runtime `TestStore` reads the run's own `Store` through a `#[cfg(test)]` accessor; runner store hooks become recorder hooks and `HookedBackend` goes; tests built on a seeded, failing, or Host-read store go; policy, watcher, and Host-edit tests are re-aimed at tool files; add the run-level isolation tests and the test that a run's records rebuild its store; bless both listings; run every check and both sweeps; hold the commit"
     status: completed
-  - id: design
-    content: "runvil-design: bring `prompt-language.md`, `harness-and-host.md`, `files-and-the-vfs.md`, `engine.md`, `tools-and-packs.md`, the language spec, and the counts in `decisions/README.md` in line, each stating the rule as it is; one commit"
-    status: completed
   - id: guide
     content: "runvil-docs: rewrite chapters 02 and 09 and the affected lines of chapters 01, 04, 05, 12, 14, 15, 16, and 17 with every result and message from the built Engine; run the checker and the site build; one commit"
     status: completed
@@ -132,7 +129,7 @@ What the execute plan can drop or must change once this lands:
 - **No compatibility code.** No alias, no fallback, and no code that recognizes a removed form.
 - **An old prompt fails by the ordinary rule.** `output:` is an unknown frontmatter key, and no message names it.
 - **No test names a removed form.** A test of a deleted rule is deleted.
-- **No text says what the rule replaced.** Comments, crate docs, READMEs, error messages, design pages, and the guide state the rule as it is. Engine crate docs say "the caller", as `AGENTS.md` requires.
+- **No text says what the rule replaced.** Comments, crate docs, READMEs, error messages, and the guide state the rule as it is. Engine crate docs say "the caller", as `AGENTS.md` requires.
 
 ## Decisions I made where you left room
 
@@ -230,14 +227,6 @@ This lands before the private store, so that commit never has to thread a `Store
   - a run's records rebuild its store: its `Vfs` effect records with an `Ok` answer, applied in order to an empty memory handle with `perform_vfs_op`, give the files the run read back
 - Bless both `public-api.txt` listings.
 
-## Design pages: `runvil-design`, one commit
-
-- `decisions/prompt-language.md`: the `output:` paragraphs go, and the return value is the output.
-- `decisions/harness-and-host.md`: `RunReport` has three fields, and the declared-output sections go.
-- `decisions/files-and-the-vfs.md`: the store is the run's own memory, outside the VFS, and the `VfsRef` is for tool files. The paragraph on the prelude-install phase goes.
-- `decisions/engine.md`: the Engine performs three kinds of work itself, and the section setup has no store switch.
-- `decisions/tools-and-packs.md`, `design/architect-runvil-prompting-language.md`, and the counts in `decisions/README.md`.
-
 ## Guide: `runvil-docs`, one commit
 
 Every result and message comes from the built Engine, and the checker and site build pass.
@@ -264,11 +253,11 @@ Every result and message comes from the built Engine, and the checker and site b
 
 - This plan is copied to `runvil-harness/plan/2026-11-14-1-private-store.plan.md` first, and commit 1 includes it. The two survey reports from this conversation are saved as research in the same step, which needs the chat that wrote the plan.
 - This plan lands before the Execute Child Prompts plan, which takes the next number of the day.
-- Commits 1 and 2 are made as each passes its checks. Commit 3 is held while the design pages and guide are written against the built Engine, then made last with the plan copy's todos marked done and a section on what the build found.
+- Commits 1 and 2 are made as each passes its checks. Commit 3 is held while the guide is written against the built Engine, then made last with the plan copy's todos marked done and a section on what the build found.
 - Harness commits end with `Plan: /plan/2026-11-14-1-private-store.plan.md`. The other repositories' commits end with `Plan: runvil-harness/plan/2026-11-14-1-private-store.plan.md`.
 - Every commit stays local on `master`. Pushing is yours to call. A removed file is moved to `cabinet/_trash/`.
 
-**Parallel work:** in commit 1, the prompt, types, and runner edits are independent. Commit 2 is the lua crate first, then the runtime, then the tests of both in parallel. In commit 3, `runvil-vfs` goes first because everything builds on it, then the runtime and Harness edits run in parallel, then tests are fixed crate by crate in parallel. The design pages, the guide chapters, and the other documents run in parallel once the code passes.
+**Parallel work:** in commit 1, the prompt, types, and runner edits are independent. Commit 2 is the lua crate first, then the runtime, then the tests of both in parallel. In commit 3, `runvil-vfs` goes first because everything builds on it, then the runtime and Harness edits run in parallel, then tests are fixed crate by crate in parallel. The guide chapters and the other documents run in parallel once the code passes.
 
 ## Verification
 
@@ -323,7 +312,5 @@ Documents:
 - **An arm that has not finished when a store conflict ends the run is abandoned.** Chapter 14 said that it "reports canceled", and a run reports `task_abandoned` with the reason `run_terminated` for it.
 - **Three statements on the run's files come from the Engine's tests**, because the checker's files never refuse: the refusal at the run's start, of a task, and of a tool call. The codes of errors are from the tests too, because the checker prints a failed run's message and not its code.
 - **One thing in chapter 9 is left as it was:** its table of store events writes each name in upper case, as in `VFS_WRITE_SUCCEEDED`, and a run reports `vfs_write_succeeded`.
-- **The design pages keep their counts of entries.** `files-and-the-vfs.md` has 24, with an entry on the run's store in the place of the entry on the handle's store declaration. The pages list 73 gaps where they listed 74, because commit 3 corrected the comment on `OpSink`, and ask 122 questions where they asked 123.
-- **Two owner quotes left the design pages**, because each gave the reason for a rule that the code does not have: the one on a Host that gets data in and out through the VFS, and the one on a blocking file operation. The planned item "An offload for blocking file work" stays in `harness-and-host.md`, though the loop performs only store operations in memory.
 - **Left for the plan on child prompts:** the `execute` entry of the language spec still says that a child shares its parent's store and Host policy.
-- **Commits.** `3f05ed7b` and `56a2e680` here are commits 1 and 2. `runvil-design` commit `5a2f04e`, `runvil-docs` commit `a60b43b`, and `runvil` commit `4b3d48839` hold the document changes. Each is local on `master`.
+- **Commits.** `3f05ed7b` and `56a2e680` here are commits 1 and 2. `runvil-docs` commit `a60b43b` and `runvil` commit `4b3d48839` hold the document changes. Each is local on `master`.

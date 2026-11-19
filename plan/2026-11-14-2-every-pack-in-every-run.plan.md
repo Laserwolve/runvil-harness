@@ -17,9 +17,6 @@ todos:
   - id: verify
     content: "runvil-harness: run every check in AGENTS.md and both sweeps; hold the commit"
     status: completed
-  - id: design
-    content: "runvil-design: bring `tools-and-packs.md` and the counts in `decisions/README.md` in line; one commit"
-    status: completed
   - id: guide
     content: "runvil-docs: chapters 1, 4, 12, and 13, with example values from the built Engine; site build; one commit"
     status: completed
@@ -104,7 +101,6 @@ The plugin loader needs no change: it already reports a Pack the registry refuse
 
 Written once the code passes, each stating the rule as it is.
 
-- **`runvil-design`:** in [tools-and-packs.md](runvil-design/decisions/tools-and-packs.md), the sentence that a declared Pack replaces `runvil/web`, and the section "A run includes every `runvil` Pack". The counts in `decisions/README.md` if they change.
 - **`runvil-docs`:** chapter 12 (the catalog, extras, `tools.get`, `tools.packs`), chapter 4 (the pick, the ready wait, the catalog, the requirements check), chapter 1 (the Harness's catalog), and chapter 13 (reaching the web tools). Example values come from the built Engine, and `cargo xtask site --books-only` builds the books.
 - **`runvil-classroom`:** the line in [tutorial-plugin-architecture.md](runvil-classroom/tutorials/tutorial-plugin-architecture.md) that says a run holds another vendor's Pack only when the prompt declares it.
 
@@ -125,7 +121,7 @@ Written once the code passes, each stating the rule as it is.
 ## Order
 
 - The registry and the pick are written together, then their tests.
-- The three document commits need the built code and do not depend on each other.
+- The two document commits need the built code and do not depend on each other.
 - The `runvil-harness` commit is made last, so its plan copy records the document commits.
 
 ## What the build found
@@ -158,7 +154,6 @@ Documents:
 - **The guide changed in six chapters, where the plan named four.** Chapters 5 and 17 had one sentence each: that a run "holds the `user` Pack only when it has a user", and that a Pack tool comes from "a Pack you declare". No heading, no example prompt, and no shown result changed.
 - **The guide checker gives every example the verdict it gave before.** It finds 529 examples, and 362 return their documented result. It found 2,157 links and no broken one, and `cargo xtask site --books-only` built both books.
 - **Two statements of the guide come from the Harness's tests**, because the probe cannot hold a Pack in its start and prints no events: that an undeclared Pack that is still starting delays a run, and that a tool event names the vendor of an undeclared Pack.
-- **One difference between the guide and a Host stays.** The guide shows `- missing required Pack: web` for a bare entry that no Pack of the Host has, which is the line of the run's first step. `Host::parse` refuses that prompt first, with `- web is unavailable: runvil/web is not installed`. The design page lists this as its one known difference between the guide and the code.
-- **The design page has one more entry.** "A registry holds one Pack for each Pack id" gives the refusal and its reason, so `tools-and-packs.md` has 62 entries and `decisions/README.md` counts 546.
+- **One difference between the guide and a Host stays.** The guide shows `- missing required Pack: web` for a bare entry that no Pack of the Host has, which is the line of the run's first step. `Host::parse` refuses that prompt first, with `- web is unavailable: runvil/web is not installed`.
 - **The tutorial changed in two rules.** The rule that a declared `acme/web` takes the place of `runvil/web` was false too. The tutorial is a snapshot of `18361d02`, so its header names this change for those two rules.
-- **Commits.** `runvil-design` commit `835ae52`, `runvil-docs` commit `2c3c39c`, and `runvil-classroom` commit `9dab771` hold the document changes. Each is local on `master`.
+- **Commits.** `runvil-docs` commit `2c3c39c` and `runvil-classroom` commit `9dab771` hold the document changes. Each is local on `master`.

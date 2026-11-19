@@ -1,6 +1,6 @@
 ---
 name: Uniform Prompt Sections
-overview: "Remove every H1 special case from the Engine: a prompt needs no heading, every heading is an ordinary section, code before the first heading runs as an unnamed first section, and `argv` is read-only everywhere. Then bring the tests, the shipped prompts, the design pages, the guide, and two smaller documents in line."
+overview: "Remove every H1 special case from the Engine: a prompt needs no heading, every heading is an ordinary section, code before the first heading runs as an unnamed first section, and `argv` is read-only everywhere. Then bring the tests, the shipped prompts, the guide, and two smaller documents in line."
 todos:
   - id: plan-copy
     content: "runvil-harness: on `master`, copy this plan to `plan/2026-11-13-2-every-heading-is-a-section.plan.md` before any other change"
@@ -25,9 +25,6 @@ todos:
     status: completed
   - id: guide-checker
     content: "Scratch: grow the return-rule guide checker to parse every guide example, run the ones that need no inputs, report leftover titles, and check anchors"
-    status: completed
-  - id: design
-    content: "runvil-design: bring the six decision pages, the counts in `decisions/README.md`, and the language spec in line; one commit"
     status: completed
   - id: guide
     content: "runvil-docs: rewrite the 17 chapters by the example rules and the fixed anchors, one subagent per chapter, with every changed value from the built Engine; run the checker and the site build; one commit"
@@ -182,18 +179,6 @@ Elsewhere:
 - `missing-h1.md` parses now. It is replaced by `orphan-heading.md`, which holds `## Run` and then `# Late`.
 - The `greeter` and `run-prompt` examples, the bench, and [prompt/README.md](runvil-harness/crates/runvil-internal/prompt/README.md).
 
-## Design pages: `runvil-design`, one commit
-
-- **Living:** `decisions/*.md` and the language spec. Dated records stay as they are: `design/2026-*`, `research/`, and the three top-level reports.
-- [prompt-language.md](runvil-design/decisions/prompt-language.md):
-  - The summary, the walk-through, and the entries at lines 29, 51, 105, 111, 117, 123, 197, 203, 209, 247, and 269 state the new rule in place.
-  - Question 6 goes.
-  - The header gets an `Update:` bullet, and section 11 gets a dated bullet that states the old rules, as the return rule did.
-- **Reasons:** the two owner quotes that tie `argv` to the H1 (lines 201 and 213) go with the rules they justify. New reasons quote this conversation word for word, such as "I value uniformity over everything else." and "every prompt has a beginning, and we simply start there".
-- **Other pages:** `engine.md` (116, 150, question 1), `tasks-and-fanout.md` (48, 152, 166), `models-and-conversations.md` (60, 66, 160), `files-and-the-vfs.md` (30), `shipped-prompts.md` (the five sample prompts and line 50), and the counts in `decisions/README.md`.
-- [architect-runvil-prompting-language.md](runvil-design/design/architect-runvil-prompting-language.md): Source syntax (the sample and lines 85 to 89), the chain list and model start (223, 225), what the top level is (429), and the three recipes with a `# Title`.
-- **Flag:** the spec's `tools.bind` and `tools.always` are H1-only and describe functions the Engine does not have. I reword "H1" to "the preamble" there and change nothing else. Confidence: medium - whether they stay is your call.
-
 ## Guide: `runvil-docs`, one commit
 
 - **Scale:** 17 chapters, 529 examples, 38 headings that name the H1, 66 links to 11 H1 anchors, and 96 examples with line numbers in their output.
@@ -245,11 +230,9 @@ Elsewhere:
 ```mermaid
 flowchart LR
   argvStep[argv commit] --> rule[Heading rule]
-  rule --> design[Design pages]
   rule --> guide[Guide chapters]
   rule --> small[README, vision]
-  design --> last[Harness commit 2]
-  guide --> last
+  guide --> last[Harness commit 2]
   small --> last
 ```
 
@@ -259,7 +242,7 @@ flowchart LR
 - Every commit stays local on `master`. Pushing is yours to call.
 - A removed file is moved to `cabinet/_trash/`, which is the workspace rule.
 
-**Parallel work:** once the Engine compiles, tests are fixed crate by crate in parallel. Once the code passes, the design pages, the 17 chapters (one subagent each), and the two small documents run in parallel.
+**Parallel work:** once the Engine compiles, tests are fixed crate by crate in parallel. Once the code passes, the 17 chapters (one subagent each) and the two small documents run in parallel.
 
 ## Verification
 
@@ -308,5 +291,4 @@ Documents:
 - **The guide links resolve.** The checker found 2,131 links in 30 files and no broken one, and `cargo xtask site --books-only` built both books with the three new anchors in them.
 - **Six examples keep a first heading that has children and no Lua, or a first heading deeper than a later one.** Each teaches a nesting rule or is a Markdown sample for `markdown.parse`.
 - **A gap that this plan left open:** chapter 5 lists `sys.execution`, and a read of it raises `unknown sys field 'execution'`. `prompt-language.md` already lists it under its gaps.
-- **The design pages** have 9 questions each for the prompt language and the Engine, and 121 in all. The spec's `tools.bind` and `tools.always` changed only the name of the place, from H1 to the preamble.
-- **Commits.** `3d45fa68` here is commit 1. `runvil-design` commit `dafbff7`, `runvil-docs` commit `c03ec91`, `runvil` commit `1f5d6dc4c`, and `runvil-classroom` commit `1f7dbc9` hold the document changes. Each is local on `master`.
+- **Commits.** `3d45fa68` here is commit 1. `runvil-docs` commit `c03ec91`, `runvil` commit `1f5d6dc4c`, and `runvil-classroom` commit `1f7dbc9` hold the document changes. Each is local on `master`.
