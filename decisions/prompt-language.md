@@ -4,7 +4,7 @@ This page covers the prompt file as its author writes it: front matter, sections
 
 ## 1. The prompt file and its front matter
 
-### A prompt is one Markdown file with front matter and a body, and the body needs no heading
+### A prompt is one Markdown file with front matter and a body, and a body of one Lua block is a whole prompt
 
 The file opens with YAML front matter between two lines of three dashes, and the rest of the file is the body. The parser requires no heading in the body. A body of one Lua block is a whole prompt, and a body of prose alone parses too and ends its run with the text `done`. A prompt has no title: its name is the front matter `name`, and the Engine reports the start and the end of a run under that name.
 
@@ -52,7 +52,7 @@ A section's name is the text of its heading as the Markdown parser decodes it, s
 
 With names in raw source form, an author would have to write the entity `&amp;` in Lua to name that section.
 
-### Lua names a section by a path, and the heading level plays no part
+### Lua names a section by a path, and a section is found by where it sits
 
 A section path is a Lua string of section names, and it has three forms. `name` names a direct child of the section the code is written in. `../name` names a sibling, another section under the same parent, and from the preamble the top-level sections are siblings. `/a/b` starts at the top-level sections and names one section for each level, so it names the same section wherever it is written. Each name matches a section's name exactly and case-sensitively. `call`, `jump`, `tasks.spawn`, and `tasks.fanout` take the two relative forms, the `prompt` reads take all three, and `require` takes only a path from the top, as in `require '/helpers'`. A malformed path raises a Lua error that quotes the path.
 
@@ -140,7 +140,7 @@ When a section jumps to one of its direct children, the Engine walks the childre
 
 The rules are identical at every level: the Engine's section semantics are independent of the heading level. A detour that ran only the one child and then returned would apply different fall-through rules at a child level than at the top level.
 
-### `call` runs a contained chain and returns its final text, or nil for a chain with none
+### `call` runs a contained chain and returns the text that the chain ends with, or nil
 
 `call` names a target section, starts a new chain there, and suspends the calling block. The chain follows the rules of the walk: it falls through the target's following siblings, and its sections may jump. It ends when a block executes a `return` or the last section at its level ends. `call` returns the chain's final text as a string, and it returns nil for a chain that ends with no text.
 

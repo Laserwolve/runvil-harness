@@ -222,7 +222,7 @@ async fn a_hosts_edit_of_a_file_the_run_read_applies_while_the_run_waits_on_its_
     });
     let report = report.expect("the run is reported");
 
-    // The Host's files have no conflict check: the run's read of the
+    // The Host's files are outside the claims check: the run's read of the
     // notes holds back no edit of them, though the run is still live.
     assert_eq!(edited, Ok(()), "the Host's edit runs");
     let notes = vfs

@@ -1,5 +1,5 @@
-//! One path used by two parties of a run. The Host's files have no
-//! conflict check: two tasks whose models write one path both succeed and
+//! One path used by two parties of a run. The Host's files are outside
+//! the claims check: two tasks whose models write one path both succeed and
 //! the later write is the content, a task whose model reads a path holds
 //! back no write of another task, and a prompt's own `tools.call` and a
 //! model's call on one path both succeed. A store has the check: two

@@ -138,7 +138,7 @@ Every `Access` has an `ExecId`, the identity of one serial thread of execution: 
 
 A lock on the backend makes such a pair of accesses memory-safe, and the claims table refuses the second one all the same. The owner's reason: "It's safe, but it's not correct because that's non-deterministic behavior. That means replay is not going to work right."
 
-### The claims check applies to a store alone, and the Host's files have none
+### The claims check applies to a store alone, and the Host's files are unchecked
 
 The claims check belongs to a store alone, so an operation on the files of the run's handle runs whatever the other identities have read or written, and whoever asked for it: a model's tool call, or the prompt's own `tools.call`. Two tasks that work on one file both succeed. A writer in one task goes ahead beside a reader in another, and the later write is the content. That holds for every handle that a Host builds, so two runs over one handle, and the Host's own access beside them, share its files in the same way.
 

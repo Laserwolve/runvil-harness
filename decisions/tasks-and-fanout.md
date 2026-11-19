@@ -140,7 +140,7 @@ An id is a path of numbers, and paths can name any number of arms. The number of
 
 Each task has a file identity, an `ExecId`, under which a store records the task's reads and writes. A spawn orders everything the parent did before it ahead of the child's first step. A delivery orders everything the task did ahead of the owner's next step: `join_any` joins the task it returns, `join` joins each member, and a chain's end joins every task that the chain owns. A store uses this order to decide whether two accesses conflict ([Files and the VFS](files-and-the-vfs.md)).
 
-The result is one rule: after a join, a chain can read what the task wrote to the store. A wait that returned a task unjoined would be a second concept, and a trap: a caller could take a task's result and leave the task unjoined. Determinism here means that a store's decisions on conflicts and the contents of its files depend only on program order and on explicit points of synchronization, and are independent of scheduling. The conflict check covers a store alone: two tasks may write one of the Host's files through their tool calls, and the later write is the content.
+The result is one rule: after a join, a chain can read what the task wrote to the store. A wait that returned a task unjoined would be a second concept, and a trap: a caller could take a task's result and leave the task unjoined. Determinism here means that a store's decisions on conflicts and the contents of its files depend only on program order and on explicit points of synchronization, and are independent of scheduling. The claims check covers a store alone: two tasks may write one of the Host's files through their tool calls, and the later write is the content.
 
 ## 6. Inboxes
 

@@ -88,7 +88,7 @@ Complete prompt files are fixtures. The Engine's suite has valid, invalid, and e
 
 The fixtures exist because the inline tests leave a gap: a complete document, written the way an author writes one.
 
-### A Plugin crate tests its tools without a Harness, and the loader's tests load a fixture library
+### A Plugin crate tests its tools through the test support of its API crate, and the loader's tests load a fixture library
 
 The `test-support` feature of `runvil-plugin` exports a helper for one test call, which owns a tool id, a fresh in-memory file system, and an origin, and lends a `ToolContext`. The files of that context perform each request on that file system themselves and answer it at once, and they are a test's one way to it. The Rust Plugins `plugin-web` and `plugin-mcp` use it. It exists because the dependency rules refuse a `plugin-*` crate that names the facade or the file-system crate.
 
