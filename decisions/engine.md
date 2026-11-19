@@ -254,7 +254,7 @@ The Engine's quotas are both on `log`: a count of events and a count of bytes. A
 
 The crates share one `Error` because they once had dozens of error types, and every one that a facade exported was another public item. One record made the code easier to read and to change, and it keeps the public surface small. The owner's reason: "There was a proliferation of error types and unifying them into one made the code much easier to understand and easier to work on". On the surface: "one is better than 52 in this case". The 52 is the owner's own count and is unconfirmed: a search of the older code finds fewer. The owner limits the rule to this API: "for unified public harness and engine API, it's better to just have one error", and of the rule elsewhere, "that might not be generally true".
 
-The owner has made no decision about how the codes are grouped. `call_depth_exceeded` is 204, in the Lua family. The grouping and the numbers may change until Runvil has users. The owner's reason: "there's no users that are comparing error codes yet, so it's easy to change". A code that moves to another family takes a new number, so a move keeps the rule that each number names one code for good.
+Today `call_depth_exceeded` is 204, in the Lua family. The grouping and the numbers may change until Runvil has users. The owner's reason: "there's no users that are comparing error codes yet, so it's easy to change". A code that moves to another family takes a new number, so a move keeps the rule that each number names one code for good.
 
 `Error`, `ErrorCode`, and `ErrorFact` omit the `#[non_exhaustive]` attribute, so a code that the Engine adds breaks the build of a Host whose `match` on `ErrorCode` names every variant. The closed state of the three types is unplanned. The owner's rule marks every facade type `#[non_exhaustive]` except the enums that it keeps closed (see the entry on closed enums), and the error types lack the attribute. The owner's words: "it just happened", and "we should probably mark the type as non-exhaustive". Adding the attribute is planned work.
 
@@ -322,20 +322,4 @@ The owner's goal: "I want as many internal crates as possible and I want maximum
 - **Replay.** Harness code that runs a recorded run a second time and compares the records of the two runs. Today the Engine attaches a `Provenance` to each effect and event, and `Effect::record` and `EffectAnswer::record` return the JSON that a run log stores.
 - **The round id on `ModelTurnFailed`.** A round id in the `ModelTurnFailed` event, so that a Host can drop exactly the failed round's streamed pieces. Today the Engine writes the round id in a round's thinking, reply, and tool-call events.
 - **Bounds on JSON conversion.** A size budget at every site that converts a Lua table. Today `json.encode` and `var` writes have a size budget, other sites in the Lua crate convert a table of any size, and one encode runs as a single Rust callback between cancel polls.
-- **`#[non_exhaustive]` on the error types.** The attribute on `ErrorCode`, and on `Error` and `ErrorFact` if the owner extends it to them, so that a new code leaves a Host's build intact. Today the three types are closed, and a `match` in `runvil-lua` names every code and is complete as it stands, so it would need a catch-all arm or a move into `runvil-types`.
-
-## 10. Open questions
-
-Each question asks for the reason behind a part of the design.
-
-**The run**
-
-1. Why is the cancel a flag in `RunParams`, where `Run` could have a method for it?
-
-   **Status: unconfirmed.** The owner does not remember the reason and did not design the cancel system. The commit that removed `Run::cancel` and `Run::cancel_handle` on 2026-10-31 (`b00e53bc`) says that the caller cancels through the flag, and it leaves the choice of the flag over a method unexplained. The text below is a reconstruction from the code, written on 2026-11-14. It explains the design, and it may differ from the reason the design was chosen.
-
-   **What the code shows.** `Run::step` holds the run until it returns, so a call of a method on `Run` has to wait until a step that runs Lua has returned. The caller makes the flag before the run exists, and the Harness watches the same flag while it prepares the run. A chain inside the run stops one task with `tasks.cancel`, which is a request.
-
-   **The likely reason.** A cancel comes from outside the run, often from another thread and sometimes during a step, so only a shared flag can deliver it. The two methods were then second routes to the same flag.
-
-   **Still open.** Whether that is the reason, and whether `CancelHandle::child()` has a use now that a task is canceled with `tasks.cancel`.
+- **`#[non_exhaustive]` on the error types.** The attribute on `ErrorCode`, so that a new code leaves a Host's build intact. `Error` and `ErrorFact` may get it too. Today the three types are closed, and a `match` in `runvil-lua` names every code and is complete as it stands, so it would need a catch-all arm or a move into `runvil-types`.

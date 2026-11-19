@@ -144,7 +144,7 @@ The claims check belongs to a store alone, so an operation on the files of the r
 
 The owner's reason: "maybe the determinism error should only apply to store operations? and we should otherwise try to behave like regular harnesses, so that two subagents which conflict on file access can just work it out". On the prompt's own `tools.call`, the owner's words: "I think I am ok with Lua's own tools.call on Host files being unchecked. We can always put it back in later." The store is the prompt's own memory, and every party in it is the prompt's Lua, so the check stays there. The Host's files are the outside world: with a real folder mounted, another program can change a file, and a claims table knows the run's own identities alone.
 
-The record of a run stays whole all the same, because each operation that a tool asks for through the files of its call is a recorded effect that the Harness performs in order (see the entry on a tool's file request). One gap is known. A tool that edits a file as a read followed by a write can lose an edit that another task makes between the two ([runvil-plugin-std issue 4](https://github.com/cppalliance/runvil-plugin-std/issues/4)). The list of operations has `StrReplace`, which replaces a text in one step, and a Rust Pack can ask for it. The C contract lacks a function for it, so it is out of reach of the tools of `std` and `bash`, and whether to add one is the owner's to decide.
+The record of a run stays whole all the same, because each operation that a tool asks for through the files of its call is a recorded effect that the Harness performs in order (see the entry on a tool's file request). One gap is known. A tool that edits a file as a read followed by a write can lose an edit that another task makes between the two ([runvil-plugin-std issue 4](https://github.com/cppalliance/runvil-plugin-std/issues/4)). The list of operations has `StrReplace`, which replaces a text in one step, and a Rust Pack can ask for it. The C contract lacks a function for it, so it is out of reach of the tools of `std` and `bash`.
 
 The claims code stays in `runvil-vfs` with its tests, and only that crate can make a handle check claims, which a store does. The check on the Host's files can therefore return.
 
@@ -223,22 +223,3 @@ A run has one way in, its arguments, and one way out, its result. The owner's re
 - **A database mount.** A mount would show an agent's run database as files. Its backend is synchronous like every other, so a backend over a database client with an async interface drives that client on a thread of its own. The backends that ship are `MemoryBackend` and `RealBackend`.
 - **Replay.** Replay would read a run's records back into a run, and a debugger would rebuild each store of a run from the same records, at any step. Today the Harness records each `Vfs` effect and its answer.
 - **Glob across mounts.** A glob would also search the backends mounted below the mount that matches its pattern. Today a glob runs inside that one mount and skips a backend mounted below it.
-
-## 9. Open questions
-
-Each question asks for the reason behind a part of the design.
-
-**The store API**
-
-2. Why does `store.delete` succeed on an absent path?
-3. Why do store calls report one pair of event kinds for each operation?
-
-**Conflicts**
-
-5. Why does the claims table fold case below a rooted real mount and compare exactly below an identity mount?
-
-**Hosts and backends**
-
-6. Why does Plan mode allow changes only to `.md` paths?
-7. Why is read-only a flag of the backend, separate from the policy?
-8. Why do `mount` and `overlay` panic on a bad prefix, where they could return an error?
