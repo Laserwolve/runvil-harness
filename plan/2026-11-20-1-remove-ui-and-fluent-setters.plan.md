@@ -4,19 +4,19 @@ overview: Remove raw model ids and the `ui()` global from the Harness and add si
 todos:
   - id: harness-plan
     content: "harness commit 0: copy this plan to runvil-harness/plan/2026-11-20-1-remove-ui-and-fluent-setters.plan.md and commit it alone"
-    status: pending
+    status: completed
   - id: harness-raw-ids
     content: "harness commit 1: make `models.get` take the five roles only (Engine lua and runtime); add the runner test of the refusal, rework the two-model render test as two one-model runs, remove the six raw id tests; update the models page; verify; commit"
-    status: pending
+    status: completed
   - id: harness-ui
     content: "harness commit 2: remove `ui()`, `RunParams::with_ui`, and `RunSetup::workspace_roots`; add the test that a prelude may define `ui`, keep the no-`ui`-global test under its new name, rewrite the runner's snapshot test to read the selection through a role's handle; update two pages; bless both listings (one line removed in each); verify; commit"
-    status: pending
+    status: completed
   - id: harness-setters
     content: "harness commit 3: add six chainable setters, switch six behavior tests to the chain, add the chained test, shorten the run-prompt example, add the page entry, bless the runvil listing (six lines added), verify, run the example, commit"
-    status: pending
+    status: completed
   - id: harness-record-push
     content: Record what the build found in the repo's copy of the plan, commit it, and push runvil-harness master to origin. The owner merges it into cppalliance/runvil-harness
-    status: pending
+    status: completed
   - id: guide
     content: "runvil-docs, one commit, can run beside the Harness work: raw model ids and `ui()` out of src/language, the heading rename and its links, the closing search comes back empty, push to origin"
     status: pending
@@ -394,3 +394,35 @@ Add the results of the guide, Workshop, and classroom work to the repo's copy of
 - If the merge rewrites the Harness commits, their ids change. I pin whatever commit `cppalliance/runvil-harness` `master` ends up holding.
 - The guide is about 60 hand edits in 11 chapters with no automated check. The closing search is the only gate, and one example's new expected output (chapter 12, line 2786) is worked out by hand, not run.
 - The guide's renamed heading changes one anchor, and two removed sections drop two more. I searched every repo here, the site shell in `runvil` included, and nothing outside the guide links to any of the three.
+
+# What the build found
+
+## Phase 1: runvil-harness
+
+The plan held. `master` holds the plan, the three code commits, and this record. These points differ from the plan above, or add to it.
+
+Raw model ids:
+
+- **One of the six raw id tests kept its second half.** `models_get_resolves_a_label_outside_the_roles_as_a_raw_gateway_id_only_when_permitted` also checked that a VM with no model still refuses a name that is not a role. That half stays, as `models_get_rejects_a_label_outside_the_roles_when_the_caller_supplied_no_model`. So the commit removes five tests outright.
+- **The refusal reaches a prompt's `pcall` whole.** The new runner test reads it with `tostring(err)` and finds `models.get label "vendor/raw-model" is not a model role`. That settles the risk the plan named.
+- **The render test is one test with two runs**, `a_stop_spares_a_held_call_only_when_its_entrys_render_marks_the_tool_to_survive`. In the first run the render marks the model-only tool to survive stops, the stop leaves the held call in flight, and the loop ends as `true:done`. In the second run the render leaves the tool unmarked, the stop drops the call, and the loop ends as `false:canceled`. The render fixtures needed no change.
+- **Two small edits beyond the plan's list.** The import of `ModelInfo` in `runtime/src/execute/tests.rs` had no user left. `setup_section_vm` takes its VM without `mut`, since the opt-in was the only call that needed it.
+
+The `ui` global:
+
+- **`RESERVED_NAMES` has 62 entries**, down from 63.
+- **The two collision tests lost their loops**, since each now covers `item` alone: `item_collides_on_a_vm_that_does_not_bind_it` and `a_prelude_defining_item_collides_on_a_run_that_does_not_bind_it`.
+- **The rewritten runner test cannot tell the selection from the first listed model.** The scripted broker of the runner tests lists one model. So `a_prompt_reads_the_selected_model_through_a_roles_handle` shows that a prompt reads the run's model through the handle of the `default` role, but not that this model is the selected one of several. A test broker that lists two models would close the gap.
+- **Each listing lost exactly one line**, as planned.
+
+The setters:
+
+- **`selected_model` cannot clear a selection.** It takes the model id and stores `Some`. A Host that wants no selection leaves the method out, or assigns the field.
+- **The chained test reads `vfs` through a file**, because `VfsRef` has no equality.
+- **The `runvil` listing gained exactly six lines**, as planned.
+- **The custom lints asked for nothing.** The setters passed `cargo dylint` as the plan wrote them.
+
+Checks:
+
+- **Every command of the verification list passed before each of the three code commits**, and every tool was installed. The whole workspace ran 3,972 tests after the first and second commits and 3,973 after the third, all passing, with 25 skipped.
+- **`cargo run -p runvil --example run-prompt` printed `Hello, desk.`**
