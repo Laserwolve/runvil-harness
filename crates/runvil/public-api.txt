@@ -72,10 +72,11 @@ auto runvil::event::Event: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::event::ReplyOrigin: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::harness::FindFilePrompt: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::harness::FindTextPrompt: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
+auto runvil::harness::HostResources: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
 auto runvil::harness::MemoryRecorder: !Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::harness::Packs: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
-auto runvil::harness::Plugin: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
-auto runvil::harness::PluginReport: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
+auto runvil::harness::Plugin: !Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
+auto runvil::harness::PluginReport: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
 auto runvil::harness::PluginSource: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::harness::PromptSet: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::harness::Record: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
@@ -174,6 +175,7 @@ derives runvil::event::Event: Clone, Debug, Deserialize, PartialEq, Serialize
 derives runvil::event::ReplyOrigin: Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize
 derives runvil::harness::FindFilePrompt: Debug
 derives runvil::harness::FindTextPrompt: Debug
+derives runvil::harness::HostResources: Clone, Debug, Default
 derives runvil::harness::MemoryRecorder: Debug, Default
 derives runvil::harness::Packs: Debug
 derives runvil::harness::Plugin: Debug
@@ -383,6 +385,8 @@ pub fn runvil::event::Event::provenance(&self) -> &runvil::ids::Provenance
 pub fn runvil::event::Event::section(&self) -> &str
 pub fn runvil::harness::FindFilePrompt::new(name: impl core::convert::Into<alloc::string::String>, path: impl core::convert::Into<std::path::PathBuf>) -> runvil::harness::FindFilePrompt
 pub fn runvil::harness::FindTextPrompt::new(name: impl core::convert::Into<alloc::string::String>, text: impl core::convert::Into<alloc::string::String>) -> runvil::harness::FindTextPrompt
+pub fn runvil::harness::HostResources::new() -> runvil::harness::HostResources
+pub fn runvil::harness::HostResources::provide(&mut self, name: &str, read: impl core::ops::function::Fn() -> core::option::Option<serde_json::value::Value> + core::marker::Send + core::marker::Sync + 'static) -> core::result::Result<(), runvil::Error>
 pub fn runvil::harness::InferenceBroker::chat(&self, binding: runvil::model::ModelBinding, messages: alloc::vec::Vec<runvil::model::Message>, tools: alloc::vec::Vec<runvil::model::ToolSchema>, options: runvil::model::CompletionOptions, round: runvil::effect::Round) -> runvil::BoxFuture<'static, core::result::Result<alloc::boxed::Box<runvil::model::Completion>, runvil::Error>>
 pub fn runvil::harness::InferenceBroker::models(&self) -> runvil::BoxFuture<'static, core::result::Result<runvil::model::ModelCatalog, runvil::Error>>
 pub fn runvil::harness::MemoryRecorder::meta(&self, run: runvil::harness::RunId) -> core::option::Option<runvil::harness::RunMeta>
@@ -408,8 +412,8 @@ pub fn runvil::harness::RunRecorder::end_run(&self, run: runvil::harness::RunId,
 pub fn runvil::harness::Timer::now(&self) -> runvil::Timestamp { .. }
 pub fn runvil::harness::Timer::sleep(&self, duration: core::time::Duration) -> runvil::BoxFuture<'static, ()>
 pub fn runvil::harness::display_chain(error: &dyn core::error::Error) -> alloc::string::String
-pub fn runvil::harness::insert_plugin(packs: &mut runvil::plugin::PackRegistry, entry: runvil_plugin_sys::PluginEntry) -> core::result::Result<alloc::sync::Arc<runvil::harness::Plugin>, runvil::Error>
-pub fn runvil::harness::insert_plugin_dir(packs: &mut runvil::plugin::PackRegistry, directory: &std::path::Path) -> core::io::error::Result<runvil::harness::PluginReport>
+pub fn runvil::harness::insert_plugin(packs: &mut runvil::plugin::PackRegistry, entry: runvil_plugin_sys::PluginEntry, resources: &runvil::harness::HostResources) -> core::result::Result<alloc::sync::Arc<runvil::harness::Plugin>, runvil::Error>
+pub fn runvil::harness::insert_plugin_dir(packs: &mut runvil::plugin::PackRegistry, directory: &std::path::Path, resources: &runvil::harness::HostResources) -> core::io::error::Result<runvil::harness::PluginReport>
 pub fn runvil::harness::make_recorder_error(cause: impl core::convert::Into<alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>) -> runvil::Error
 pub fn runvil::ids::AbandonReason::why(self) -> &'static str
 pub fn runvil::ids::ChainId::child(&self, index: u32) -> Self
@@ -1232,6 +1236,7 @@ pub struct runvil::SourceLoc { .. }
 pub struct runvil::Timestamp(/* private fields */)
 pub struct runvil::harness::FindFilePrompt { /* private fields */ }
 pub struct runvil::harness::FindTextPrompt { /* private fields */ }
+pub struct runvil::harness::HostResources { /* private fields */ }
 pub struct runvil::harness::MemoryRecorder { /* private fields */ }
 pub struct runvil::harness::Packs { /* private fields */ }
 pub struct runvil::harness::Plugin { /* private fields */ }

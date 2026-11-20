@@ -1,15 +1,21 @@
 //! Fake entry points for the unit tests: plain `extern "C" fn`s written
-//! against `runvil-plugin-sys`, and the helpers that call the Host's
-//! functions the way a Plugin does. Each test defines its own fake with
-//! `fake!` or `pack_fake!`, so its statics belong to it alone.
+//! against `runvil-plugin-sys`, the helpers that call the Host's
+//! functions the way a Plugin does, and the helpers that drive a tool
+//! call's future the way an executor does, waiting for a wake after each
+//! `Pending`. Each test defines its own fake with `fake!` or
+//! `pack_fake!`, so its statics belong to it alone.
 
 use std::ffi::c_void;
 use std::future::{Future, poll_fn};
 use std::pin::pin;
 use std::ptr;
 use std::slice;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::task::{Context, Poll, Waker};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::task::{Context, Poll, Wake, Waker};
+use std::thread;
+use std::time::Duration;
 
 use runvil_plugin::testing::TestCall;
 use runvil_plugin::{
@@ -24,12 +30,13 @@ pub(crate) use runvil_plugin_sys::{
     RV_RESULT_INVALID_ARGUMENTS, RV_RESULT_OTHER, RV_RESULT_TRANSPORT, RV_RESULT_TRUSTED,
     RV_RESULT_UNTRUSTED, RV_TOOL_CALL, RV_TOOL_CANCEL, RV_TOOL_CHANGES_FILES, RvBytes, RvCall,
     RvFileAnswer, RvHost, RvLoadArgs, RvPackInfo, RvPackNewArgs, RvPluginInfo, RvResultKind,
-    RvStatus, RvStr, RvToolCallArgs, RvToolInfo, RvToolResult, RvVerb,
+    RvStatus, RvStr, RvToolCallArgs, RvToolInfo, RvToolResult, RvVerb, RvWaker,
 };
 use serde_json::Value;
 
 use crate::host::{self, HOST};
 use crate::plugin::{Plugin, insert_plugin};
+use crate::resources::HostResources;
 
 /// A status no verb returns, for a fake that fails with its own code.
 pub(crate) const ODD_STATUS: RvStatus = 77;
@@ -110,12 +117,17 @@ pub(crate) use fake;
 /// and the last cancel carried in `DELETED` and `CANCELED`, and keeps in
 /// `ORDER` the verbs of those three kinds, in the order they came. The
 /// items in the braces are what a test needs the bodies to share with it.
+/// A `cancel:` body runs in its `RV_TOOL_CANCEL` and an `unload:` body in
+/// its `RV_PLUGIN_UNLOAD`, each once the fake has counted the verb, as a
+/// Plugin's destructors run there.
 macro_rules! pack_fake {
     (
         $name:ident,
         { $($items:item)* },
         new: |$new_call:ident| $new:expr,
         step: |$step_call:ident| $step:expr
+        $(, cancel: |$cancel_call:ident| $cancel:expr)?
+        $(, unload: |$unload_call:ident| $unload:expr)?
     ) => {
         mod $name {
             use std::ffi::c_void;
@@ -157,6 +169,10 @@ macro_rules! pack_fake {
                     RV_PLUGIN_UNLOAD => {
                         UNLOADS.fetch_add(1, Ordering::SeqCst);
                         note(RV_PLUGIN_UNLOAD);
+                        $(
+                            let $unload_call = call;
+                            $unload;
+                        )?
                         RV_OK
                     }
                     RV_PACK_NEW => {
@@ -177,6 +193,10 @@ macro_rules! pack_fake {
                         CANCELS.fetch_add(1, Ordering::SeqCst);
                         CANCELED.store(tool_call(call), Ordering::SeqCst);
                         note(RV_TOOL_CANCEL);
+                        $(
+                            let $cancel_call = call;
+                            $cancel;
+                        )?
                         RV_OK
                     }
                     _ => RV_ERR_UNSUPPORTED,
@@ -193,9 +213,10 @@ pub(crate) const PLUGIN_TAG: usize = 0x100;
 /// The `pack_run` a well-behaved fake `RV_PACK_NEW` sets.
 pub(crate) const PACK_TAG: usize = 0x200;
 
-/// Inserts the linked Plugin `entry` into a fresh Pack registry.
+/// Inserts the linked Plugin `entry` into a fresh Pack registry, as a
+/// Host that offers no resources does.
 pub(crate) fn insert(entry: PluginEntry) -> Result<Arc<Plugin>, Error> {
-    insert_plugin(&mut PackRegistry::new(), entry)
+    insert_plugin(&mut PackRegistry::new(), entry, &HostResources::new())
 }
 
 /// Inserts `entry`, which must load.
@@ -216,17 +237,22 @@ pub(crate) fn reason(failure: &Error) -> Option<&str> {
         .as_str()
 }
 
-/// Inserts the `pack_fake!` Plugin `entry` into a fresh registry, drops
-/// the registry's hold on the Plugin's `Arc`, and asks the factory of
-/// [`FAKE_PACK`] for one run's instance.
-pub(crate) fn new_pack(entry: PluginEntry) -> Result<Arc<dyn Pack>, Error> {
-    let mut packs = PackRegistry::new();
-    drop(insert_plugin(&mut packs, entry).expect("the Plugin loads"));
+/// Asks the factory of [`FAKE_PACK`] in `packs` for one run's instance.
+fn fake_pack(packs: PackRegistry) -> Result<Arc<dyn Pack>, Error> {
     let (_info, id, factory) = packs
         .into_entries()
         .find(|(info, _, _)| info.fqn == FAKE_PACK)
         .expect("the Plugin inserted its Pack");
     factory.expect("the Pack is usable").new_pack(&id)
+}
+
+/// Inserts the `pack_fake!` Plugin `entry` into a fresh registry, drops
+/// the registry's hold on the Plugin's `Arc`, and asks the factory of
+/// [`FAKE_PACK`] for one run's instance.
+pub(crate) fn new_pack(entry: PluginEntry) -> Result<Arc<dyn Pack>, Error> {
+    let mut packs = PackRegistry::new();
+    drop(insert_plugin(&mut packs, entry, &HostResources::new()).expect("the Plugin loads"));
+    fake_pack(packs)
 }
 
 /// One run's instance of the Pack the `pack_fake!` Plugin `entry` inserts,
@@ -235,19 +261,145 @@ pub(crate) fn made(entry: PluginEntry) -> Arc<dyn Pack> {
     new_pack(entry).expect("the Pack instance is made")
 }
 
+/// The `pack_fake!` Plugin `entry`, inserted by a Host that offers
+/// `resources`, beside one run's instance of its Pack. The test holds
+/// the Plugin, so the Plugin stays loaded until the test drops it.
+pub(crate) fn made_with(
+    entry: PluginEntry,
+    resources: &HostResources,
+) -> (Arc<Plugin>, Arc<dyn Pack>) {
+    let mut packs = PackRegistry::new();
+    let plugin = insert_plugin(&mut packs, entry, resources).expect("the Plugin loads");
+    let pack = fake_pack(packs).expect("the Pack instance is made");
+    (plugin, pack)
+}
+
 /// A call of the fake Pack's tool `name`, for a test to lend its context.
 pub(crate) fn test_call(name: &str) -> TestCall {
     TestCall::new(ToolId::parse(&format!("fake/{name}")).expect("a two-segment tool id parses"))
 }
 
-/// Drives `future` to its output, polling again after each `Pending`.
+/// How long a test waits for a wake, or for a call into the loader to
+/// return. What is coming comes far sooner in a test, so what has not
+/// come by then is missing.
+const WAIT_LIMIT: Duration = Duration::from_secs(60);
+
+/// The waker [`block_on`] polls with: it lets the thread that waits in
+/// [`Signal::wait`] go on.
+#[derive(Default)]
+struct Signal {
+    /// Whether a wake has come since the last wait ended.
+    woken: Mutex<bool>,
+    /// Notified at each wake.
+    wakes: Condvar,
+}
+
+impl Signal {
+    /// Blocks until a wake has come since the last wait ended, for at
+    /// most `limit`. Returns whether one came, and forgets it.
+    fn wait(&self, limit: Duration) -> bool {
+        let woken = self.woken.lock().unwrap_or_else(PoisonError::into_inner);
+        let (mut woken, _timed_out) = self
+            .wakes
+            .wait_timeout_while(woken, limit, |woken| !*woken)
+            .unwrap_or_else(PoisonError::into_inner);
+        std::mem::take(&mut *woken)
+    }
+}
+
+impl Wake for Signal {
+    fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        *self.woken.lock().unwrap_or_else(PoisonError::into_inner) = true;
+        self.wakes.notify_all();
+    }
+}
+
+/// Drives `future` to its output as an executor does: polls it, and after
+/// each `Pending` waits until something wakes the future's task before it
+/// polls again. A future that is pending and that nothing wakes within 60
+/// seconds fails the test, with a message that says so, and does not hang
+/// it.
 pub(crate) fn block_on<F: Future>(future: F) -> F::Output {
+    block_on_within(future, WAIT_LIMIT)
+}
+
+/// [`block_on`], with `limit` as the time a wake may take.
+pub(crate) fn block_on_within<F: Future>(future: F, limit: Duration) -> F::Output {
     let mut future = pin!(future);
-    let mut cx = Context::from_waker(Waker::noop());
+    let signal = Arc::new(Signal::default());
+    let waker = Waker::from(Arc::clone(&signal));
+    let mut cx = Context::from_waker(&waker);
     loop {
         if let Poll::Ready(output) = future.as_mut().poll(&mut cx) {
             return output;
         }
+        assert!(
+            signal.wait(limit),
+            "the future returned Pending and nothing woke its task within {limit:?}: a tool call \
+             whose step returned RV_PENDING with no file request gets its next step only after \
+             the Plugin wakes the call"
+        );
+    }
+}
+
+/// Counts how often it is woken, for a test that polls a future by hand
+/// and checks each wake.
+#[derive(Default)]
+pub(crate) struct Wakes(AtomicUsize);
+
+impl Wakes {
+    /// A counter, beside the waker that counts in it.
+    pub(crate) fn new() -> (Arc<Wakes>, Waker) {
+        let counter = Arc::new(Wakes::default());
+        let waker = Waker::from(Arc::clone(&counter));
+        (counter, waker)
+    }
+
+    /// How often the waker was woken so far.
+    pub(crate) fn count(&self) -> usize {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+impl Wake for Wakes {
+    fn wake(self: Arc<Self>) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// Runs `work` on a thread of its own and returns what it returns. When
+/// `work` has not returned within 60 seconds, the test fails with a
+/// message that names `what`, and does not hang. A call into the loader
+/// blocks for good when the loader holds a lock of its own across a call
+/// into a Plugin that then wakes a call on that thread.
+pub(crate) fn unblocked<T: Send + 'static>(
+    what: &str,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> T {
+    let (done, finished) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        let _sent = done.send(work());
+    });
+    match finished.recv_timeout(WAIT_LIMIT) {
+        Ok(output) => {
+            worker.join().expect("the worker thread finishes");
+            output
+        }
+        Err(RecvTimeoutError::Timeout) => panic!(
+            "{what} did not return within {WAIT_LIMIT:?}: a call into the loader blocks like \
+             this when the loader holds a lock of its own across a call into a Plugin that wakes \
+             a call on the same thread"
+        ),
+        // The worker dropped its sender without sending, so `work`
+        // panicked, and the test fails with that panic.
+        Err(RecvTimeoutError::Disconnected) => match worker.join() {
+            Err(panic) => std::panic::resume_unwind(panic),
+            Ok(()) => panic!("{what} ended without a result"),
+        },
     }
 }
 
@@ -263,7 +415,7 @@ pub(crate) fn size_u32<T>() -> u32 {
 }
 
 /// Whether `call` carries the fields the contract gives a call that sends
-/// `verb` in version 0.5, and its table says the contract's version. Each
+/// `verb` in version 0.6, and its table says the contract's version. Each
 /// verb carries the Plugin's pointers the contract names for it and no
 /// others, and its own arguments struct, with a `ctx`, or no arguments.
 pub(crate) fn contract_holds(call: *mut RvCall, verb: RvVerb) -> bool {
@@ -299,7 +451,7 @@ pub(crate) fn contract_holds(call: *mut RvCall, verb: RvVerb) -> bool {
         && args_hold
         && table.size == size_u32::<RvHost>()
         && table.api_major == 0
-        && table.api_minor == 5
+        && table.api_minor == 6
         && table.reserved == 0
 }
 
@@ -374,6 +526,66 @@ pub(crate) fn step_args<'call>(call: *mut RvCall) -> &'call RvToolCallArgs {
 /// The `ctx` a load call's `RvLoadArgs` carries.
 pub(crate) fn ctx(call: *mut RvCall) -> *mut c_void {
     args(call).ctx
+}
+
+/// Wakes through `waker`, as a Plugin does, on any thread.
+pub(crate) fn wake_through(waker: RvWaker) {
+    // SAFETY: a fake wakes only through a waker the loader lent one of
+    // its steps, and only while its Plugin is loaded, so the loader
+    // still keeps what the waker's `ctx` points at.
+    unsafe { (waker.wake)(waker.ctx) };
+}
+
+/// Wakes the call of the step `call`, through the waker the step is lent.
+pub(crate) fn wake_call(call: *mut RvCall) {
+    wake_through(step_args(call).waker);
+}
+
+/// The waker a fake kept past the step that lent it, as a Plugin keeps
+/// one for a thread of its own or for a destructor. A fake's `static` of
+/// it starts empty.
+pub(crate) struct Kept(Mutex<Option<Lent>>);
+
+/// A waker a step was lent.
+struct Lent(RvWaker);
+
+// SAFETY: the contract lets a Plugin call `wake` with its waker's `ctx`
+// on any thread until RV_PLUGIN_UNLOAD returns, and nothing here reads
+// through `ctx`, so the pair may move to any thread.
+unsafe impl Send for Lent {}
+
+impl Kept {
+    /// No waker yet.
+    pub(crate) const fn new() -> Kept {
+        Kept(Mutex::new(None))
+    }
+
+    /// The kept waker, if there is one.
+    fn kept(&self) -> Option<RvWaker> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .map(|lent| lent.0)
+    }
+
+    /// Keeps the waker the step `call` is lent.
+    pub(crate) fn keep(&self, call: *mut RvCall) {
+        let lent = Lent(step_args(call).waker);
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(lent);
+    }
+
+    /// The `ctx` of the kept waker, or NULL when none is kept.
+    pub(crate) fn ctx(&self) -> *mut c_void {
+        self.kept().map_or(ptr::null_mut(), |waker| waker.ctx)
+    }
+
+    /// Wakes through the kept waker, and returns whether one was kept.
+    /// The fake's own lock is let go before the wake.
+    pub(crate) fn wake(&self) -> bool {
+        let kept = self.kept();
+        kept.map(wake_through).is_some()
+    }
 }
 
 /// A string for the C side, borrowed from `text`.

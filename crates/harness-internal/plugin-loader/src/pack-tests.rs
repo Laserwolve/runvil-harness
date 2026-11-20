@@ -11,6 +11,7 @@ use serde_json::json;
 
 use crate::fakes::*;
 use crate::plugin::insert_plugin;
+use crate::resources::HostResources;
 
 /// The reason a run goes without a Pack whose Plugin misused the Pack
 /// functions.
@@ -51,7 +52,8 @@ pack_fake!(
 #[test]
 fn a_plugins_pack_goes_into_the_registry_under_its_name_with_its_description() {
     let mut packs = PackRegistry::new();
-    let plugin = insert_plugin(&mut packs, good::entry).expect("the Plugin loads");
+    let plugin =
+        insert_plugin(&mut packs, good::entry, &HostResources::new()).expect("the Plugin loads");
     assert_eq!(plugin.name(), "fake");
     let listed: Vec<(&str, &str, PackOrigin)> = packs
         .list()
@@ -180,7 +182,7 @@ pack_fake!(
 #[test]
 fn a_pack_in_the_registry_keeps_its_plugin_loaded_and_each_run_gets_its_own_instance() {
     let mut packs = PackRegistry::new();
-    drop(insert_plugin(&mut packs, kept::entry).expect("the Plugin loads"));
+    drop(insert_plugin(&mut packs, kept::entry, &HostResources::new()).expect("the Plugin loads"));
     assert_eq!(
         kept::UNLOADS.load(Ordering::SeqCst),
         0,
@@ -210,8 +212,11 @@ fn a_pack_in_the_registry_keeps_its_plugin_loaded_and_each_run_gets_its_own_inst
 #[test]
 fn a_pack_the_registry_refuses_fails_the_insert_and_names_the_pack() {
     let mut packs = PackRegistry::new();
-    let _first = insert_plugin(&mut packs, kept::entry).expect("the first Plugin loads");
-    let failure = insert_plugin(&mut packs, good::entry).expect_err("the Pack name is taken");
+    let resources = HostResources::new();
+    let _first =
+        insert_plugin(&mut packs, kept::entry, &resources).expect("the first Plugin loads");
+    let failure =
+        insert_plugin(&mut packs, good::entry, &resources).expect_err("the Pack name is taken");
     assert_eq!(failure.code, ErrorCode::PluginLoadFailed);
     assert_eq!(reason(&failure), Some("pack"));
     assert_eq!(failure.facts.get(&ErrorFact::Name), Some(&json!(FAKE_PACK)));

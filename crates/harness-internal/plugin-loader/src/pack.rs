@@ -109,6 +109,12 @@ pub(crate) struct EntryPack {
 }
 
 impl EntryPack {
+    /// The Plugin that made this instance, which holds the Host's
+    /// resources and the slots of its calls' wakers.
+    pub(crate) fn plugin(&self) -> &Plugin {
+        &self.plugin
+    }
+
     /// An `RvCall` that sends `verb` to this instance.
     pub(crate) fn new_call(&self, verb: u32) -> RvCall {
         RvCall {

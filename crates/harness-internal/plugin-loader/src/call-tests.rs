@@ -1,36 +1,32 @@
 //! Tests for a tool call through a Plugin's entry point: what each step
-//! is sent, how a result becomes an output or a failure, when the future
-//! is pending, when a file request of a step is asked of the call's
-//! files and which step is lent its answer, and that RV_TOOL_CANCEL
-//! comes once for a call whose last step returned RV_PENDING and for no
-//! other call.
+//! is sent and lent, how a result becomes an output or a failure, when
+//! the future is pending, when a file request of a step is asked of the
+//! call's files and which step is lent its answer, and that
+//! RV_TOOL_CANCEL comes once for a call whose last step returned
+//! RV_PENDING and for no other call. When a call parks, and what each
+//! wake of its Plugin does, sit in the `wake` child module.
 
 use std::future::Future;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::pin::pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::task::{Context, Poll, Wake, Waker};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::task::{Context, Poll, Waker};
 
 use runvil_plugin::{ErrorCode, OutputTrust, VfsError, VfsOp, VfsOutcome};
 use serde_json::json;
 
 use crate::fakes::*;
+use crate::resources::HostResources;
+
+#[path = "call-tests-wake.rs"]
+mod wake;
 
 /// The message of a call that failed because its Plugin misused it.
 macro_rules! misuse_reason {
     ($detail:expr) => {
         concat!("the tool's Plugin misused the tool call: ", $detail)
     };
-}
-
-/// Counts how often it is woken.
-#[derive(Default)]
-struct Wakes(AtomicUsize);
-
-impl Wake for Wakes {
-    fn wake(self: Arc<Self>) {
-        self.0.fetch_add(1, Ordering::SeqCst);
-    }
 }
 
 pack_fake!(
@@ -114,6 +110,9 @@ pack_fake!(
         }
         if steps < 2 {
             set_tool_call(call, ptr::without_provenance_mut(steps + 1));
+            // No file request brings the next step, so the step wakes
+            // its call before it returns.
+            wake_call(call);
             return RV_PENDING;
         }
         finish(call, RV_RESULT_TRUSTED, "done")
@@ -121,27 +120,10 @@ pack_fake!(
 );
 
 #[test]
-fn a_pending_step_wakes_its_task_and_the_next_poll_sends_the_next_step() {
+fn each_step_gets_the_state_the_last_one_left_and_a_call_that_ended_gets_no_cancel() {
     let pack = made(slow::entry);
-    let call = test_call("slow");
-    let mut future = pin!(pack.call(call.context(), json!({})));
-    let count = Arc::new(Wakes::default());
-    let waker = Waker::from(Arc::clone(&count));
-    let mut cx = Context::from_waker(&waker);
-
-    assert!(future.as_mut().poll(&mut cx).is_pending());
-    assert_eq!(count.0.load(Ordering::SeqCst), 1);
-    assert!(future.as_mut().poll(&mut cx).is_pending());
-    assert_eq!(count.0.load(Ordering::SeqCst), 2);
-    let Poll::Ready(result) = future.as_mut().poll(&mut cx) else {
-        panic!("the third step finishes the call");
-    };
-    assert_eq!(result.expect("the call succeeds").text(), "done");
-    assert_eq!(
-        count.0.load(Ordering::SeqCst),
-        2,
-        "the step that ends the call wakes nothing"
-    );
+    let output = call_tool(&*pack, "slow", json!({})).expect("the call succeeds");
+    assert_eq!(output.text(), "done");
     assert_eq!(
         *slow::STATES.lock().expect("the lock holds"),
         [0, 1, 2],
@@ -152,6 +134,134 @@ fn a_pending_step_wakes_its_task_and_the_next_poll_sends_the_next_step() {
         0,
         "a call that ended gets no cancel"
     );
+}
+
+#[test]
+fn every_step_of_a_call_is_lent_one_waker_and_the_resources_as_they_were_when_the_call_started() {
+    pack_fake!(
+        plug,
+        {
+            /// The resources and the `ctx` of the waker each step was
+            /// lent, in order.
+            pub(super) static LENT: Mutex<Vec<(String, usize)>> = Mutex::new(Vec::new());
+        },
+        new: |call| {
+            set_pack_run(call, instance(PACK_TAG));
+            add_tool(call, "tool")
+        },
+        step: |call| {
+            let args = step_args(call);
+            if let Ok(mut lent) = LENT.lock() {
+                lent.push((text(args.resources), args.waker.ctx.addr()));
+            }
+            let steps = tool_call(call).addr();
+            if steps < 2 {
+                set_tool_call(call, ptr::without_provenance_mut(steps + 1));
+                wake_call(call);
+                return RV_PENDING;
+            }
+            finish(call, RV_RESULT_TRUSTED, "done")
+        }
+    );
+    // The resource counts how often it is read, so each reading gives
+    // another value.
+    let reads = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&reads);
+    let mut resources = HostResources::new();
+    resources
+        .provide("acme/count", move || {
+            Some(json!(counted.fetch_add(1, Ordering::SeqCst) + 1))
+        })
+        .expect("the name is a vendor and a name");
+    let (_plugin, pack) = made_with(plug::entry, &resources);
+    call_tool(&*pack, "tool", json!({})).expect("the first call succeeds");
+    call_tool(&*pack, "tool", json!({})).expect("the second call succeeds");
+
+    let lent = plug::LENT.lock().expect("the lock holds").clone();
+    let texts: Vec<&str> = lent.iter().map(|(text, _)| text.as_str()).collect();
+    let (first, second) = (r#"{"acme/count":1}"#, r#"{"acme/count":2}"#);
+    assert_eq!(
+        texts,
+        [first, first, first, second, second, second],
+        "each step of a call is lent the text of the call's start"
+    );
+    assert_eq!(
+        reads.load(Ordering::SeqCst),
+        2,
+        "the resource is read once, as each call starts"
+    );
+    for call in lent.chunks(3) {
+        let ctx = call[0].1;
+        assert_ne!(ctx, 0, "the waker has a ctx");
+        assert!(
+            call.iter().all(|(_, lent)| *lent == ctx),
+            "every step of one call is lent the same waker: {call:?}"
+        );
+    }
+}
+
+#[test]
+fn a_call_of_a_host_that_offers_nothing_is_lent_an_empty_object() {
+    pack_fake!(
+        plug,
+        {},
+        new: |call| {
+            set_pack_run(call, instance(PACK_TAG));
+            add_tool(call, "tool")
+        },
+        step: |call| finish(call, RV_RESULT_TRUSTED, &text(step_args(call).resources))
+    );
+    let pack = made(plug::entry);
+    let output = call_tool(&*pack, "tool", json!({})).expect("the call succeeds");
+    assert_eq!(output.text(), "{}");
+}
+
+#[test]
+fn a_resource_that_panics_as_it_is_read_ends_that_call_alone_and_sends_it_nothing() {
+    pack_fake!(
+        plug,
+        {
+            pub(super) static STEPS: AtomicUsize = AtomicUsize::new(0);
+        },
+        new: |call| {
+            set_pack_run(call, instance(PACK_TAG));
+            add_tool(call, "tool")
+        },
+        step: |call| {
+            STEPS.fetch_add(1, Ordering::SeqCst);
+            finish(call, RV_RESULT_TRUSTED, &text(step_args(call).resources))
+        }
+    );
+    let broken = Arc::new(AtomicBool::new(true));
+    let flag = Arc::clone(&broken);
+    let mut resources = HostResources::new();
+    resources
+        .provide("acme/flaky", move || {
+            assert!(!flag.load(Ordering::SeqCst), "the resource is broken");
+            Some(json!(true))
+        })
+        .expect("the name is a vendor and a name");
+    let (plugin, pack) = made_with(plug::entry, &resources);
+
+    let call = test_call("tool");
+    let started = catch_unwind(AssertUnwindSafe(|| {
+        drop(pack.call(call.context(), json!({})));
+    }));
+    assert!(
+        started.is_err(),
+        "the panic reaches whoever started the call"
+    );
+    assert_eq!(plug::STEPS.load(Ordering::SeqCst), 0, "no step was sent");
+    assert_eq!(plug::CANCELS.load(Ordering::SeqCst), 0, "and no cancel");
+    assert_eq!(
+        plugin.slots().made(),
+        0,
+        "a call that never started took no slot"
+    );
+
+    broken.store(false, Ordering::SeqCst);
+    let output = call_tool(&*pack, "tool", json!({})).expect("the next call succeeds");
+    assert_eq!(output.text(), r#"{"acme/flaky":true}"#);
 }
 
 pack_fake!(
@@ -260,8 +370,7 @@ fn a_request_goes_to_the_calls_files_at_once_and_the_call_gets_no_step_until_its
     let call = test_call("tool");
     let files = HeldFiles::default();
     let mut future = pin!(pack.call(context_over(&call, &files), json!({})));
-    let count = Arc::new(Wakes::default());
-    let waker = Waker::from(Arc::clone(&count));
+    let (woken, waker) = Wakes::new();
     let mut cx = Context::from_waker(&waker);
 
     assert!(future.as_mut().poll(&mut cx).is_pending());
@@ -276,15 +385,11 @@ fn a_request_goes_to_the_calls_files_at_once_and_the_call_gets_no_step_until_its
         1,
         "a call that waits for the outcome of its request gets no step"
     );
-    assert_eq!(
-        count.0.load(Ordering::SeqCst),
-        0,
-        "and it does not wake its own task"
-    );
+    assert_eq!(woken.count(), 0, "and it does not wake its own task");
 
     files.answer(0, Ok(VfsOutcome::Bytes(b"llo".to_vec())));
     assert_eq!(
-        count.0.load(Ordering::SeqCst),
+        woken.count(),
         1,
         "the files wake the call's task when the outcome is there"
     );
@@ -325,8 +430,7 @@ fn a_request_whose_outcome_is_there_at_once_is_answered_in_the_step_of_the_next_
     // The files of a `TestCall` answer each request at its first poll.
     let call = seeded_call("tool", &[("/notes/a.md", "hello")]);
     let mut future = pin!(pack.call(call.context(), json!({})));
-    let count = Arc::new(Wakes::default());
-    let waker = Waker::from(Arc::clone(&count));
+    let (woken, waker) = Wakes::new();
     let mut cx = Context::from_waker(&waker);
 
     assert!(future.as_mut().poll(&mut cx).is_pending());
@@ -336,7 +440,7 @@ fn a_request_whose_outcome_is_there_at_once_is_answered_in_the_step_of_the_next_
         "a poll sends one step at most"
     );
     assert_eq!(
-        count.0.load(Ordering::SeqCst),
+        woken.count(),
         1,
         "the call wakes its own task for the step that is lent the answer"
     );
@@ -374,7 +478,12 @@ fn only_the_step_after_a_request_is_lent_an_answer() {
                     ask_stat(call, "/notes/a.md");
                     RV_PENDING
                 }
-                0 | 2 => RV_PENDING,
+                // No file request brings the step after these two, so
+                // each wakes its call.
+                0 | 2 => {
+                    wake_call(call);
+                    RV_PENDING
+                }
                 _ => finish(call, RV_RESULT_TRUSTED, "done"),
             }
         }

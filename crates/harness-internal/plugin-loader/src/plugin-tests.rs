@@ -10,6 +10,7 @@ use runvil_plugin::{ErrorCode, ErrorFact, PackRegistry};
 
 use crate::fakes::*;
 use crate::plugin::{Plugin, PluginSource, insert_plugin};
+use crate::resources::HostResources;
 
 /// A Plugin may cross threads and be shared.
 const _: () = {
@@ -264,7 +265,8 @@ fn inserting_a_plugin_leaves_the_pack_registry_as_it_was() {
     };
     let before = listed(&packs);
     assert!(!before.is_empty(), "the registry holds its built-in Pack");
-    let _plugin = insert_plugin(&mut packs, plug::entry).expect("the Plugin loads");
+    let _plugin =
+        insert_plugin(&mut packs, plug::entry, &HostResources::new()).expect("the Plugin loads");
     assert_eq!(listed(&packs), before);
 }
 

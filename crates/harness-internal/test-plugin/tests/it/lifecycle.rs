@@ -4,7 +4,7 @@
 //! library the loader opened; the operating system's already-loaded query
 //! shows the last.
 
-use harness_plugin_loader::insert_plugin_dir;
+use harness_plugin_loader::{HostResources, insert_plugin_dir};
 use libloading::Library;
 use runvil_plugin::{PackOrigin, PackRegistry};
 
@@ -36,7 +36,8 @@ fn the_fixture_is_loaded_invoked_unloaded_once_and_closed() {
     let file =
         std::path::absolute(copy_fixture(&dir, "plugin")).expect("the working directory is known");
     let mut packs = PackRegistry::new();
-    let report = insert_plugin_dir(&mut packs, &dir).expect("the directory reads");
+    let report =
+        insert_plugin_dir(&mut packs, &dir, &HostResources::new()).expect("the directory reads");
     assert!(report.failures().is_empty(), "{:?}", report.failures());
     let [plugin] = report.plugins() else {
         panic!("one Plugin loads, got {:?}", report.plugins());

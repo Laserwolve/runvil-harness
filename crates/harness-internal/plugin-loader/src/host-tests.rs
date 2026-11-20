@@ -465,9 +465,9 @@ fn the_load_call_carries_the_contract_fields() {
 }
 
 #[test]
-fn the_table_reports_version_0_5_in_16_bytes() {
+fn the_table_reports_version_0_6_in_16_bytes() {
     assert_eq!(HOST.api_major, 0);
-    assert_eq!(HOST.api_minor, 5);
+    assert_eq!(HOST.api_minor, 6);
     assert_eq!(HOST.reserved, 0);
     assert_eq!(HOST.size, 16);
     assert_eq!(usize::try_from(HOST.size), Ok(size_of::<RvHost>()));
@@ -616,7 +616,9 @@ fn a_pack_name_and_a_description_at_their_bounds_are_accepted() {
         )
     });
     let mut packs = runvil_plugin::PackRegistry::new();
-    let _plugin = crate::plugin::insert_plugin(&mut packs, plug::entry).expect("the Plugin loads");
+    let resources = crate::resources::HostResources::new();
+    let _plugin = crate::plugin::insert_plugin(&mut packs, plug::entry, &resources)
+        .expect("the Plugin loads");
     let fqn = format!("{}/{}", "v".repeat(64), "p".repeat(64));
     let description = packs
         .list()

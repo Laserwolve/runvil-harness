@@ -1,17 +1,22 @@
 //! A prompt calls the fixture library's tools through the real Harness:
 //! the Pack the library inserted is declared, each run gets its own
-//! instance, a call that takes several steps finishes, each file
-//! operation of a tool is performed on the run's files and recorded as
-//! a file effect that names the call, an operation the policy denies
-//! reaches the tool as a file error, two tasks that write one path both
-//! succeed, and a canceled run cancels its pending call and deletes its
-//! instance. The fixture's counters show what the library still holds.
+//! instance, a call that takes several steps finishes once the library
+//! has woken it for each one, from a step or from a thread of its own,
+//! each call is lent the Host's resources as they were when it started,
+//! each file operation of a tool is performed
+//! on the run's files and recorded as a file effect that names the
+//! call, an operation the policy denies reaches the tool as a file
+//! error, two tasks that write one path both succeed, and a canceled run
+//! cancels its parked call and deletes its instance. The fixture's
+//! counters show what the library still holds and how many steps it
+//! got.
 
 use std::path::Path;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
-use harness_plugin_loader::{PluginReport, insert_plugin_dir};
+use harness_plugin_loader::{HostResources, PluginReport, insert_plugin_dir};
 use runvil::effect::Round;
 use runvil::harness::{
     InferenceBroker, MemoryRecorder, Packs, Record, RecordKind, RunId, RunMeta, RunRecorder, Timer,
@@ -21,7 +26,7 @@ use runvil::model::{
     make_completion_error, phrase,
 };
 use runvil::vfs::{MemoryBackend, Op, Origin, Policy, Verdict, VfsError, VfsPath, VfsRef};
-use runvil::{BoxFuture, Error, ErrorCode, Harness, Host, RunControl, RunSetup};
+use runvil::{BoxFuture, Error, ErrorCode, Harness, Host, RunControl, RunReport, RunSetup};
 use runvil_plugin::PackRegistry;
 use serde_json::{Value, json};
 
@@ -73,11 +78,22 @@ impl Timer for Clock {
     }
 }
 
-/// A Host over the library Plugins in `dir` that finds `source` by
-/// [`PROMPT`], and the report of what `dir` loaded.
+/// A Host over the library Plugins in `dir` that offers them no
+/// resources and finds `source` by [`PROMPT`], and the report of what
+/// `dir` loaded.
 fn host_over(dir: &Path, source: String) -> (Arc<Host>, PluginReport) {
+    host_offering(dir, source, &HostResources::new())
+}
+
+/// A Host over the library Plugins in `dir` that offers them `resources`
+/// and finds `source` by [`PROMPT`], and the report of what `dir` loaded.
+fn host_offering(
+    dir: &Path,
+    source: String,
+    resources: &HostResources,
+) -> (Arc<Host>, PluginReport) {
     let mut packs = PackRegistry::new();
-    let report = insert_plugin_dir(&mut packs, dir).expect("the directory reads");
+    let report = insert_plugin_dir(&mut packs, dir, resources).expect("the directory reads");
     assert!(report.failures().is_empty(), "{:?}", report.failures());
     let host = Arc::new(Host {
         packs: Packs::new(packs),
@@ -116,6 +132,24 @@ fn harness_recorded(host: &Arc<Host>, vfs: VfsRef, recorder: Arc<dyn RunRecorder
         ..RunSetup::new(recorder, Arc::new(Offline))
     };
     Harness::new(Arc::clone(host), prompt, setup)
+}
+
+/// How long a run that waits on a wake of the library may take. The wake
+/// comes far sooner, so a run that has not ended by then waits on a wake
+/// that is missing.
+const WAKE_LIMIT: Duration = Duration::from_secs(60);
+
+/// Runs `harness` to its end. A run whose tool call the library parked
+/// and never woke would wait for good: it fails its test after 60
+/// seconds, with a message that says so, and does not hang it.
+async fn run_woken(harness: Harness) -> RunReport {
+    tokio::time::timeout(WAKE_LIMIT, harness.run())
+        .await
+        .expect(
+            "the run ends within 60 seconds: a tool call whose step returned RV_PENDING with no \
+             file request goes on only after the library wakes it",
+        )
+        .expect("the recorder takes the run")
 }
 
 /// The text of the file at `path` in `vfs`, read once a run has ended.
@@ -187,10 +221,7 @@ async fn a_prompt_calls_a_one_step_tool_and_a_three_step_tool_of_the_library() {
     let library = already_loaded(&file).expect("the loader holds the library open");
 
     for run in 1..=2 {
-        let report = harness(&host)
-            .run()
-            .await
-            .expect("the recorder takes the run");
+        let report = run_woken(harness(&host)).await;
         assert_eq!(
             report.result,
             Ok(r#"hello {"name":"x"}|3 steps"#.to_owned()),
@@ -200,6 +231,12 @@ async fn a_prompt_calls_a_one_step_tool_and_a_three_step_tool_of_the_library() {
             (counter(&library, "packs"), counter(&library, "calls")),
             (0, 0),
             "run {run}: the run's Pack instance and its calls' state are gone when it ends"
+        );
+        assert_eq!(
+            counter(&library, "steps"),
+            4 * run,
+            "run {run}: one step for `hello`, and for `steps` its first step and one more for \
+             each of its two wakes"
         );
     }
 
@@ -214,6 +251,99 @@ async fn a_prompt_calls_a_one_step_tool_and_a_three_step_tool_of_the_library() {
         (counter(&library, "unloads"), counter(&library, "live")),
         (1, 0)
     );
+    drop(library);
+    remove(&dir);
+}
+
+#[tokio::test]
+async fn each_call_of_a_library_tool_is_lent_the_hosts_resources_as_they_were_when_it_started() {
+    let dir = scratch("each_call_is_lent_the_hosts_resources");
+    let file =
+        std::path::absolute(copy_fixture(&dir, "plugin")).expect("the working directory is known");
+    // The Host's function counts how often it is asked, so each reading
+    // gives another value. A fixed resource stands beside it.
+    let reads = Arc::new(AtomicU32::new(0));
+    let counted = Arc::clone(&reads);
+    let mut resources = HostResources::new();
+    resources
+        .provide("fixture/reading", move || {
+            Some(json!(counted.fetch_add(1, Ordering::SeqCst) + 1))
+        })
+        .expect("the name is a vendor and a name");
+    resources
+        .provide("acme/fixed", || {
+            Some(json!({ "url": "http://127.0.0.1:9/" }))
+        })
+        .expect("the name is a vendor and a name");
+    let lua = "local first = tools.call('test/resources', {})\n\
+               local second = tools.call('test/resources', {})\n\
+               return first .. '|' .. second";
+    let (host, report) = host_offering(&dir, prompt(lua), &resources);
+    let library = already_loaded(&file).expect("the loader holds the library open");
+    assert_eq!(
+        reads.load(Ordering::SeqCst),
+        0,
+        "loading the library reads no resource"
+    );
+
+    let report_of_run = run_woken(harness(&host)).await;
+    // The tool answers in its second step, with what that step is lent.
+    // Each call saw one reading, the one made as the call started.
+    assert_eq!(
+        report_of_run.result,
+        Ok([
+            r#"{"acme/fixed":{"url":"http://127.0.0.1:9/"},"fixture/reading":1}"#,
+            r#"{"acme/fixed":{"url":"http://127.0.0.1:9/"},"fixture/reading":2}"#,
+        ]
+        .join("|"))
+    );
+    assert_eq!(
+        reads.load(Ordering::SeqCst),
+        2,
+        "the Host's function was asked once for each call, and not for each step"
+    );
+    assert_eq!(
+        (counter(&library, "packs"), counter(&library, "calls")),
+        (0, 0)
+    );
+
+    drop((host, report));
+    assert_eq!(counter(&library, "live"), 0);
+    drop(library);
+    remove(&dir);
+}
+
+#[tokio::test]
+async fn a_call_that_a_thread_of_the_library_wakes_stays_parked_until_then_and_finishes() {
+    let dir = scratch("a_call_that_a_thread_of_the_library_wakes");
+    let file =
+        std::path::absolute(copy_fixture(&dir, "plugin")).expect("the working directory is known");
+    let (host, report) = host_over(&dir, prompt("return tools.call('test/later', {})"));
+    let library = already_loaded(&file).expect("the loader holds the library open");
+
+    // The first step of `later` starts a thread in the library, which
+    // wakes the call a little later, from outside this test's runtime.
+    // Nothing else is due meanwhile, so the run goes on only when that
+    // wake reaches the task that polls it.
+    let report_of_run = run_woken(harness(&host)).await;
+    assert_eq!(
+        report_of_run.result,
+        Ok("woken".to_owned()),
+        "the call got its second step after the thread's wake, and not before"
+    );
+    assert_eq!(
+        counter(&library, "steps"),
+        2,
+        "the call got its first step and the one its wake asked for"
+    );
+    assert_eq!(
+        (counter(&library, "packs"), counter(&library, "calls")),
+        (0, 0),
+        "the call's state is gone, and with it the thread the call started"
+    );
+
+    drop((host, report));
+    assert_eq!(counter(&library, "live"), 0);
     drop(library);
     remove(&dir);
 }
@@ -641,8 +771,12 @@ async fn two_tasks_that_write_one_path_both_succeed_and_the_later_write_is_the_c
 }
 
 #[tokio::test]
-async fn a_canceled_run_cancels_its_pending_call_and_deletes_its_pack_instance() {
-    let dir = scratch("a_canceled_run_cancels_its_pending_call");
+async fn a_canceled_run_cancels_its_parked_call_and_deletes_its_pack_instance() {
+    /// How many turns of the loop below the call stays parked for before
+    /// the run is canceled. The run is polled in each turn.
+    const PARKED_TURNS: u32 = 50;
+
+    let dir = scratch("a_canceled_run_cancels_its_parked_call");
     let file =
         std::path::absolute(copy_fixture(&dir, "plugin")).expect("the working directory is known");
     let (host, report) = host_over(&dir, prompt("return tools.call('test/never', {})"));
@@ -651,6 +785,7 @@ async fn a_canceled_run_cancels_its_pending_call_and_deletes_its_pack_instance()
     let harness = harness(&host);
     let control = harness.control();
     let mut run = std::pin::pin!(harness.run());
+    let mut parked_turns = 0;
     let mut canceled = false;
     let report_of_run = loop {
         tokio::select! {
@@ -658,16 +793,30 @@ async fn a_canceled_run_cancels_its_pending_call_and_deletes_its_pack_instance()
             report = &mut run => break report.expect("the recorder takes the run"),
             () = tokio::task::yield_now() => {
                 // The call holds state from its first step on, and it is
-                // pending, so the run cannot end by itself.
+                // parked, so the run cannot end by itself.
                 if !canceled && counter(&library, "calls") == 1 {
+                    parked_turns += 1;
+                }
+                if !canceled && parked_turns == PARKED_TURNS {
                     assert_eq!(counter(&library, "packs"), 1, "the run holds its instance");
+                    assert_eq!(
+                        counter(&library, "steps"),
+                        1,
+                        "the `never` tool wakes nothing, so its call got its first step and no \
+                         other, however often the run was polled"
+                    );
                     control.cancel();
                     canceled = true;
                 }
             }
         }
     };
-    assert!(canceled, "the call was pending when the run was canceled");
+    assert!(canceled, "the call was parked when the run was canceled");
+    assert_eq!(
+        counter(&library, "steps"),
+        1,
+        "the cancel sent the call no step"
+    );
     assert!(
         report_of_run.result.as_ref().is_err_and(Error::is_canceled),
         "the run ends canceled: {:?}",

@@ -46,7 +46,7 @@ The test for a feature is whether it works on something outside the run. The sto
 
 ### A `uses:` entry requires a Pack and runs its prelude
 
-A prompt names Packs under `uses:` in its front matter. For each entry, `Host::parse` checks that the Host has the Pack and refuses the prompt when the Pack is missing. The Engine then runs the Pack's Lua prelude in every section of the prompt. A Rust Pack sets its prelude in its `PackInfo`. Contract 0.5 gives a Pack a name and a description, so a prelude for a library Pack is still to be built, and each shipped Pack leaves its prelude unset.
+A prompt names Packs under `uses:` in its front matter. For each entry, `Host::parse` checks that the Host has the Pack and refuses the prompt when the Pack is missing. The Engine then runs the Pack's Lua prelude in every section of the prompt. A Rust Pack sets its prelude in its `PackInfo`. Contract 0.6 gives a Pack a name and a description, so a prelude for a library Pack is still to be built, and each shipped Pack leaves its prelude unset.
 
 A prelude runs only for a declared Pack because it defines Lua globals, and so decides what a prompt's Lua can call. The Lua globals of a prompt therefore depend on its own `uses:` list and are the same on every Host.
 
@@ -122,7 +122,7 @@ Two tools that share a wire name across the two sets fail the section's model ca
 
 ### `Pack::render` lets a Pack shape its tools for each model
 
-At the first loop round, the Harness calls `render` on each Pack the section offered from. The Pack receives the offered tools and the round's model, and returns the tools the model will see. It may rename a tool, rewrite its description and schema, drop it, or add model-only tools. Each shipped Pack uses the default, which returns the tools unchanged. Contract 0.5 lacks a render verb, so the loader gives each library Pack the same default, and a render for a library Pack is still to be built.
+At the first loop round, the Harness calls `render` on each Pack the section offered from. The Pack receives the offered tools and the round's model, and returns the tools the model will see. It may rename a tool, rewrite its description and schema, drop it, or add model-only tools. Each shipped Pack uses the default, which returns the tools unchanged. Contract 0.6 lacks a render verb, so the loader gives each library Pack the same default, and a render for a library Pack is still to be built.
 
 One hook covers every Pack, so the Engine treats all tools the same way. The Engine requests the render as an effect: the Harness performs it, so the Engine is still pure, and the run log records it.
 
@@ -178,7 +178,7 @@ This split defines the Engine and the Harness. The Engine returns the work it ne
 
 ### The model calls offered tools, and Lua calls any Pack tool
 
-The model calls the tools in its section's two sets, by wire name. Lua calls any tool in the run's catalog by id with `tools.call`. A Rust Pack can flag a tool `model_only_call`, and a script's call of such a tool raises an error of kind `model_only_tool`. The flag is part of the catalog entry because Lua must be able to name the tool when it offers it. Contract 0.5 gives a tool a name, a wire name, a description, a parameter schema, and one flag, which says that the tool changes files, so the other `ToolInfo` flags are still to be built for a library Pack.
+The model calls the tools in its section's two sets, by wire name. Lua calls any tool in the run's catalog by id with `tools.call`. A Rust Pack can flag a tool `model_only_call`, and a script's call of such a tool raises an error of kind `model_only_tool`. The flag is part of the catalog entry because Lua must be able to name the tool when it offers it. Contract 0.6 gives a tool a name, a wire name, a description, a parameter schema, and one flag, which says that the tool changes files, so the other `ToolInfo` flags are still to be built for a library Pack.
 
 ### A Pack tool's failure returns to the model as text and raises in a script
 
@@ -250,7 +250,7 @@ Lua reads `tool.description`, `tool.parameters`, and a Pack's `name` and `tools`
 
 ### The `mcp` Pack marks its output by caller
 
-The `mcp` Pack reads the caller from its `ToolContext`. For a call the model made, it marks the server's text untrusted. For a script's `tools.call`, it marks the same text trusted, so the script receives the raw string and can decode the listing JSON. The cost is that a script that forwards MCP text into a prompt, or an adhoc handler that returns it to the model, sends it unwrapped, and that is the script author's decision. Only a Rust Pack receives the call's origin: the loader passes a library Pack the tool's name, the arguments, and the file functions, so the contract needs the origin before `mcp` can move to it, which is planned work.
+The `mcp` Pack reads the caller from its `ToolContext`. For a call the model made, it marks the server's text untrusted. For a script's `tools.call`, it marks the same text trusted, so the script receives the raw string and can decode the listing JSON. The cost is that a script that forwards MCP text into a prompt, or an adhoc handler that returns it to the model, sends it unwrapped, and that is the script author's decision. Only a Rust Pack receives the call's origin: the loader passes a library Pack the tool's name, the arguments, the file functions, the Host's resources, and the call's waker, so the contract needs the origin before `mcp` can move to it, which is planned work.
 
 ## 7. Writing a Pack
 
@@ -320,7 +320,7 @@ The check is in the file system because every operation passes through the acces
 
 ### Host services are named, typed objects that `install` reads
 
-A service has a two-segment id, such as `runvil/tokio-runtime`, and a `ServiceKey<T>` binds the id to a Rust type. The Host fills one `HostServices` map and passes it to each Plugin's `install`. A Rust Pack that needs an async runtime reads the Host's runtime handle from that map. The C contract passes a Plugin the contract version alone, so the bashkit Plugin starts a runtime of its own for its timers.
+A service has a two-segment id, such as `runvil/tokio-runtime`, and a `ServiceKey<T>` binds the id to a Rust type. The Host fills one `HostServices` map and passes it to each Plugin's `install`. A Rust Pack that needs an async runtime reads the Host's runtime handle from that map. A Plugin of the C contract reads no service, because a Rust object stays on the Host's side of the contract. Each of its tool calls is lent the Host's resources, which are JSON values (see The C contract), and the bashkit Plugin starts a runtime of its own for its timers.
 
 ### A Pack's Lua prelude runs once in each section VM
 
@@ -330,25 +330,33 @@ For a prompt that declares the Pack, the Engine runs the Pack's prelude in each 
 
 ### A Plugin exports one function, and each call to it names a verb
 
-A dynamic library exports one function, `runvil_plugin`, and each call passes an `RvCall` struct that names a verb. In contract 0.5, verbs 1 and 2 load and unload the Plugin, and a load names the Plugin and inserts its Packs. Verbs 3 and 4 create and delete one run's instance of a Pack, and the instance lists its tools when it is created. Verb 5 runs one step of a tool call, and verb 6 frees the state of a call that the Host abandoned. Numbers 7 and 8 are reserved for later versions.
+A dynamic library exports one function, `runvil_plugin`, and each call passes an `RvCall` struct that names a verb. In contract 0.6, verbs 1 and 2 load and unload the Plugin, and a load names the Plugin and inserts its Packs. Verbs 3 and 4 create and delete one run's instance of a Pack, and the instance lists its tools when it is created. Verb 5 runs one step of a tool call, and verb 6 frees the state of a call that the Host abandoned. Numbers 7 and 8 are reserved for later versions.
 
 A single function means one exported symbol, and a later version of the contract adds verbs.
 
 ### The contract has its own repository, and each 0.x version is a separate contract
 
-`runvil-plugin-api` contains the C header, the Rust mirror `runvil-plugin-sys`, and a safe SDK, `runvil-plugin-sdk`. While the major version is 0, a Plugin built for 0.5 loads only in a Host that reports 0.5. The Plugin reads the Host's version first in `RV_PLUGIN_LOAD` and answers any other version with `RV_ERR_UNSUPPORTED`.
+`runvil-plugin-api` contains the C header, the Rust mirror `runvil-plugin-sys`, and a safe SDK, `runvil-plugin-sdk`. While the major version is 0, a Plugin built for 0.6 loads only in a Host that reports 0.6. The Plugin reads the Host's version first in `RV_PLUGIN_LOAD` and answers any other version with `RV_ERR_UNSUPPORTED`.
 
 The contract has a repository of its own so that a Plugin depends on that repository only.
 
 ### Each callback belongs to one verb and takes a `ctx`
 
-The functions a Plugin may call back are fields of a verb's arguments struct. For a load, `RvLoadArgs` has `ctx`, `refuse`, `describe_plugin`, and `insert_pack`. `RvPackNewArgs` has `refuse` and `add_tool`, and `RvToolCallArgs` has `finish`, the file functions, and `answer`, the answer to the file request of the call's last step. Each function takes the `ctx` first and answers only while its call runs, on that call's thread. A callback belongs to one verb because each verb has its own lifetime and thread rules.
+The functions a Plugin may call back are fields of a verb's arguments struct. For a load, `RvLoadArgs` has `ctx`, `refuse`, `describe_plugin`, and `insert_pack`. `RvPackNewArgs` has `refuse` and `add_tool`, and `RvToolCallArgs` has `finish`, the file functions, `answer`, the answer to the file request of the call's last step, `resources`, the Host's resources as text, and `waker`, the call's waker. Each function takes the `ctx` first and answers only while its call runs, on that call's thread. A callback belongs to one verb because each verb has its own lifetime and thread rules. The one exception is the `wake` of a call's waker, which takes the waker's own `ctx` and answers on any thread until the Plugin is unloaded (see the entry on a parked call).
 
-A tool call is a series of steps. The Host sends `RV_TOOL_CALL` once for each step, a step that returns `RV_PENDING` asks for another, and a step ends the call by calling `finish` once with its result and returning `RV_OK`. The call has steps because a step that blocked would stall its run, and the Host can abandon a call only between two steps.
+A tool call is a series of steps. The Host sends `RV_TOOL_CALL` once for each step, a step that returns `RV_PENDING` leaves the call open, and a step ends the call by calling `finish` once with its result and returning `RV_OK`. The call has steps because a step that blocked would stall its run, and the Host can abandon a call only between two steps.
+
+### A step that returns `RV_PENDING` parks its call, and the Plugin wakes it
+
+Every step of a call is handed the call's waker, the same one at each step. A step that returns `RV_PENDING` parks the call. The Host sends the call's next step after the Plugin has woken the call through that waker, or, when the step made a file request, when the answer is ready. A wake during a step counts, so a step that wants the next one at once wakes its call and then returns `RV_PENDING`. Wakes do not add up: a wake asks for the next step that begins after it, however many wakes come before that step. The Host may also send a step that no wake asked for, but none while a file request waits for its answer. A call that nothing wakes stays parked until the Host abandons it, and a stop or a cancel abandons it at any time.
+
+A Plugin may wake a call on any thread, from the call's first step until the Plugin is unloaded: during a step, between two steps, while the Host abandons the call, and after the call has ended. The Harness keeps what a waker points at until the Plugin is unloaded, so a late wake reaches live memory. A late wake does nothing for the call that ended, and it can cost a later call of the same Plugin one step that the call did not need.
+
+A call that waits on something outside its run, such as a reply from the network or a timer, is parked for the whole wait, and a thread of the Plugin wakes it when the wait is over. The run spends nothing on a parked call. A Host that sent a pending call its next step as soon as it could would keep a thread busy for as long as the call waited. The waker means what a waker means for a Rust future, so the SDK hands it to a tool's future as an ordinary `Waker`, and a tool written as `async` code parks with no code of its own. A waker stays valid until the unload because a late wake is ordinary: a timer thread fires after its call ended, and a destructor wakes as the call is abandoned. A Plugin cannot crash its Host with one.
 
 ### A file function takes a request, and the call's next step receives the answer
 
-A step reaches the run's files through the file functions of its arguments: `file_stat`, `file_list`, and `file_read` read, and `file_write`, `file_append`, `file_mkdir`, `file_remove`, `file_rename`, and `file_copy` change the files. A file function takes one request and returns only whether the Host took it. The step returns `RV_PENDING`, the Harness performs the operation, and the call's next step receives the answer: what the request asked for, a status alone for a change, or the error of an operation that failed. The Host sends that step when the answer is ready, and the call waits until then. A call has one request outstanding, so a second request in one step is a misuse, and so is a request in a step that calls `finish`. An operation that fails leaves the call running, and the tool decides what its result says. A write or an append takes at most 16 MiB, and a tool writes a longer file as one write and then one append for each further part. The contract leaves out a function that asks whether a path exists, because a stat answers that.
+A step reaches the run's files through the file functions of its arguments: `file_stat`, `file_list`, and `file_read` read, and `file_write`, `file_append`, `file_mkdir`, `file_remove`, `file_rename`, and `file_copy` change the files. A file function takes one request and returns only whether the Host took it. The step returns `RV_PENDING`, the Harness performs the operation, and the call's next step receives the answer: what the request asked for, a status alone for a change, or the error of an operation that failed. The Host sends that step when the answer is ready, and no step before then, even when the Plugin wakes the call. A call has one request outstanding, so a second request in one step is a misuse, and so is a request in a step that calls `finish`. An operation that fails leaves the call running, and the tool decides what its result says. A write or an append takes at most 16 MiB, and a tool writes a longer file as one write and then one append for each further part. The contract leaves out a function that asks whether a path exists, because a stat answers that.
 
 The loader makes each request through the files of the call, as a Rust Pack's tool does (see Writing a Pack). Each file operation of a library Pack's tool, a read as well as a change, is therefore a `Vfs` effect that the Harness performs under the run's policy and records ([Files and the VFS](files-and-the-vfs.md)). The owner's rule: "every VFS operation that's performed by a tool has to turn into an effect in the engine." The answer waits for the next step because the Harness performs each operation as an effect of the run, between two steps of the call. A function that returned its result inside the step would perform the operation there, outside the run's record.
 
@@ -356,9 +364,17 @@ The contract has an error kind for a conflict between two tool calls, `RV_FILE_E
 
 A tool whose calls change files sets the flag `RV_TOOL_CHANGES_FILES` when its Pack instance adds it. The loader then sets `changes_files` in the tool's `ToolInfo`, and the Engine runs each call of the tool alone and in order (see Tool calls).
 
+### Every tool call is lent the Host's resources as JSON text
+
+A Host offers the Plugins of the contract its resources: JSON values under names of two segments, a vendor and a name, such as `runvil/web-search`. Every step of a tool call is handed them as `resources`, the JSON text of one object with a key for each resource, and `{}` when the Host offers none. The text holds the resources as they were when the call started, and every step of one call gets the same text. What a resource holds is between the Host and the Plugins that read it. A Plugin parses the text with a JSON library of its own, and a Plugin with no use for the resources ignores them.
+
+A Host fills a `HostResources` and passes it to `insert_plugin_dir` and `insert_plugin`. `HostResources::provide` takes a name and a function that returns the resource's value, or nothing when the Host has none to offer right now. It refuses a name that is not a vendor and a name, and a name that is offered already. The Harness calls each function as a tool call starts, so the function returns at once, and a resource whose function returns nothing is absent from that call's text. A Host whose value stays the same passes a function that returns it.
+
+The resources are text because a Rust object stays on the Host's side of the contract, and every Plugin can read JSON, whatever language it is written in. The Harness reads them as each call starts, so a Host whose value changes, such as the address of its Gateway, starts no task to hand the change on: the next call reads the new value. One call has one text from its first step to its last, so a tool finds the same resources at each of its steps.
+
 ### A library Plugin and a C entry point compiled into the Host receive the same calls
 
-In the loader, `insert_plugin_dir` loads every dynamic library in a directory, and `insert_plugin` loads a C entry point that is compiled into the Host. The loader names the two kinds `PluginSource::Library` and `PluginSource::Linked`. Each entry point gets the same calls, so one path loads both kinds. The owner's rule: "those have to be treated exactly the same. In other words ... the entry point has the same shape". For each Pack that a Plugin inserted, the loader puts a factory in the registry. The factory sends `RV_PACK_NEW` for each run, the instance sends one `RV_TOOL_CALL` for each step of a call, and its drop sends `RV_PACK_DELETE`.
+In the loader, `insert_plugin_dir` loads every dynamic library in a directory, and `insert_plugin` loads a C entry point that is compiled into the Host. Each takes the resources that the Host offers the Plugins it loads. The loader names the two kinds `PluginSource::Library` and `PluginSource::Linked`. Each entry point gets the same calls, so one path loads both kinds. The owner's rule: "those have to be treated exactly the same. In other words ... the entry point has the same shape". For each Pack that a Plugin inserted, the loader puts a factory in the registry. The factory sends `RV_PACK_NEW` for each run, the instance sends one `RV_TOOL_CALL` for each step of a call, and its drop sends `RV_PACK_DELETE`.
 
 `std` and `bashkit` are library Plugins. The shipped Plugins that are compiled into the Host, `plugin-web` and `plugin-mcp`, are a third kind. Each is a Rust `install` function written against `runvil-plugin`, which the Host calls itself, so the contract's calls go to `std` and `bashkit` alone. The docs of `runvil-plugin` call that third kind a linked Plugin as well. The move of the two Plugins onto the contract is planned work.
 
@@ -436,7 +452,7 @@ The Pack uses `rmcp`'s own HTTP client, which refuses redirects, so the client s
 
 Each of these items is still to be built.
 
-- **One Plugin API.** `plugin-web` and `plugin-mcp` written against the C contract and inserted with `insert_plugin`, so that a Pack compiled into the Host goes through the same contract as a Pack from a library and the two `install` functions, which is what both Plugins are, go away. The contract first needs what the two Packs use and contract 0.5 lacks: for `mcp`, a configuration for its list of servers, the call's origin, and the `describes_tools` flag, for `web`, the Host's search provider, and for both, the Host's runtime handle, a Pack inserted as unavailable with a reason, a call that waits on work outside its step, and error causes.
+- **One Plugin API.** `plugin-web` and `plugin-mcp` written against the C contract and inserted with `insert_plugin`, so that a Pack compiled into the Host goes through the same contract as a Pack from a library and the two `install` functions, which is what both Plugins are, go away. The contract first needs what the two Packs use and contract 0.6 lacks: for `mcp`, a configuration for its list of servers, the call's origin, and the `describes_tools` flag, and for both, the Host's runtime handle, a Pack inserted as unavailable with a reason, and error causes. `web` also reads the Host's search provider, a Rust object, in whose place a Plugin of the contract would read the address and the key of a search service from the Host's resources.
 - **Glob in `std`.** A `std/glob` that finds files by a name pattern and returns their paths. The tool answers a fixed text that says it is missing from this build.
 - **Approval by a person.** The step that asks the operator to approve a file change. When the run's policy answers `Ask`, the file system refuses the operation with `VfsError::ApprovalRequired` and a reason, which a library Pack's tool receives as a denied file error with the same reason, and under Workshop the policy allows every operation, because Workshop's runs use `AllowAll`.
 - **Ignore files.** Applying `.gitignore`, so that Grep skips a folder such as `target/` and spends its budget of 100,000 files elsewhere. Walks skip `.git` and names that contain a control character.

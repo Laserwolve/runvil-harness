@@ -2,10 +2,12 @@
 //! tests: a dynamic library that exports `runvil_plugin` and follows the C
 //! contract. It inserts one Pack, `fixture/test`. Three of its tools show
 //! a call that ends in one step, one that takes three, and one that never
-//! ends. Nine more make one file request each, one for each file function
-//! of the contract: `stat`, `list`, and `read` read, and `write`,
-//! `append`, `mkdir`, `remove`, `rename`, and `copy` change files. The
-//! last, `read_many`, reads many files in one call.
+//! ends. One answers with the Host's resources that its call is lent,
+//! and one is woken by a thread that it starts. Nine more make one file
+//! request each, one for each file function of the contract: `stat`,
+//! `list`, and `read` read, and `write`, `append`, `mkdir`, `remove`,
+//! `rename`, and `copy` change files. The last, `read_many`, reads many
+//! files in one call.
 //!
 //! ## Invariants
 //!
@@ -14,23 +16,33 @@
 //!   `[dev-dependencies]`. The C types below are a private copy of the
 //!   contract's, not an import. Each lays its fields out as the
 //!   contract's type does.
-//! - Only `runvil_plugin` and the five counters `harness_test_plugin_loads`,
+//! - Only `runvil_plugin` and the six counters `harness_test_plugin_loads`,
 //!   `harness_test_plugin_unloads`, `harness_test_plugin_live`,
-//!   `harness_test_plugin_packs`, and `harness_test_plugin_calls` are
-//!   public. The mirrored C types stay private, and unit tests pin them to
-//!   the same layout numbers as `runvil-plugin-sys`.
+//!   `harness_test_plugin_packs`, `harness_test_plugin_calls`, and
+//!   `harness_test_plugin_steps` are public. The mirrored C types stay
+//!   private, and unit tests pin them to the same layout numbers as
+//!   `runvil-plugin-sys`.
 //! - The counters are process-global, so each copy of the library that is
 //!   opened counts on its own, from zero.
 //! - The entry point never unwinds: it has no `unwrap`, `expect`,
 //!   indexing, or arithmetic that can panic.
 //! - `RV_PLUGIN_LOAD` loads only when the `RvHost` table reports exactly
-//!   version 0.5, and checks that before it reads `args`.
+//!   version 0.6, and checks that before it reads `args`.
 //! - `RV_PLUGIN_LOAD` describes the Plugin exactly once, as `test-plugin`
 //!   at `0.1.0`, inserts its one Pack, and sets the instance pointer only
 //!   when both succeed. A failing load frees what it made, and so does a
 //!   failing `RV_PACK_NEW`.
 //! - A tool call's state is freed by the step that ends the call or by
 //!   `RV_TOOL_CANCEL`, never by both.
+//! - A step that returns `RV_PENDING` with no file request parks its
+//!   call, and only a wake through the waker the step is lent brings the
+//!   call's next step. A step of `steps` or `resources` wakes its call
+//!   before it returns, and the first step of `later` starts a thread
+//!   that wakes the call a little later. The `never` tool wakes nothing,
+//!   so its call stays parked until the Host abandons it.
+//! - The thread that a `later` call starts is joined when the call's
+//!   state is freed, so no thread outlives its call, and none is left
+//!   when `RV_PLUGIN_UNLOAD` comes.
 //! - A step makes one file request at most and then returns
 //!   `RV_PENDING`. The step after it reads the answer it is lent before
 //!   it returns, and keeps no pointer into it.
@@ -42,13 +54,17 @@
 #![expect(unsafe_code, reason = "exports a C entry point")]
 
 use std::ffi::{c_char, c_void};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::thread::JoinHandle;
+use std::time::Duration;
 
 #[cfg(test)]
 #[path = "lib-tests.rs"]
 mod tests;
 
-/// What every function in the contract returns: zero for success.
+/// What every function in the contract returns, except `wake`, which
+/// returns nothing: zero for success.
 type RvStatus = u32;
 /// Success.
 const RV_OK: RvStatus = 0;
@@ -62,7 +78,9 @@ const RV_ERR_MISUSE: RvStatus = 4;
 const RV_ERR_REFUSED: RvStatus = 5;
 /// The Plugin does not know the verb it was sent.
 const RV_ERR_UNSUPPORTED: RvStatus = 6;
-/// The tool call needs another step.
+/// The tool call is parked. The Host sends its next step after the Plugin
+/// wakes the call, or, when the step made a file request, when the answer
+/// is ready.
 const RV_PENDING: RvStatus = 7;
 /// A file operation failed: the `status` of an `RvFileAnswer` whose
 /// `error` says how.
@@ -110,7 +128,7 @@ const RV_TOOL_CHANGES_FILES: RvToolFlags = 1;
 /// The contract's major version, which the `RvHost` table must report.
 const RV_API_MAJOR: u32 = 0;
 /// The contract's minor version, which the `RvHost` table must report.
-const RV_API_MINOR: u32 = 5;
+const RV_API_MINOR: u32 = 6;
 
 /// The name this Plugin gives `describe_plugin`.
 const NAME: &str = "test-plugin";
@@ -139,10 +157,21 @@ const PAIR_PARAMETERS: &str = r#"{"type":"object","properties":{"from":{"type":"
 const MANY_PARAMETERS: &str = r#"{"type":"object","properties":{"path":{"type":"string"},"count":{"type":"integer"}},"required":["path","count"]}"#;
 /// The tool that ends in one step, with `hello ` and its arguments.
 const HELLO: &str = "hello";
-/// The tool that ends in its third step, with `3 steps`.
+/// The tool that ends in its third step, with `3 steps`. It wakes its
+/// call before each step that returns `RV_PENDING`.
 const STEPS: &str = "steps";
-/// The tool that never ends.
+/// The tool that never ends and wakes nothing, so its call stays parked.
 const NEVER: &str = "never";
+/// The tool that ends in its second step, with the Host's resources as
+/// that step is lent them.
+const RESOURCES: &str = "resources";
+/// The tool whose first step starts a thread that wakes the call after
+/// [`LATER_DELAY`]. It ends in its second step: with `woken` when the
+/// thread's wake had come by then, and with `stepped before the wake`
+/// when the Host sent that step first.
+const LATER: &str = "later";
+/// How long the thread of a `later` call waits before it wakes the call.
+const LATER_DELAY: Duration = Duration::from_millis(50);
 /// The tool that says what its `path` names.
 const STAT: &str = "stat";
 /// The tool that lists the directory at its `path`.
@@ -403,9 +432,23 @@ struct RvFileChanges {
     copy: unsafe extern "C" fn(ctx: *mut c_void, from: RvStr, to: RvStr) -> RvStatus,
 }
 
+/// Wakes one tool call. The Plugin may call `wake` on any thread, any
+/// number of times, from the call's first step until `RV_PLUGIN_UNLOAD`
+/// returns.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+struct RvWaker {
+    /// The Host's context for the waker, which the Plugin passes back to
+    /// `wake` and never reads through.
+    ctx: *mut c_void,
+    /// Asks the Host to send the call's next step.
+    wake: unsafe extern "C" fn(ctx: *mut c_void),
+}
+
 /// The arguments of `RV_TOOL_CALL`: the tool, its arguments, the function
-/// that ends the call, the file functions, and the answer to the file
-/// request of the call's last step.
+/// that ends the call, the file functions, the answer to the file
+/// request of the call's last step, the Host's resources, and the call's
+/// waker.
 ///
 /// The contract's struct holds the nine file functions as fields of its
 /// own. This copy holds them as two structs, because the workspace's
@@ -436,6 +479,11 @@ struct RvToolCallArgs {
     /// The contract's `file_write`, `file_append`, `file_mkdir`,
     /// `file_remove`, `file_rename`, and `file_copy`.
     changes: RvFileChanges,
+    /// The Host's resources as they were when the call started: the JSON
+    /// text of an object. Every step of one call is lent the same text.
+    resources: RvStr,
+    /// The waker of this call, the same one at every step.
+    waker: RvWaker,
 }
 
 /// One call into the Plugin's entry point.
@@ -482,6 +530,34 @@ struct CallState {
     bytes: u64,
     /// How many reads of a `read_many` call failed.
     failed: u64,
+    /// The thread that the first step of a `later` call started, until
+    /// the call's second step or the drop of this state has joined it.
+    waking: Option<Waking>,
+}
+
+/// The thread that wakes a `later` call.
+struct Waking {
+    /// Set once the thread is about to wake the call.
+    woke: Arc<AtomicBool>,
+    thread: JoinHandle<()>,
+}
+
+/// A call's waker, for a thread of the Plugin to wake the call through.
+struct ThreadWaker(RvWaker);
+
+// SAFETY: the contract lets a Plugin call `wake` with its waker's `ctx`
+// on any thread until `RV_PLUGIN_UNLOAD` returns, and nothing here reads
+// through `ctx`, so the pair may move to a thread of the Plugin.
+unsafe impl Send for ThreadWaker {}
+
+impl ThreadWaker {
+    /// Wakes the call.
+    fn wake(&self) {
+        // SAFETY: the Host keeps what the `ctx` of a waker points at
+        // valid until `RV_PLUGIN_UNLOAD` returns, and the state of the
+        // call joins the thread that calls this before then.
+        unsafe { (self.0.wake)(self.0.ctx) };
+    }
 }
 
 #[cfg(test)]
@@ -504,6 +580,9 @@ static LIVE: AtomicU32 = AtomicU32::new(0);
 static PACKS: AtomicU32 = AtomicU32::new(0);
 /// `CallState` values made and not yet dropped, across every thread.
 static CALLS: AtomicU32 = AtomicU32::new(0);
+/// `RV_TOOL_CALL` steps that named a tool since this copy of the library
+/// was opened.
+static STEPPED: AtomicU32 = AtomicU32::new(0);
 
 impl Instance {
     /// Makes one instance and counts it as live.
@@ -545,12 +624,18 @@ impl CallState {
             steps: 0,
             bytes: 0,
             failed: 0,
+            waking: None,
         }
     }
 }
 
 impl Drop for CallState {
     fn drop(&mut self) {
+        // A Plugin has no thread left when it is unloaded, so the state
+        // of a call waits here for the thread the call started.
+        if let Some(waking) = self.waking.take() {
+            let _joined = waking.thread.join();
+        }
         CALLS.fetch_sub(1, Ordering::Relaxed);
     }
 }
@@ -588,6 +673,13 @@ pub extern "C" fn harness_test_plugin_packs() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn harness_test_plugin_calls() -> u32 {
     CALLS.load(Ordering::Relaxed)
+}
+
+/// `RV_TOOL_CALL` steps that named a tool since this copy of the library
+/// was opened. A test reads it to see that a parked call got no step.
+#[unsafe(no_mangle)]
+pub extern "C" fn harness_test_plugin_steps() -> u32 {
+    STEPPED.load(Ordering::Relaxed)
 }
 
 /// A type's size as the contract's `u32`. The contract's structs are a few
@@ -642,7 +734,7 @@ unsafe fn args<'a, T>(call: *mut RvCall) -> Result<&'a T, RvStatus> {
     Ok(unsafe { &*args })
 }
 
-/// The fixture's Plugin entry point, speaking contract 0.5.
+/// The fixture's Plugin entry point, speaking contract 0.6.
 ///
 /// # Safety
 /// `call` must point to a valid `RvCall` made as the C contract requires:
@@ -755,7 +847,7 @@ unsafe fn unload(call: *mut RvCall) -> RvStatus {
 
 /// The fixture's tools, in the order `RV_PACK_NEW` adds them: the name,
 /// the description, the parameters, and the flags of each.
-const TOOLS: [(&str, &str, &str, RvToolFlags); 13] = [
+const TOOLS: [(&str, &str, &str, RvToolFlags); 15] = [
     (
         HELLO,
         "Answers hello and its arguments in one step.",
@@ -764,6 +856,18 @@ const TOOLS: [(&str, &str, &str, RvToolFlags); 13] = [
     ),
     (STEPS, "Answers in its third step.", NO_PARAMETERS, 0),
     (NEVER, "Never answers.", NO_PARAMETERS, 0),
+    (
+        RESOURCES,
+        "Answers the resources of the Host in its second step.",
+        NO_PARAMETERS,
+        0,
+    ),
+    (
+        LATER,
+        "Answers once a thread it started has woken its call.",
+        NO_PARAMETERS,
+        0,
+    ),
     (STAT, "Says what a path names.", PATH_PARAMETERS, 0),
     (LIST, "Lists a directory.", PATH_PARAMETERS, 0),
     (READ, "Answers the text of a file.", PATH_PARAMETERS, 0),
@@ -871,7 +975,10 @@ unsafe fn pack_delete(call: *mut RvCall) -> RvStatus {
 
 /// Handles `RV_TOOL_CALL`: runs one step of the tool the arguments name.
 /// The state of a call is taken out of `call->tool_call` first, so every
-/// return other than `RV_PENDING` leaves none behind.
+/// return other than `RV_PENDING` leaves none behind. A step of `steps`
+/// or `resources` that returns `RV_PENDING` wakes its call first, the
+/// first step of `later` starts the thread that wakes its call, and a
+/// step of `never` wakes nothing.
 ///
 /// # Safety
 /// `call` points to a valid `RvCall` whose `tool_call` is NULL or the
@@ -890,8 +997,10 @@ unsafe fn tool_call(call: *mut RvCall) -> RvStatus {
         Ok(args) => args,
         Err(status) => return status,
     };
-    // SAFETY: the loader keeps both strings valid for the step.
-    let (tool, arguments) = unsafe { (text(args.tool), text(args.arguments)) };
+    STEPPED.fetch_add(1, Ordering::Relaxed);
+    // SAFETY: the loader keeps the three strings valid for the step.
+    let (tool, arguments, resources) =
+        unsafe { (text(args.tool), text(args.arguments), text(args.resources)) };
     let mut state = state.unwrap_or_else(|| Box::new(CallState::new()));
     state.steps = state.steps.saturating_add(1);
     // The result the call ends with in this step, or `None` for a call
@@ -899,7 +1008,18 @@ unsafe fn tool_call(call: *mut RvCall) -> RvStatus {
     let ended = match tool {
         HELLO => Some((RV_RESULT_TRUSTED, format!("hello {arguments}"))),
         STEPS if state.steps == 3 => Some((RV_RESULT_TRUSTED, "3 steps".to_owned())),
-        STEPS | NEVER => None,
+        RESOURCES if state.steps == 2 => Some((RV_RESULT_TRUSTED, resources.to_owned())),
+        STEPS | RESOURCES => {
+            // No file request brings the call's next step, so the step
+            // wakes the call before it returns `RV_PENDING`.
+            // SAFETY: `wake` and `ctx` are the waker this step is lent,
+            // which the Host keeps valid until `RV_PLUGIN_UNLOAD`
+            // returns.
+            unsafe { (args.waker.wake)(args.waker.ctx) };
+            None
+        }
+        LATER => later_step(args.waker, &mut state).map(|said| (RV_RESULT_TRUSTED, said)),
+        NEVER => None,
         STAT | LIST | READ | WRITE | APPEND | MKDIR | REMOVE | RENAME | COPY => {
             // SAFETY: `args` is the arguments of this step, which is open
             // on this thread.
@@ -932,6 +1052,42 @@ unsafe fn tool_call(call: *mut RvCall) -> RvStatus {
     // SAFETY: `finish` and `ctx` are the step's own arguments, and
     // `result` and its text outlive the call.
     unsafe { (args.finish)(args.ctx, &raw const result) }
+}
+
+/// Runs one step of a `later` call, which is lent `waker`. The first step
+/// starts a thread that wakes the call after [`LATER_DELAY`], and the
+/// call goes on. The second step joins that thread and ends the call
+/// with whether the thread's wake had come when the step began. Returns
+/// the text the call ends with, or `None` for a call that goes on.
+fn later_step(waker: RvWaker, state: &mut CallState) -> Option<String> {
+    if let Some(waking) = state.waking.take() {
+        let woke = waking.woke.load(Ordering::SeqCst);
+        let _joined = waking.thread.join();
+        let said = if woke {
+            "woken"
+        } else {
+            "stepped before the wake"
+        };
+        return Some(said.to_owned());
+    }
+    let woke = Arc::new(AtomicBool::new(false));
+    let (flag, waker) = (Arc::clone(&woke), ThreadWaker(waker));
+    // `Builder::spawn` reports a thread that cannot start, where
+    // `thread::spawn` would panic.
+    let started = std::thread::Builder::new().spawn(move || {
+        std::thread::sleep(LATER_DELAY);
+        // The flag is set first, so the step that this wake asks for
+        // finds it set.
+        flag.store(true, Ordering::SeqCst);
+        waker.wake();
+    });
+    match started {
+        Ok(thread) => {
+            state.waking = Some(Waking { woke, thread });
+            None
+        }
+        Err(error) => Some(format!("the waking thread did not start: {error}")),
+    }
 }
 
 /// The value of the string `key` in `arguments`, the JSON text of an

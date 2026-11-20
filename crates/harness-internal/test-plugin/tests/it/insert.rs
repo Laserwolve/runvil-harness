@@ -6,14 +6,15 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use harness_plugin_loader::{PluginReport, PluginSource, insert_plugin_dir};
+use harness_plugin_loader::{HostResources, PluginReport, PluginSource, insert_plugin_dir};
 use runvil_plugin::{Error, ErrorFact, PackRegistry};
 
 use crate::support::{copy_fixture, remove, scratch};
 
 /// Inserts every library in `dir` into a fresh Pack registry.
 fn insert(dir: &Path) -> PluginReport {
-    insert_plugin_dir(&mut PackRegistry::new(), dir).expect("the directory reads")
+    insert_plugin_dir(&mut PackRegistry::new(), dir, &HostResources::new())
+        .expect("the directory reads")
 }
 
 /// The path `std::path::absolute` makes of `path`, as a library source.
@@ -159,10 +160,12 @@ fn a_pack_the_registry_already_holds_is_reported_and_its_plugin_still_loads() {
     copy_fixture(&first_dir, "plugin");
     let second_file = copy_fixture(&second_dir, "plugin");
     let mut packs = PackRegistry::new();
-    let first = insert_plugin_dir(&mut packs, &first_dir).expect("the directory reads");
+    let resources = HostResources::new();
+    let first = insert_plugin_dir(&mut packs, &first_dir, &resources).expect("the directory reads");
     assert!(first.failures().is_empty(), "{:?}", first.failures());
 
-    let second = insert_plugin_dir(&mut packs, &second_dir).expect("the directory reads");
+    let second =
+        insert_plugin_dir(&mut packs, &second_dir, &resources).expect("the directory reads");
     assert_eq!(second.plugins().len(), 1, "the second Plugin did load");
     let [failure] = second.failures() else {
         panic!("its Pack is refused, got {:?}", second.failures());
@@ -186,8 +189,12 @@ fn a_pack_the_registry_already_holds_is_reported_and_its_plugin_still_loads() {
 #[test]
 fn a_missing_directory_returns_an_io_error() {
     let dir = scratch("a_missing_directory_returns_an_io_error");
-    let error = insert_plugin_dir(&mut PackRegistry::new(), &dir.join("missing"))
-        .expect_err("a missing directory is an I/O error");
+    let error = insert_plugin_dir(
+        &mut PackRegistry::new(),
+        &dir.join("missing"),
+        &HostResources::new(),
+    )
+    .expect_err("a missing directory is an I/O error");
     assert_eq!(error.kind(), io::ErrorKind::NotFound);
     remove(&dir);
 }

@@ -1,12 +1,14 @@
 //! One tool call of a Pack instance that a Plugin's entry point made: the
-//! future that sends its RV_TOOL_CALL steps and asks the call's files
-//! for each request a step makes, the function an `RvToolCallArgs`
-//! carries to end the call, and the sender of RV_TOOL_CANCEL.
+//! future that sends its RV_TOOL_CALL steps, asks the call's files for
+//! each request a step makes, and parks the call when a step waits on
+//! something else, the function in an `RvToolCallArgs` that ends the
+//! call, and the sender of RV_TOOL_CANCEL.
 
 use std::ffi::c_void;
 use std::future::Future;
 use std::pin::Pin;
 use std::ptr;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use runvil_plugin::{
@@ -25,6 +27,7 @@ use crate::file::{
     file_remove, file_rename, file_stat, file_write,
 };
 use crate::pack::EntryPack;
+use crate::park::Parked;
 use crate::session::{
     self, Field, Session, Shape, TOOL_CALL, Verb, answer, field, rv_str, shape, size_field,
 };
@@ -41,11 +44,17 @@ const TEXT: Field = field!("the result's text", 16_777_216, RV_MAX_RESULT);
 /// When a step made a file request, the future asks the call's files for
 /// it and then waits for the outcome without waking itself: the files
 /// wake its task when the outcome is there, and the poll after that
-/// sends the step that is lent the answer. A step that returns
-/// RV_PENDING with no request wakes the future's own task and leaves it
-/// pending, so the Host's executor gives the run's other work a turn and
-/// then polls again. Dropping the future while its last step returned
-/// RV_PENDING sends RV_TOOL_CANCEL, so the Plugin frees the call's state.
+/// sends the step that is lent the answer. No step is sent before then,
+/// whatever wakes the task.
+///
+/// A step that returns RV_PENDING with no request parks the call. The
+/// future stays pending and wakes nothing, and the Plugin wakes its task
+/// through the waker that every step is lent. A wake that came since
+/// the step began is seen as the call parks, and the task is then woken
+/// at once. A poll that no wake asked for still sends a step.
+///
+/// Dropping the future while its last step returned RV_PENDING sends
+/// RV_TOOL_CANCEL, so the Plugin frees the call's state.
 ///
 /// It borrows the Pack instance, so the instance is deleted only after
 /// every one of its calls has ended.
@@ -57,6 +66,13 @@ pub(crate) struct Steps<'a> {
     tool: String,
     /// The JSON text of the call's arguments.
     arguments: String,
+    /// The JSON text of the Host's resources as they were when the call
+    /// started, which every step is lent.
+    resources: String,
+    /// The slot that the `ctx` of the call's waker points at, one of the
+    /// slots of the call's Plugin. The call holds it from its start
+    /// until it ends, and every step is lent the waker over it.
+    parked: Arc<Parked>,
     /// What the last step left in `call->tool_call`, which the loader
     /// passes back and never reads through.
     state: *mut c_void,
@@ -94,29 +110,37 @@ enum Stepped {
 // the steps of one tool call, and its RV_TOOL_CANCEL, come on different
 // threads, and the loader never reads through `state`. Every other field
 // is `Send`, which the assertion below checks for the two borrows, the
-// request, and the answer.
+// slot of the call's waker, the request, and the answer.
 unsafe impl Send for Steps<'_> {}
 
 const _: () = {
     const fn is_send<T: Send>() {}
-    is_send::<(&EntryPack, &dyn ToolFiles, Asked<'_>, Answer)>();
+    is_send::<(&EntryPack, &dyn ToolFiles, Arc<Parked>, Asked<'_>, Answer)>();
 };
 
 impl<'a> Steps<'a> {
     /// A call of the tool named `tool` on `pack` with `arguments`, whose
-    /// file requests are asked of `files`. Nothing is sent until the
-    /// first poll.
+    /// file requests are asked of `files`. The call starts here: the
+    /// Host's resources are read once, as they are now, and the call
+    /// takes a slot for its waker. Nothing is sent until the first poll.
     pub(crate) fn new(
         pack: &'a EntryPack,
         tool: &str,
         arguments: &Value,
         files: &'a dyn ToolFiles,
     ) -> Steps<'a> {
+        let plugin = pack.plugin();
+        // The text is built before the slot is taken. Reading a resource
+        // runs the Host's code, which may panic, and a call that never
+        // comes to be gives no slot back.
+        let resources = plugin.resources().text();
         Steps {
             pack,
             files,
             tool: tool.to_owned(),
             arguments: arguments.to_string(),
+            resources,
+            parked: plugin.slots().take(),
             state: ptr::null_mut(),
             pending: false,
             ended: false,
@@ -134,14 +158,21 @@ impl<'a> Steps<'a> {
     }
 
     /// Sends one RV_TOOL_CALL step, which is lent the answer to the
-    /// request the last step made, and returns what the step left of the
-    /// call. The request of a step that ended the call is not performed.
+    /// request the last step made, the Host's resources, and the call's
+    /// waker, and returns what the step left of the call. The request of
+    /// a step that ended the call is not performed.
     fn step(&mut self) -> Stepped {
         let mut call = self.new_call(RV_TOOL_CALL);
         // The answer and what it points to stay valid until this function
         // returns, which is after the step has.
         let answer = self.answer.take();
         let lent = answer.as_ref().map(Answer::raw);
+        // This step answers every wake so far, so the slot forgets them
+        // before the entry point is called, and a wake from here on asks
+        // for the step after this one. The slot's lock is let go before
+        // the Plugin runs, because a Plugin may wake the call on this
+        // thread during the step.
+        self.parked.clear();
         let (status, mut session) = session::open(Verb::ToolCall, |ctx| {
             let args = RvToolCallArgs {
                 size: size_field::<RvToolCallArgs>(),
@@ -160,12 +191,16 @@ impl<'a> Steps<'a> {
                 file_remove,
                 file_rename,
                 file_copy,
+                resources: rv_str(&self.resources),
+                waker: self.parked.waker(),
             };
             call.args = (&raw const args).cast();
             // SAFETY: `call` carries this call's own pointers and a live
             // `RvToolCallArgs`, whose `answer` is NULL or a live
-            // `RvFileAnswer`, and no other step of the call runs, because
-            // a step needs `&mut self`.
+            // `RvFileAnswer`, whose `resources` is this call's own text,
+            // and whose `waker` is over a slot that the call's Plugin
+            // keeps until it is unloaded. No other step of the call
+            // runs, because a step needs `&mut self`.
             unsafe { self.pack.send(&mut call) }
         });
         self.state = call.tool_call;
@@ -198,17 +233,29 @@ impl<'a> Steps<'a> {
         }
     }
 
-    /// Ends the call: sends RV_TOOL_CANCEL when its last step returned
-    /// RV_PENDING, so the Plugin frees the state it still holds.
+    /// Ends the call, the first time it is called: sends RV_TOOL_CANCEL
+    /// when the call's last step returned RV_PENDING, so the Plugin
+    /// frees the state it still holds, and then gives the slot of the
+    /// call's waker back to the call's Plugin. The slot goes back last,
+    /// after the last step or the cancel has returned, so no later call
+    /// holds it while this call still runs in the Plugin.
     fn end(&mut self) {
-        self.ended = true;
-        if !std::mem::take(&mut self.pending) {
+        if std::mem::replace(&mut self.ended, true) {
             return;
         }
-        let mut call = self.new_call(RV_TOOL_CANCEL);
-        // SAFETY: the call's last step returned RV_PENDING and no step
-        // runs, so this is the one cancel the contract allows it.
-        let _status = session::closed(|| unsafe { self.pack.send(&mut call) });
+        if std::mem::take(&mut self.pending) {
+            // The task that parked the call is forgotten first, so a
+            // wake the Plugin makes as it frees the call's state wakes
+            // no task. No lock is held during the cancel, because a
+            // Plugin wakes from destructors on this thread.
+            self.parked.clear();
+            let mut call = self.new_call(RV_TOOL_CANCEL);
+            // SAFETY: the call's last step returned RV_PENDING and no
+            // step runs, so this is the one cancel the contract allows
+            // it.
+            let _status = session::closed(|| unsafe { self.pack.send(&mut call) });
+        }
+        self.pack.plugin().slots().give_back(&self.parked);
     }
 }
 
@@ -224,8 +271,9 @@ impl Future for Steps<'_> {
         }
         if let Some(asked) = this.request.as_mut() {
             // The contract sends a call no step while its request waits
-            // for an answer. The call's files wake this task when the
-            // outcome is there, so the future wakes nothing itself.
+            // for an answer, even when the Plugin wakes the call. The
+            // call's files wake this task when the outcome is there, so
+            // the future wakes nothing itself.
             let Poll::Ready(outcome) = asked.outcome.as_mut().poll(cx) else {
                 return Poll::Pending;
             };
@@ -239,10 +287,13 @@ impl Future for Steps<'_> {
                 Poll::Pending
             }
             Stepped::Waits => {
-                // The contract has no wake function: a pending call that
-                // asked for nothing gets its next step as soon as the
-                // executor polls again.
-                cx.waker().wake_by_ref();
+                // The call is parked until the Plugin wakes it. A wake
+                // that came since the step began is seen here, so it is
+                // not lost, and the next poll sends the step it asked
+                // for.
+                if this.parked.park(cx.waker()) {
+                    cx.waker().wake_by_ref();
+                }
                 Poll::Pending
             }
         }
@@ -261,8 +312,8 @@ fn failure(message: String) -> Error {
     make_tool_error(ErrorCode::ToolOther, message)
 }
 
-/// What a step that returned `status` means: `None` for a call that needs
-/// another step, and otherwise how the call ended. The checks come in
+/// What a step that returned `status` means: `None` for a call that goes
+/// on, and otherwise how the call ended. The checks come in
 /// this order: a misuse, then a result beside RV_PENDING, then a status
 /// other than RV_OK, then no result.
 fn judge(status: RvStatus, session: &mut Session) -> Option<Result<ToolOutput, Error>> {

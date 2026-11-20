@@ -84,7 +84,11 @@ pub mod harness {
     //! and the result each run ends with, beside an in-memory recorder,
     //! and three stock prompt finders: one prompt from text, one from a
     //! file, and a set a Host fills from text, files, and directories.
+    //! A Host hands each insert its [`HostResources`], the JSON values
+    //! it offers those Plugins under `vendor/name` names, and every tool
+    //! call of a Plugin is lent them as they are when the call starts.
 
+    pub use harness_plugin_loader::HostResources;
     pub use harness_plugin_loader::Plugin;
     pub use harness_plugin_loader::PluginReport;
     pub use harness_plugin_loader::PluginSource;

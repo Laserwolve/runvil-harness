@@ -13,6 +13,8 @@ use runvil_plugin_sys::PluginEntry;
 use crate::host::{Loading, send_load};
 use crate::load::{Instance, Loaded, make_load_error, open_entry, plugin_files};
 use crate::pack::EntryFactory;
+use crate::park::Slots;
+use crate::resources::HostResources;
 use crate::session::InsertedPack;
 
 #[cfg(test)]
@@ -34,6 +36,9 @@ mod tests;
 /// Each Pack that goes in keeps its Plugin loaded for as long as `packs`,
 /// or what a Host builds from it, holds the Pack.
 ///
+/// Each Plugin that loads keeps a clone of `resources`, and every tool
+/// call of its Packs is lent what `resources` offers as the call starts.
+///
 /// This safe function runs foreign code: opening a library runs its
 /// initialization code, and each `runvil_plugin` it calls has no way to be
 /// checked, because Rust cannot check the C contract. So a Host points it
@@ -44,13 +49,17 @@ mod tests;
 /// Returns the I/O error when `directory`, or the metadata of an entry in
 /// it with the platform's library extension, cannot be read. Other entries
 /// are never examined beyond their names.
-pub fn insert_plugin_dir(packs: &mut PackRegistry, directory: &Path) -> io::Result<PluginReport> {
+pub fn insert_plugin_dir(
+    packs: &mut PackRegistry,
+    directory: &Path,
+    resources: &HostResources,
+) -> io::Result<PluginReport> {
     let mut report = PluginReport {
         plugins: Vec::new(),
         failures: Vec::new(),
     };
     for path in plugin_files(directory)? {
-        match load_library(&path) {
+        match load_library(&path, resources) {
             Ok((plugin, _))
                 if report
                     .plugins
@@ -94,20 +103,24 @@ fn with_path(mut error: Error, path: &Path) -> Error {
     error
 }
 
-/// Opens the library at `path` and loads its Plugin. A failing load closes
-/// the library before this returns.
-fn load_library(path: &Path) -> Result<(Plugin, Vec<InsertedPack>), Error> {
+/// Opens the library at `path` and loads its Plugin, which keeps a clone
+/// of `resources`. A failing load closes the library before this returns.
+fn load_library(
+    path: &Path,
+    resources: &HostResources,
+) -> Result<(Plugin, Vec<InsertedPack>), Error> {
     let (library, entry) = open_entry(path)?;
+    let source = PluginSource::Library(path.to_owned());
     // SAFETY: `insert_plugin_dir`'s documentation requires every
     // `runvil_plugin` to follow the C contract and not unwind, and
     // `library` is the library `entry` came from.
-    unsafe { load(PluginSource::Library(path.to_owned()), entry, Some(library)) }
+    unsafe { load(source, entry, Some(library), resources) }
 }
 
 /// Sends `entry` RV_PLUGIN_LOAD and, when that succeeds, makes the Plugin
-/// that owns its instance and `library`, beside the Packs it inserted.
-/// When it fails, `library` drops at once, and no RV_PLUGIN_UNLOAD is
-/// sent.
+/// that owns its instance and `library` and keeps a clone of `resources`,
+/// beside the Packs it inserted. When it fails, `library` drops at once,
+/// and no RV_PLUGIN_UNLOAD is sent.
 ///
 /// # Safety
 /// `entry` must follow the C contract in `runvil-plugin-sys` and must not
@@ -117,6 +130,7 @@ unsafe fn load(
     source: PluginSource,
     entry: PluginEntry,
     library: Option<libloading::Library>,
+    resources: &HostResources,
 ) -> Result<(Plugin, Vec<InsertedPack>), Error> {
     // SAFETY: the caller guarantees `entry` follows the C contract and does
     // not unwind.
@@ -131,6 +145,8 @@ unsafe fn load(
         version: described.version,
         source,
         loaded: Loaded::new(Instance::new(entry, instance, ctx), library),
+        resources: resources.clone(),
+        slots: Slots::default(),
     };
     Ok((plugin, packs))
 }
@@ -176,6 +192,9 @@ fn insert_packs(
 /// Each Pack that goes in keeps the Plugin loaded for as long as `packs`,
 /// or what a Host builds from it, holds the Pack.
 ///
+/// The Plugin keeps a clone of `resources`, and every tool call of its
+/// Packs is lent what `resources` offers as the call starts.
+///
 /// This safe function runs foreign code: it calls `entry` with no way to
 /// check it, so a Host passes only an entry point it trusts, and `entry`
 /// must not unwind.
@@ -185,10 +204,14 @@ fn insert_packs(
 /// Plugin refuses, misuses the load functions, or does not describe
 /// itself, and the failure of the first Pack that `packs` refuses. The
 /// Packs that went in before that one stay in `packs`.
-pub fn insert_plugin(packs: &mut PackRegistry, entry: PluginEntry) -> Result<Arc<Plugin>, Error> {
+pub fn insert_plugin(
+    packs: &mut PackRegistry,
+    entry: PluginEntry,
+    resources: &HostResources,
+) -> Result<Arc<Plugin>, Error> {
     // SAFETY: this function's documentation requires `entry` to follow the
     // C contract and not unwind, and a linked Plugin has no library.
-    let (plugin, inserted) = unsafe { load(PluginSource::Linked, entry, None) }?;
+    let (plugin, inserted) = unsafe { load(PluginSource::Linked, entry, None, resources) }?;
     let plugin = Arc::new(plugin);
     match insert_packs(packs, &plugin, inserted).into_iter().next() {
         Some(refused) => Err(refused),
@@ -236,7 +259,8 @@ pub enum PluginSource {
 /// its instance and, for a library Plugin, its library. Each Pack it
 /// inserted and each Pack instance made from one holds an `Arc` of it.
 /// When the last `Arc` drops, it sends RV_PLUGIN_UNLOAD, then closes the
-/// library.
+/// library, and only then frees what the wakers of its tool calls point
+/// at.
 pub struct Plugin {
     /// At most 64 bytes, one name segment.
     name: String,
@@ -245,6 +269,14 @@ pub struct Plugin {
     source: PluginSource,
     /// Its drop sends RV_PLUGIN_UNLOAD and then closes the library.
     loaded: Loaded,
+    /// What the Host offers the Plugin, which each of its tool calls is
+    /// lent as the call starts.
+    resources: HostResources,
+    /// What the `ctx` of each tool call's waker points at. Fields drop
+    /// in declaration order, and this one is declared after `loaded`, so
+    /// the slots are freed only after RV_PLUGIN_UNLOAD has returned. The
+    /// Plugin may wake a call until then.
+    slots: Slots,
 }
 
 impl Plugin {
@@ -269,6 +301,16 @@ impl Plugin {
     /// The live instance every later call names.
     pub(crate) fn instance(&self) -> &Instance {
         self.loaded.instance()
+    }
+
+    /// What the Host offers the Plugin.
+    pub(crate) fn resources(&self) -> &HostResources {
+        &self.resources
+    }
+
+    /// The slots that the wakers of the Plugin's tool calls point at.
+    pub(crate) fn slots(&self) -> &Slots {
+        &self.slots
     }
 }
 

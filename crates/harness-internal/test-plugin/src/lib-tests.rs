@@ -7,6 +7,8 @@
 use std::cell::{Cell, RefCell};
 use std::ptr;
 use std::slice;
+use std::sync::atomic::AtomicUsize;
+use std::time::Instant;
 
 #[cfg(target_pointer_width = "64")]
 use std::mem::offset_of;
@@ -47,6 +49,8 @@ thread_local! {
     static ASKED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     /// The status every file function answers with.
     static ASK_STATUS: Cell<RvStatus> = const { Cell::new(RV_OK) };
+    /// How many times the Plugin woke a call on this test's thread.
+    static WAKES: Cell<usize> = const { Cell::new(0) };
 }
 
 /// Copies the bytes of `text` into a `String`.
@@ -199,6 +203,27 @@ fn asked() -> Vec<String> {
     ASKED.with_borrow(Clone::clone)
 }
 
+/// The `ctx` of the waker the tests lend each step. It is another address
+/// than [`test_ctx`], because a waker's `ctx` is its own and not the
+/// step's.
+fn waker_ctx() -> *mut c_void {
+    ptr::without_provenance_mut(0x3a3a)
+}
+
+/// The `wake` of the waker the tests lend each step: counts itself.
+unsafe extern "C" fn wake(ctx: *mut c_void) {
+    assert_eq!(ctx, waker_ctx(), "wake is handed the waker's own ctx");
+    WAKES.set(WAKES.get() + 1);
+}
+
+/// How many times the Plugin woke a call on this test's thread.
+fn wakes() -> usize {
+    WAKES.get()
+}
+
+/// The resources a step is lent when its test names none.
+const NO_RESOURCES: &str = "{}";
+
 /// The text of the one file the answers below hold.
 const FILE_TEXT: &str = "hello";
 
@@ -322,7 +347,7 @@ fn host_with(size: u32, api_major: u32, api_minor: u32) -> RvHost {
 
 /// A table the way the loader builds it.
 fn host() -> RvHost {
-    host_with(size_of_u32::<RvHost>(), 0, 5)
+    host_with(size_of_u32::<RvHost>(), 0, 6)
 }
 
 /// The `ctx` the tests hand the Plugin. The Plugin never reads through it,
@@ -361,12 +386,14 @@ fn pack_args(size: u32, pack: &str) -> RvPackNewArgs {
 }
 
 /// Step arguments that report `size`, for the tool `tool` with
-/// `arguments`, which lend the step `answer`.
+/// `arguments`, which lend the step `answer`, the resources `resources`,
+/// and the tests' waker.
 fn step_args(
     size: u32,
     tool: &str,
     arguments: &str,
     answer: *const RvFileAnswer,
+    resources: &str,
 ) -> RvToolCallArgs {
     RvToolCallArgs {
         size,
@@ -388,6 +415,11 @@ fn step_args(
             remove: file_remove,
             rename: file_rename,
             copy: file_copy,
+        },
+        resources: rv_str(resources),
+        waker: RvWaker {
+            ctx: waker_ctx(),
+            wake,
         },
     }
 }
@@ -465,17 +497,25 @@ fn delete_pack(call: &mut RvCall) -> RvStatus {
 }
 
 /// Sends one `RV_TOOL_CALL` step of `tool` with `arguments` on the Pack
-/// instance `call` carries, a step that follows no file request.
-fn step(call: &mut RvCall, tool: &str, arguments: &str) -> RvStatus {
+/// instance that `call` holds, a step that follows no file request and
+/// is lent the resources `resources`.
+fn step_lent(call: &mut RvCall, tool: &str, arguments: &str, resources: &str) -> RvStatus {
     let args = step_args(
         size_of_u32::<RvToolCallArgs>(),
         tool,
         arguments,
         ptr::null(),
+        resources,
     );
     call.verb = RV_TOOL_CALL;
     call.args = (&raw const args).cast();
     send(call)
+}
+
+/// Sends one `RV_TOOL_CALL` step of `tool` with `arguments` on the Pack
+/// instance `call` carries, a step that follows no file request.
+fn step(call: &mut RvCall, tool: &str, arguments: &str) -> RvStatus {
+    step_lent(call, tool, arguments, NO_RESOURCES)
 }
 
 /// Sends one `RV_TOOL_CALL` step of `tool` with `arguments` on the Pack
@@ -486,6 +526,7 @@ fn step_with(call: &mut RvCall, tool: &str, arguments: &str, answer: &RvFileAnsw
         tool,
         arguments,
         ptr::from_ref(answer),
+        NO_RESOURCES,
     );
     call.verb = RV_TOOL_CALL;
     call.args = (&raw const args).cast();
@@ -620,7 +661,11 @@ fn the_arguments_structs_keep_the_layout_the_contract_pins() {
     assert_eq!(offset_of!(RvPackNewArgs, refuse), 32);
     assert_eq!(offset_of!(RvPackNewArgs, add_tool), 40);
 
-    assert_eq!(size_of::<RvToolCallArgs>(), 136);
+    assert_eq!(size_of::<RvWaker>(), 16);
+    assert_eq!(offset_of!(RvWaker, ctx), 0);
+    assert_eq!(offset_of!(RvWaker, wake), 8);
+
+    assert_eq!(size_of::<RvToolCallArgs>(), 168);
     assert_eq!(offset_of!(RvToolCallArgs, size), 0);
     assert_eq!(offset_of!(RvToolCallArgs, reserved), 4);
     assert_eq!(offset_of!(RvToolCallArgs, ctx), 8);
@@ -639,6 +684,8 @@ fn the_arguments_structs_keep_the_layout_the_contract_pins() {
     assert_eq!(offset_of!(RvToolCallArgs, changes.remove), 112);
     assert_eq!(offset_of!(RvToolCallArgs, changes.rename), 120);
     assert_eq!(offset_of!(RvToolCallArgs, changes.copy), 128);
+    assert_eq!(offset_of!(RvToolCallArgs, resources), 136);
+    assert_eq!(offset_of!(RvToolCallArgs, waker), 152);
 }
 
 #[test]
@@ -679,7 +726,7 @@ fn the_verbs_and_the_version_keep_their_numbers() {
     assert_eq!(RV_TOOL_CALL, 5);
     assert_eq!(RV_TOOL_CANCEL, 6);
     assert_eq!(RV_API_MAJOR, 0);
-    assert_eq!(RV_API_MINOR, 5);
+    assert_eq!(RV_API_MINOR, 6);
 }
 
 #[test]
@@ -766,16 +813,16 @@ fn a_host_reporting_version_0_2_is_unsupported_and_leaves_no_instance() {
 }
 
 #[test]
-fn a_table_that_is_too_short_or_not_version_0_5_is_unsupported_and_leaves_no_instance() {
+fn a_table_that_is_too_short_or_not_version_0_6_is_unsupported_and_leaves_no_instance() {
     let full = size_of_u32::<RvHost>();
-    let short = [0, 4, 8, 12, full - 1].map(|size| (size, 0, 5));
+    let short = [0, 4, 8, 12, full - 1].map(|size| (size, 0, 6));
     let versions = [
-        (1, 5),
-        (2, 5),
-        (u32::MAX, 5),
+        (1, 6),
+        (2, 6),
+        (u32::MAX, 6),
         (0, 0),
-        (0, 4),
-        (0, 6),
+        (0, 5),
+        (0, 7),
         (0, u32::MAX),
     ]
     .map(|(major, minor)| (full, major, minor));
@@ -796,7 +843,7 @@ fn a_table_that_is_too_short_or_not_version_0_5_is_unsupported_and_leaves_no_ins
 
 #[test]
 fn a_table_longer_than_the_one_the_fixture_knows_still_loads() {
-    let host = host_with(size_of_u32::<RvHost>() + 32, 0, 5);
+    let host = host_with(size_of_u32::<RvHost>() + 32, 0, 6);
     let mut call = loaded(&host);
     assert!(!call.plugin.is_null());
     assert_eq!(unload(&mut call), RV_OK);
@@ -828,7 +875,7 @@ fn short_load_arguments_are_unsupported_and_leave_no_instance() {
 }
 
 #[test]
-fn a_host_that_is_not_0_5_is_rejected_before_null_args_are_noticed() {
+fn a_host_that_is_not_0_6_is_rejected_before_null_args_are_noticed() {
     let (status, _call) = send_verb(
         RV_PLUGIN_LOAD,
         &host_with(size_of_u32::<RvHost>(), 0, 2),
@@ -894,6 +941,8 @@ fn a_pack_instance_adds_its_tools_with_a_flag_on_each_that_changes_files_and_is_
                 ("hello", "", NO_PARAMETERS, 0),
                 ("steps", "", NO_PARAMETERS, 0),
                 ("never", "", NO_PARAMETERS, 0),
+                ("resources", "", NO_PARAMETERS, 0),
+                ("later", "", NO_PARAMETERS, 0),
                 ("stat", "", PATH_PARAMETERS, 0),
                 ("list", "", PATH_PARAMETERS, 0),
                 ("read", "", PATH_PARAMETERS, 0),
@@ -966,17 +1015,20 @@ fn the_hello_tool_finishes_in_one_step_with_its_arguments() {
 }
 
 #[test]
-fn the_steps_tool_is_pending_twice_and_finishes_in_its_third_step() {
+fn the_steps_tool_wakes_its_call_before_each_pending_step_and_finishes_in_its_third_step() {
     let host = host();
     let mut call = loaded(&host);
     assert_eq!(new_pack(&mut call), RV_OK);
     assert_eq!(step(&mut call, "steps", "{}"), RV_PENDING);
+    assert_eq!(wakes(), 1, "the first step woke its call");
     let state = call.tool_call;
     assert!(!state.is_null(), "a pending call keeps its state");
     assert_eq!(step(&mut call, "steps", "{}"), RV_PENDING);
+    assert_eq!(wakes(), 2, "the second step woke its call");
     assert_eq!(call.tool_call, state, "the same state comes back");
     assert_eq!(finished(), [], "a pending step finishes nothing");
     assert_eq!(step(&mut call, "steps", "{}"), RV_OK);
+    assert_eq!(wakes(), 2, "the step that ends the call wakes nothing");
     assert_eq!(finished(), [(RV_RESULT_TRUSTED, "3 steps".to_owned())]);
     assert!(call.tool_call.is_null(), "the last step frees the state");
     assert_eq!(delete_pack(&mut call), RV_OK);
@@ -984,13 +1036,18 @@ fn the_steps_tool_is_pending_twice_and_finishes_in_its_third_step() {
 }
 
 #[test]
-fn the_never_tool_stays_pending_until_a_cancel_frees_its_state() {
+fn the_never_tool_stays_pending_and_wakes_nothing_until_a_cancel_frees_its_state() {
     let host = host();
     let mut call = loaded(&host);
     assert_eq!(new_pack(&mut call), RV_OK);
     for _ in 0..5 {
         assert_eq!(step(&mut call, "never", "{}"), RV_PENDING);
     }
+    assert_eq!(
+        wakes(),
+        0,
+        "its call stays parked until the Host abandons it"
+    );
     assert!(!call.tool_call.is_null());
     assert_eq!(cancel(&mut call), RV_OK);
     assert_eq!(
@@ -999,6 +1056,121 @@ fn the_never_tool_stays_pending_until_a_cancel_frees_its_state() {
         "a cancel with no state frees nothing"
     );
     assert_eq!(finished(), []);
+    assert_eq!(wakes(), 0, "the cancel wakes nothing either");
+    assert_eq!(delete_pack(&mut call), RV_OK);
+    assert_eq!(unload(&mut call), RV_OK);
+}
+
+#[test]
+fn the_resources_tool_wakes_its_call_and_answers_what_its_second_step_is_lent() {
+    let host = host();
+    let mut call = loaded(&host);
+    assert_eq!(new_pack(&mut call), RV_OK);
+    let lent = r#"{"runvil/web-search":{"version":1}}"#;
+    assert_eq!(step_lent(&mut call, "resources", "{}", lent), RV_PENDING);
+    assert_eq!(wakes(), 1, "no file request brings the second step");
+    assert_eq!(finished(), [], "the first step finishes nothing");
+    assert!(!call.tool_call.is_null(), "a pending call keeps its state");
+    // A Host lends every step of a call the same text. The answer is the
+    // text of the second step, so a test sees that a later step is lent
+    // it too.
+    assert_eq!(step_lent(&mut call, "resources", "{}", lent), RV_OK);
+    assert_eq!(finished(), [(RV_RESULT_TRUSTED, lent.to_owned())]);
+    assert_eq!(wakes(), 1, "the step that ends the call wakes nothing");
+    assert!(call.tool_call.is_null(), "the last step frees the state");
+
+    FINISHED.with_borrow_mut(Vec::clear);
+    assert_eq!(step(&mut call, "resources", "{}"), RV_PENDING);
+    assert_eq!(step(&mut call, "resources", "{}"), RV_OK);
+    assert_eq!(
+        finished(),
+        [(RV_RESULT_TRUSTED, "{}".to_owned())],
+        "a Host that offers nothing lends an empty object"
+    );
+    assert_eq!(delete_pack(&mut call), RV_OK);
+    assert_eq!(unload(&mut call), RV_OK);
+}
+
+/// Sends one `RV_TOOL_CALL` step of the `later` tool on the Pack instance
+/// that `call` holds, a step that is lent a waker whose `wake` is `wake`.
+/// The tool wakes from a thread of its own, where the counter of the
+/// tests' own waker does not reach, so each test lends a waker that
+/// counts in a static of that test.
+fn step_later(call: &mut RvCall, wake: unsafe extern "C" fn(*mut c_void)) -> RvStatus {
+    let args = RvToolCallArgs {
+        waker: RvWaker {
+            ctx: waker_ctx(),
+            wake,
+        },
+        ..step_args(
+            size_of_u32::<RvToolCallArgs>(),
+            "later",
+            "{}",
+            ptr::null(),
+            NO_RESOURCES,
+        )
+    };
+    call.verb = RV_TOOL_CALL;
+    call.args = (&raw const args).cast();
+    send(call)
+}
+
+#[test]
+fn the_later_tool_is_woken_by_a_thread_it_started_and_then_answers_woken() {
+    /// How many times the thread of this test's call woke it.
+    static WOKEN: AtomicUsize = AtomicUsize::new(0);
+
+    unsafe extern "C" fn count(ctx: *mut c_void) {
+        assert_eq!(ctx, waker_ctx(), "wake is handed the waker's own ctx");
+        WOKEN.fetch_add(1, Ordering::SeqCst);
+    }
+
+    let host = host();
+    let mut call = loaded(&host);
+    assert_eq!(new_pack(&mut call), RV_OK);
+    assert_eq!(step_later(&mut call, count), RV_PENDING);
+    assert!(!call.tool_call.is_null(), "a pending call keeps its state");
+    assert_eq!(finished(), [], "the first step finishes nothing");
+
+    // A Host sends the second step once the call is woken.
+    let started = Instant::now();
+    while WOKEN.load(Ordering::SeqCst) == 0 {
+        assert!(
+            started.elapsed() < Duration::from_secs(60),
+            "the thread of the `later` tool did not wake its call within 60 seconds"
+        );
+        std::thread::yield_now();
+    }
+    assert_eq!(step_later(&mut call, count), RV_OK);
+    assert_eq!(finished(), [(RV_RESULT_TRUSTED, "woken".to_owned())]);
+    assert_eq!(WOKEN.load(Ordering::SeqCst), 1, "the thread woke once");
+    assert!(call.tool_call.is_null(), "the last step frees the state");
+    assert_eq!(delete_pack(&mut call), RV_OK);
+    assert_eq!(unload(&mut call), RV_OK);
+}
+
+#[test]
+fn a_cancel_of_a_later_call_waits_for_the_thread_the_call_started() {
+    /// How many times the thread of this test's call woke it.
+    static WOKEN: AtomicUsize = AtomicUsize::new(0);
+
+    unsafe extern "C" fn count(ctx: *mut c_void) {
+        assert_eq!(ctx, waker_ctx(), "wake is handed the waker's own ctx");
+        WOKEN.fetch_add(1, Ordering::SeqCst);
+    }
+
+    let host = host();
+    let mut call = loaded(&host);
+    assert_eq!(new_pack(&mut call), RV_OK);
+    assert_eq!(step_later(&mut call, count), RV_PENDING);
+    assert_eq!(cancel(&mut call), RV_OK);
+    assert_eq!(
+        WOKEN.load(Ordering::SeqCst),
+        1,
+        "the cancel joined the thread, so the thread's wake had come when it returned, and no \
+         thread of the Plugin is left"
+    );
+    assert_eq!(finished(), [], "an abandoned call finishes nothing");
     assert_eq!(delete_pack(&mut call), RV_OK);
     assert_eq!(unload(&mut call), RV_OK);
 }
@@ -1365,6 +1537,7 @@ fn a_step_with_the_wrong_arguments_ends_the_call_and_frees_its_state() {
         "never",
         "{}",
         ptr::null(),
+        NO_RESOURCES,
     );
     call.args = (&raw const short).cast();
     assert_eq!(send(&mut call), RV_ERR_UNSUPPORTED, "short arguments");
