@@ -139,7 +139,6 @@ pub use crate::bindings::{
 pub use crate::collection::render_item;
 pub use crate::compactors::{OverflowReason, UsageAnchor, output_reserve, precheck};
 pub use crate::dispatch::{ScriptReport, ToolDispatch, prepare_dispatch, prepare_model_dispatch};
-pub use crate::engine_globals::install_ui;
 pub use crate::engine_globals_store::{make_store_failure_error, store_error_message};
 pub use crate::error::{
     QuotaResource, make_context_exhausted_error, make_internal_at_error, make_internal_error,

@@ -20,7 +20,6 @@
 //! needed Pack is still starting. The effect loop records that end like
 //! any other.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use runvil_engine::Error;
@@ -59,9 +58,8 @@ pub(crate) async fn begin(
 /// is ready or `cancel` fires, and builds the `Run` over `params` under
 /// `setup.limits`.
 ///
-/// The run's `ui()` snapshot is `setup`'s selection and first workspace
-/// root, and `model` fills all five roles, so the run's first step checks
-/// each declared role's requirements against it. A Pack whose factory
+/// `model` fills all five roles, so the run's first step checks each
+/// declared role's requirements against it. A Pack whose factory
 /// refuses or panics, or whose `ready` fails, is unavailable to this run,
 /// with the reason, and so is `runvil/user` when `setup.has_user` is
 /// false. A cancel ends the wait, and each Pack is snapshotted as it
@@ -88,7 +86,6 @@ pub(crate) async fn prepare(
     let params = params
         .with_cancel(cancel.clone())
         .with_limits(setup.limits)
-        .with_ui(ui(setup.selected_model.as_deref(), &setup.workspace_roots))
         .with_vfs(setup.vfs.clone())
         .with_tools(packs.catalog())
         .with_packs(packs.roster())
@@ -102,13 +99,4 @@ pub(crate) async fn prepare(
 
     let run = Run::new(prompt, &setup.args, params);
     (run, packs)
-}
-
-/// The `ui()` snapshot as a JSON object: `selected_model`, and the first
-/// of `workspace_roots` as `workspace_root`. Each is `null` when absent.
-fn ui(selected_model: Option<&str>, workspace_roots: &[PathBuf]) -> serde_json::Value {
-    let root = workspace_roots
-        .first()
-        .map(|root| root.display().to_string());
-    serde_json::json!({ "selected_model": selected_model, "workspace_root": root })
 }

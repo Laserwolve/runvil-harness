@@ -237,17 +237,15 @@ fn a_prelude_global_named_like_a_model_role_label_installs() {
 }
 
 #[test]
-fn a_prelude_defining_ui_or_item_collides_on_a_run_that_binds_neither() {
-    for name in ["ui", "item"] {
-        assert_fails_before_any_effect(
-            &effect_first(&["reserved"]),
-            vec![prelude("reserved", &format!("{name} = {{}}"))],
-            &[
-                &format!("Pack `reserved`: its prelude defines the global `{name}`"),
-                "which is reserved as an Engine global",
-            ],
-        );
-    }
+fn a_prelude_defining_item_collides_on_a_run_that_does_not_bind_it() {
+    assert_fails_before_any_effect(
+        &effect_first(&["reserved"]),
+        vec![prelude("reserved", "item = {}")],
+        &[
+            "Pack `reserved`: its prelude defines the global `item`",
+            "which is reserved as an Engine global",
+        ],
+    );
 }
 
 #[test]

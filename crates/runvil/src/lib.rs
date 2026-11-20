@@ -18,7 +18,7 @@
 //! may execute, and returns it behind an `Arc` that every run of it
 //! shares. For each run the launcher builds a [`RunSetup`] with the
 //! run's recorder, inference broker, filesystem, model selection,
-//! workspace roots, [`RunLimits`], tool-call cap, arguments, and whether a
+//! [`RunLimits`], tool-call cap, arguments, and whether a
 //! user answers it, and
 //! [`Harness::new`] takes the Host, the parsed prompt or a clone of its
 //! `Arc`, and that setup.

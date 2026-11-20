@@ -1,8 +1,8 @@
 //! The per-run Harness: `run` begins the run's record, resolves the run's
 //! model through the setup's broker, prepares the parsed prompt, and
 //! drives the run as one future; the record opens
-//! with the run's own start, numbered from zero; the `ui()` snapshot serves the
-//! setup's selection and first workspace root; `models.get` refuses a
+//! with the run's own start, numbered from zero; a prompt reads the
+//! setup's selection through a role's handle; `models.get` refuses a
 //! Gateway model id; a run that fails after it
 //! starts is a recorded failed run, never an error of `run`; a Vfs effect's
 //! answer record directly follows its effect record; two runs in flight at
@@ -24,7 +24,6 @@
 //! `run` returns in the `errors` child module.
 
 use std::future::Future;
-use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -275,10 +274,11 @@ const INFERS_AND_STORES: &str = "---\nname: infers\ndescription: d\nrunvil: 0\n\
     store.write('note.md', 'kept')\n\
     return models.infer('asked') .. '|' .. store.read('note.md')\n```\n";
 
-/// A prompt that returns the `ui()` snapshot's two fields.
-const READS_UI: &str = "---\nname: reads-ui\ndescription: d\nrunvil: 0\n---\n\n\
+/// A prompt that returns the model id of the `default` role's handle.
+const READS_THE_SELECTION: &str = "---\nname: reads-selection\ndescription: d\nrunvil: 0\n\
+    ---\n\n\
     ## Only\n\n```lua\n\
-    return tostring(ui().selected_model) .. '|' .. tostring(ui().workspace_root)\n```\n";
+    return models.get('default').model_id\n```\n";
 
 /// A prompt that asks `models.get` for a Gateway model id and returns how
 /// the call ended.
@@ -358,36 +358,16 @@ async fn a_runs_record_starts_with_its_own_start_and_counts_from_zero() {
 }
 
 #[tokio::test]
-async fn the_ui_snapshot_serves_the_selected_model_and_the_first_workspace_root() {
+async fn a_prompt_reads_the_selected_model_through_a_roles_handle() {
     let recorder = Arc::new(MemoryRecorder::new());
-    let first = PathBuf::from("/w/one");
-    let harness = launch(
-        no_packs(),
-        PendingTimer::default(),
-        READS_UI,
-        RunSetup {
-            workspace_roots: vec![first.clone(), PathBuf::from("/w/two")],
-            ..setup(recorder.clone(), ScriptedBroker::replying())
-        },
-    );
-    let report = harness.run().await.expect("the run is reported");
+    let report = plain_harness(&recorder, ScriptedBroker::replying(), READS_THE_SELECTION)
+        .run()
+        .await
+        .expect("the run is reported");
     assert_eq!(
         report.result,
-        Ok(format!("{MODEL}|{}", first.display())),
-        "the selection and the first root"
-    );
-
-    let harness = launch(
-        no_packs(),
-        PendingTimer::default(),
-        READS_UI,
-        RunSetup::new(recorder.clone(), Arc::new(ScriptedBroker::replying())),
-    );
-    let report = harness.run().await.expect("the run is reported");
-    assert_eq!(
-        report.result,
-        Ok("nil|nil".to_owned()),
-        "no selection and no roots read as nil"
+        Ok(MODEL.to_owned()),
+        "the setup's selection fills the role, and the role's handle names that model"
     );
 }
 

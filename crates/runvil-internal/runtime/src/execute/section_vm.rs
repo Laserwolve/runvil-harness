@@ -72,10 +72,6 @@ pub(crate) struct SectionVmSetup<'a> {
     /// The run's tool-loop cap, as `ChainState::max_tool_iterations`
     /// resolves it, captured by the `models.loop` shim as its round cap.
     pub(crate) max_tool_iterations: usize,
-    /// The run's application-state snapshot, when the caller supplied one:
-    /// its presence gives the section VM the `ui()` global. Shared through
-    /// the run's `Arc`, so every section VM serializes the one tree.
-    pub(crate) ui: Option<&'a Arc<serde_json::Value>>,
     /// The preludes of the Packs the section's prompt declares, installed
     /// in order after the coroutine shims and before `require`.
     pub(crate) preludes: &'a [Prelude],
@@ -90,8 +86,7 @@ pub(crate) struct SectionVmSetup<'a> {
 /// The sequence is fixed and shared: the prompt's file label, then Engine
 /// injection with the frame
 /// constructor's [`VmSeed`], then
-/// [`SectionVm::install_engine_globals`], the
-/// `ui()` global when the run supplied a snapshot, the `item` global when
+/// [`SectionVm::install_engine_globals`], the `item` global when
 /// the seed includes one, the control surface
 /// ([`SectionVm::install_control_globals`] for `jump` and the
 /// `prompt` reads, plus [`SectionVm::install_coro_shims`] for the
@@ -103,7 +98,7 @@ pub(crate) struct SectionVmSetup<'a> {
 /// # Errors
 /// Returns the [`Error`] of whichever step failed, after tearing the VM
 /// down under the setup's section: Engine injection, Engine global
-/// install, `ui()` install, `item` install, control-global install, the
+/// install, `item` install, control-global install, the
 /// yield shims' install, the prelude install (a prelude that fails to
 /// load, as one that calls a tool or the store does, or whose global
 /// collides), or the `require` install.
@@ -152,9 +147,6 @@ where
     P: Fn(&str, Option<NonZeroU32>, ProseState<'_>) -> mlua::Result<String> + Send + Sync + 'static,
 {
     vm.install_engine_globals(setup.emitter, setup.section_name)?;
-    if let Some(snapshot) = setup.ui {
-        crate::lua::install_ui(vm.lua(), Arc::clone(snapshot))?;
-    }
     if let Some(item) = setup.seed.item {
         vm.set_global_json("item", item)?;
     }

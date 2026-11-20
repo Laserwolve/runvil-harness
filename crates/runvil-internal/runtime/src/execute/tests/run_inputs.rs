@@ -1,13 +1,13 @@
 //! The caller-drawn inputs on `RunParams`: `seed` (the untrusted-envelope
-//! nonce derives from it), `started_at` (rendered as `sys.when` in the
-//! preamble and in every other section alike), and `ui` (the snapshot the
-//! `ui()` global serves). Two runs under the same inputs agree byte for
-//! byte, and `sys.now` is an unknown field.
+//! nonce derives from it) and `started_at` (rendered as `sys.when` in the
+//! preamble and in every other section alike). Two runs under the same
+//! inputs agree byte for byte, `sys.now` is an unknown field, and a run
+//! installs no `ui` global.
 
 use runvil_types::seed::RunSeed;
 use runvil_types::timestamp::Timestamp;
 
-use super::context::{parse, test_params};
+use super::context::parse;
 use super::*;
 use crate::execute::run::Run;
 use crate::test_support::drive;
@@ -156,25 +156,7 @@ fn sys_now_is_absent_from_the_globals() {
 }
 
 #[test]
-fn the_ui_global_serves_the_snapshot_taken_at_run_start() {
-    let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        ## Only\n\n\
-        ```lua\n\
-        return ui().selected_model .. '/' .. tostring(ui().workspace_root)\n\
-        ```\n";
-    let ctx = test_params().with_ui(json!({ "selected_model": "m-1", "workspace_root": null }));
-    let (result, _) = drive(Run::new(Arc::new(parse(md)), "{}", ctx), |_, effect| {
-        panic!("no effect is issued: {effect:?}")
-    });
-    assert_eq!(
-        text_of(result),
-        "m-1/nil",
-        "the snapshot's fields read as Lua values, a JSON null as nil"
-    );
-}
-
-#[test]
-fn a_run_without_a_ui_snapshot_installs_no_ui_global() {
+fn a_run_installs_no_ui_global() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
         ## Only\n\n\
         ```lua\n\

@@ -7,10 +7,9 @@ use super::*;
 #[test]
 fn a_prelude_sees_only_its_restricted_environment() {
     let vm = section_vm_with_var(&json!({ "mode": "fast" }));
-    install_ui(vm.lua(), Arc::new(json!({}))).expect("the ui global installs");
     let probe = "\
 function probe_hidden()
-  return type(ui) .. ',' .. type(args) .. ',' .. type(sys) .. ',' .. type(models)
+  return type(args) .. ',' .. type(sys) .. ',' .. type(models)
     .. ',' .. type(first_global)
 end
 function probe_visible()
@@ -34,7 +33,7 @@ end";
     .expect("the preludes install");
 
     let author_view: String = vm.eval(
-        "return type(ui) .. ',' .. type(args) .. ',' .. type(sys) .. ',' .. type(models) \
+        "return type(args) .. ',' .. type(sys) .. ',' .. type(models) \
          .. ',' .. type(first_global)",
     );
     assert!(
@@ -42,7 +41,7 @@ end";
         "author code sees every probed global: {author_view}"
     );
     let hidden: String = vm.eval("return probe_hidden()");
-    assert_eq!(hidden, "nil,nil,nil,nil,nil");
+    assert_eq!(hidden, "nil,nil,nil,nil");
     let visible: String = vm.eval("return probe_visible()");
     assert_eq!(visible, "function,table,function,function,table");
     let (mode, ok, kind, message): (String, bool, String, String) = vm.eval("return probe_var()");

@@ -46,8 +46,6 @@ pub struct RunParams {
     pub(super) cancel: CancelHandle,
     /// The run's resource limits; set by `with_limits`.
     pub(super) limits: RunLimits,
-    /// The application-state snapshot the `ui()` global serves; set by `with_ui`.
-    pub(super) ui: Option<serde_json::Value>,
     /// The filesystem the run's tool calls work in; set by `with_vfs`.
     pub(super) vfs: VfsRef,
     /// The caller's role map, which fills the run's five roles; set by
@@ -66,9 +64,9 @@ pub struct RunParams {
 impl RunParams {
     /// Params for one run with the given `seed` and `started_at`.
     ///
-    /// The new params have a fresh cancel flag, a `ui` snapshot of `None`,
-    /// debug reporting off, default [`RunLimits`], and the default
-    /// filesystem, which is one empty memory mount at `/`.
+    /// The new params have a fresh cancel flag, debug reporting off,
+    /// default [`RunLimits`], and the default filesystem, which is one
+    /// empty memory mount at `/`.
     ///
     /// `seed` is the source of the untrusted-envelope nonce. For a live
     /// run, the caller must draw its 32 bytes from a CSPRNG,
@@ -83,7 +81,6 @@ impl RunParams {
             report_debug: false,
             cancel: CancelHandle::new(),
             limits: RunLimits::default(),
-            ui: None,
             vfs: VfsRef::default(),
             models: BTreeMap::new(),
             tools: ToolCatalog::default(),
@@ -131,19 +128,6 @@ impl RunParams {
     #[must_use]
     pub fn with_limits(mut self, limits: RunLimits) -> RunParams {
         self.limits = limits;
-        self
-    }
-
-    /// Sets the snapshot of application state that prompts read through the
-    /// `ui()` global.
-    ///
-    /// With a snapshot set, every section VM gets a `ui()` global that
-    /// returns it. The caller takes the snapshot at run start, so a change
-    /// to application state takes effect on the next run. The default is
-    /// `None`, which leaves the `ui` global absent.
-    #[must_use]
-    pub fn with_ui(mut self, snapshot: serde_json::Value) -> RunParams {
-        self.ui = Some(snapshot);
         self
     }
 
@@ -266,7 +250,6 @@ impl fmt::Debug for RunParams {
             .field("report_debug", &self.report_debug)
             .field("cancel", &self.cancel)
             .field("limits", &self.limits)
-            .field("ui", &self.ui)
             .field("vfs", &self.vfs)
             .field("models", &self.models)
             .field("tools", &self.tools)

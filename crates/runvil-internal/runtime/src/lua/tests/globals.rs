@@ -2,14 +2,12 @@
 //! executor's real setup path, compared in both directions: every global
 //! section setup leaves in `_G` is a reserved name, and
 //! every reserved global reads non-nil once the VM binds its conditional
-//! ones (`ui`, `item`, `prose`) and `require` installs over a resolver and
+//! ones (`item`, `prose`) and `require` installs over a resolver and
 //! a renderer. No Pack prelude installs here, so what
 //! `_G` holds is exactly what the Engine installs. Model roles bind here
 //! too, since a role label is never a global, and the run offers tools of
 //! a declared Pack and of another one, since a tool is never a global
 //! either.
-
-use std::sync::Arc;
 
 use mlua::Value;
 use serde_json::json;
@@ -58,13 +56,11 @@ fn offering() -> ToolSet {
 }
 
 /// Builds a section VM through the real setup path with every conditional
-/// Engine global bound: a caller-supplied application-state snapshot
-/// (`ui`), a collection member (`item`),
+/// Engine global bound: a collection member (`item`),
 /// a block's lazy `prose`, the model roles in [`ROLE_LABELS`], the tools of
 /// [`offering`], and a `require` whose resolver reaches no library.
 fn fully_bound_vm() -> SectionVm {
     let item = json!("member");
-    let ui = Arc::new(json!({}));
     let vm = set_up_vm(&VmBinds {
         section: "Globals",
         tools: &offering(),
@@ -73,7 +69,6 @@ fn fully_bound_vm() -> SectionVm {
             var: None,
             item: Some(&item),
         },
-        ui: Some(&ui),
     });
     vm.install_lazy_prose(|_| Ok("the block's prose".to_owned()))
         .expect("the prose guard installs");

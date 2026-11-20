@@ -307,9 +307,9 @@ impl<S> SectionVm<S> {
 }
 
 impl SectionVm {
-    /// Borrows the inner Lua state, for the section setup's installers
-    /// (the `ui` global and the Pack preludes) and the driver's yield
-    /// parsing and answer rendering.
+    /// Borrows the inner Lua state, for the section setup's installer of
+    /// the Pack preludes and the driver's yield parsing and answer
+    /// rendering.
     #[must_use]
     pub fn lua(&self) -> &Lua {
         &self.lua

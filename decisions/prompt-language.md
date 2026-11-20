@@ -248,7 +248,7 @@ The libraries include `utf8` because it is pure, and an author needs it to cut a
 
 ### The Engine installs a fixed set of globals and reserves their names
 
-The Engine globals that are the data of the run are `args`, `item`, `messages`, `prose`, `sys`, and `var`. The tables of operations are `compactors`, `json`, `markdown`, `models`, `prompt`, `store`, `tasks`, and `tools`. The functions are `call`, `execute`, `jump`, `log`, `require`, `ui`, and `untrusted`. Two of these exist only in some VMs: `ui` when the caller supplied a snapshot, and `item` in the first section of a task whose spawn supplied one. The reserved names are these globals, the Lua globals that the sandbox leaves in place, and the keywords of Lua 5.5. A Pack prelude, the Lua that the Engine runs for a Pack in each section VM, fails to install when it defines a reserved name.
+The Engine globals that are the data of the run are `args`, `item`, `messages`, `prose`, `sys`, and `var`. The tables of operations are `compactors`, `json`, `markdown`, `models`, `prompt`, `store`, `tasks`, and `tools`. The functions are `call`, `execute`, `jump`, `log`, `require`, and `untrusted`. One global exists only in some VMs: `item`, in the first section of a task whose spawn supplied one. The reserved names are these globals, the Lua globals that the sandbox leaves in place, and the keywords of Lua 5.5. A Pack prelude, the Lua that the Engine runs for a Pack in each section VM, fails to install when it defines a reserved name.
 
 Other pages cover `models`, `messages`, and `compactors` ([Model calls and conversations](models-and-conversations.md)), `tools` and `untrusted` ([Tools and Packs](tools-and-packs.md)), `tasks` and `item` ([Tasks and fanout](tasks-and-fanout.md)), and `store` ([Files and the VFS](files-and-the-vfs.md)).
 
@@ -277,10 +277,6 @@ The table refuses writes because `sys` is runtime metadata: the Engine writes it
 `log(message)` takes exactly one string: a single line of at most 256 characters. A newline or a control character in it raises an error. The Engine reports the string as an `Event::Lua` under the current section. A section VM accepts 1024 calls by default and 262,144 bytes of text across them, and a call past either limit raises an error with the code `lua_quota`.
 
 The limits loosen only after examples from real prompt debugging establish a need for multiline or structured values.
-
-### `ui()` returns the Host's snapshot from the start of the run
-
-`ui()` returns a fresh table on each call with the data the caller supplied when the run started. The Harness fills the fields `selected_model` and `workspace_root`.
 
 ### `pairs` and `next` visit keys in a fixed order
 

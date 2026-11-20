@@ -170,8 +170,7 @@ fn refusal(lua: &Lua, message: &'static str) -> Result<Function> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reserved {
     /// A global the Engine installs: on every section VM, or only on some
-    /// (`ui` when the run has an application-state snapshot, `item` in a
-    /// spawned chain).
+    /// (`item` in a spawned chain).
     EngineGlobal,
     /// A Lua standard-library global the sandbox keeps.
     LuaGlobal,
@@ -196,7 +195,7 @@ impl fmt::Display for Reserved {
 /// A global section setup installs must be listed here: the Engine's
 /// section setup tests compare this list against a set-up VM's globals in
 /// both directions.
-pub const RESERVED_NAMES: [(&str, Reserved); 63] = [
+pub const RESERVED_NAMES: [(&str, Reserved); 62] = [
     ("args", Reserved::EngineGlobal),
     ("call", Reserved::EngineGlobal),
     ("compactors", Reserved::EngineGlobal),
@@ -215,7 +214,6 @@ pub const RESERVED_NAMES: [(&str, Reserved); 63] = [
     ("sys", Reserved::EngineGlobal),
     ("tasks", Reserved::EngineGlobal),
     ("tools", Reserved::EngineGlobal),
-    ("ui", Reserved::EngineGlobal),
     ("untrusted", Reserved::EngineGlobal),
     ("var", Reserved::EngineGlobal),
     ("_G", Reserved::LuaGlobal),

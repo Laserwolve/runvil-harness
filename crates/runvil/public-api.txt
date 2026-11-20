@@ -734,7 +734,6 @@ pub runvil::RunSetup::max_tool_calls_in_flight: core::num::nonzero::NonZeroUsize
 pub runvil::RunSetup::recorder: alloc::sync::Arc<dyn runvil::harness::RunRecorder>
 pub runvil::RunSetup::selected_model: core::option::Option<alloc::string::String>
 pub runvil::RunSetup::vfs: runvil::vfs::VfsRef
-pub runvil::RunSetup::workspace_roots: alloc::vec::Vec<std::path::PathBuf>
 pub runvil::SourceLoc::end_column: core::num::nonzero::NonZeroU32
 pub runvil::SourceLoc::end_line: core::num::nonzero::NonZeroU32
 pub runvil::SourceLoc::file: alloc::string::String

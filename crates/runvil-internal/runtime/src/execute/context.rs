@@ -85,8 +85,6 @@ struct SharedState {
     /// The run's `started_at` rendered as RFC 3339, stamped into every
     /// section's `sys.when`.
     when: Arc<str>,
-    /// The run's application-state snapshot, when the caller supplied one.
-    ui: Option<Arc<serde_json::Value>>,
     /// Test-only: installs the raw `tools.call_as_model` shim in every
     /// section VM, so a fixture section can yield one model-issued
     /// `tool_call` at the scheduler's dispatch arm without going through a
@@ -281,7 +279,6 @@ impl ChainState {
             report_debug,
             cancel,
             limits,
-            ui,
             vfs,
             models,
             tools,
@@ -332,7 +329,6 @@ impl ChainState {
                 refusal,
                 args_refusal,
                 when: Arc::from(started_at.to_rfc3339()),
-                ui: ui.map(Arc::new),
                 #[cfg(test)]
                 raw_shims: false,
             }),
@@ -583,7 +579,6 @@ impl ChainState {
             section_name,
             file: self.prompt.prompt.file(),
             max_tool_iterations: self.prompt.max_tool_iterations(&self.shared.limits),
-            ui: self.shared.ui.as_ref(),
             preludes: &self.prompt.preludes,
             #[cfg(test)]
             raw_shims: self.shared.raw_shims,
@@ -638,7 +633,6 @@ impl fmt::Debug for SharedState {
             .field("refusal", &self.refusal)
             .field("args_refusal", &self.args_refusal)
             .field("when", &self.when)
-            .field("ui", &self.ui)
             .finish()
     }
 }

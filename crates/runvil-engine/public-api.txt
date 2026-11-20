@@ -336,7 +336,6 @@ pub fn runvil_engine::RunParams::with_packs(self, roster: impl core::iter::trait
 pub fn runvil_engine::RunParams::with_preludes(self, preludes: alloc::vec::Vec<runvil_engine::packs::Prelude>) -> runvil_engine::RunParams
 pub fn runvil_engine::RunParams::with_report_debug(self, report: bool) -> runvil_engine::RunParams
 pub fn runvil_engine::RunParams::with_tools(self, tools: runvil_engine::ToolCatalog) -> runvil_engine::RunParams
-pub fn runvil_engine::RunParams::with_ui(self, snapshot: serde_json::value::Value) -> runvil_engine::RunParams
 pub fn runvil_engine::RunParams::with_vfs(self, vfs: runvil_engine::vfs::VfsRef) -> runvil_engine::RunParams
 pub fn runvil_engine::SourceLoc::line(file: impl core::convert::Into<alloc::string::String>, line: core::num::nonzero::NonZeroU32) -> runvil_engine::SourceLoc
 pub fn runvil_engine::SourceLoc::new(file: impl core::convert::Into<alloc::string::String>, start_line: core::num::nonzero::NonZeroU32, start_column: core::num::nonzero::NonZeroU32, end_line: core::num::nonzero::NonZeroU32, end_column: core::num::nonzero::NonZeroU32) -> core::option::Option<runvil_engine::SourceLoc>

@@ -1,13 +1,12 @@
 //! The persistent `log` and `untrusted` Engine globals every section VM
-//! gets, and `ui` when the run has an application-state snapshot. Each is
-//! installed once per section and stays valid across every chunk the VM
-//! runs; the other Engine globals, `store` among them, install from their
-//! own modules.
+//! gets. Each is installed once per section and stays valid across every
+//! chunk the VM runs; the other Engine globals, `store` among them,
+//! install from their own modules.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
-use mlua::{Lua, LuaSerdeExt, MultiValue, Value};
+use mlua::{Lua, MultiValue, Value};
 use runvil_types::emitter::Emitter;
 use runvil_types::untrusted::GuardNonce;
 
@@ -106,36 +105,5 @@ pub(crate) fn install_untrusted(lua: &Lua, nonce: &GuardNonce) -> Result<()> {
         .map_err(error::make_lua_error)?;
     lua.globals()
         .raw_set("untrusted", untrusted)
-        .map_err(error::make_lua_error)
-}
-
-/// `ui()` snapshot conversion: a JSON null field reads as nil in author
-/// code, never as the userdata NULL sentinel the serde bridge defaults
-/// to - an unset snapshot field must simply be absent.
-const UI_SNAPSHOT_OPTIONS: mlua::serde::SerializeOptions = mlua::serde::SerializeOptions::new()
-    .serialize_none_to_null(false)
-    .serialize_unit_to_null(false);
-
-/// Installs `ui()`: each call converts the run's `snapshot` afresh into a
-/// new table, JSON nulls reading as nil, so author code that mutates one
-/// result never sees the mutation on the next call. The snapshot is the
-/// application state the caller passed to `RunParams::with_ui` at run start;
-/// a later change takes effect on the next run. A run started without a
-/// snapshot never installs the global, so `ui` is absent there - not
-/// stubbed.
-///
-/// The snapshot arrives shared: one run installs it into every section VM
-/// it starts, and the closure serializes through the `Arc`, so no VM holds
-/// its own copy of the JSON tree.
-///
-/// # Errors
-/// Returns a `LuaRuntime` failure if the function or the global cannot be
-/// created.
-pub fn install_ui(lua: &Lua, snapshot: Arc<serde_json::Value>) -> Result<()> {
-    let snapshot = lua
-        .create_function(move |lua, ()| lua.to_value_with(snapshot.as_ref(), UI_SNAPSHOT_OPTIONS))
-        .map_err(error::make_lua_error)?;
-    lua.globals()
-        .raw_set("ui", snapshot)
         .map_err(error::make_lua_error)
 }

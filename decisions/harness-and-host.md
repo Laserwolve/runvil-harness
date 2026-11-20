@@ -74,7 +74,7 @@ Every find happens in `Host::parse` because a stock finder reads a file with a b
 
 ### `RunSetup::new` takes the recorder and the broker, and every other field has a default
 
-`RunSetup::new(recorder, broker)` sets the required fields. Every other field starts at a default: an empty in-memory file system in `vfs`, empty values in `selected_model` and `workspace_roots`, the empty object `{}` in `args`, the default `RunLimits` in `limits`, 10 in `max_tool_calls_in_flight`, and `false` in `has_user`. The default limits include 24 loop rounds and 8 concurrent tasks.
+`RunSetup::new(recorder, broker)` sets the required fields. Every other field starts at a default: an empty in-memory file system in `vfs`, no selection in `selected_model`, the empty object `{}` in `args`, the default `RunLimits` in `limits`, 10 in `max_tool_calls_in_flight`, and `false` in `has_user`. The default limits include 24 loop rounds and 8 concurrent tasks.
 
 The default of `args` is `{}`, which is what a caller sends when it leaves every argument out. A Host that leaves the field alone therefore starts a valid run of every prompt whose arguments are all optional.
 
@@ -82,7 +82,7 @@ The broker is a required argument because every run needs inference. A Host that
 
 ### The Harness reads each `RunSetup` field once, and the run's tool calls work in the one file system that the setup holds
 
-The Harness reads each field once per run. This matters most for `vfs`, the file system that the run's tool calls work in: the Harness performs every file request of the run's tool calls on that one file system. The run's store is outside it. The Engine makes each run an empty store of its own, which the run's own Lua fills and which ends with the run. The `Policy` of that file system, such as a `ModePolicy` in its Ask, Plan, or Agent mode, sees the file operations of tool calls. So does the operation sink that `VfsRefBuilder::on_op` installs. A store operation passes both by. A prompt reads `selected_model` and the first of `workspace_roots` through `ui()`.
+The Harness reads each field once per run. This matters most for `vfs`, the file system that the run's tool calls work in: the Harness performs every file request of the run's tool calls on that one file system. The run's store is outside it. The Engine makes each run an empty store of its own, which the run's own Lua fills and which ends with the run. The `Policy` of that file system, such as a `ModePolicy` in its Ask, Plan, or Agent mode, sees the file operations of tool calls. So does the operation sink that `VfsRefBuilder::on_op` installs. A store operation passes both by.
 
 The Host chooses where the files of a run's tool calls are stored, because the Engine only executes the prompt, and each file request of a tool call works on the file system that the Engine's caller supplies. A Host's policy ends at that file system, and a store is outside it: a policy decides what a run's tools may do to the Host's files, and the store is the run's own memory. [Files and the VFS](files-and-the-vfs.md) covers the file system.
 

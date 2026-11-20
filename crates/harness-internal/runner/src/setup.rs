@@ -2,7 +2,6 @@
 
 use std::fmt;
 use std::num::NonZeroUsize;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use runvil_engine::RunLimits;
@@ -30,9 +29,6 @@ pub struct RunSetup {
     pub vfs: VfsRef,
     /// The model id the user selected, if any.
     pub selected_model: Option<String>,
-    /// The workspace roots granted; the first is the `ui()` snapshot's
-    /// `workspace_root`.
-    pub workspace_roots: Vec<PathBuf>,
     /// The run's arguments: the text of one JSON object, which the run's
     /// first step checks against the prompt's `args` declaration.
     pub args: String,
@@ -49,9 +45,9 @@ pub struct RunSetup {
 
 impl RunSetup {
     /// A setup over `recorder` and `broker`. Every other field starts
-    /// empty or at its default: an empty memory filesystem, no selection, no
-    /// roots, the empty object `{}` as its args, `RunLimits::default()`,
-    /// at most 10 tool calls in flight, and no user.
+    /// empty or at its default: an empty memory filesystem, no selection,
+    /// the empty object `{}` as its args, `RunLimits::default()`, at most
+    /// 10 tool calls in flight, and no user.
     #[must_use]
     pub fn new(recorder: Arc<dyn RunRecorder>, broker: Arc<dyn InferenceBroker>) -> RunSetup {
         RunSetup {
@@ -59,7 +55,6 @@ impl RunSetup {
             broker,
             vfs: VfsRef::default(),
             selected_model: None,
-            workspace_roots: Vec::new(),
             args: "{}".to_owned(),
             limits: RunLimits::default(),
             max_tool_calls_in_flight: DEFAULT_MAX_TOOL_CALLS_IN_FLIGHT,
@@ -74,7 +69,6 @@ impl fmt::Debug for RunSetup {
         f.debug_struct("RunSetup")
             .field("vfs", &self.vfs)
             .field("selected_model", &self.selected_model)
-            .field("workspace_roots", &self.workspace_roots)
             .field("args", &self.args)
             .field("limits", &self.limits)
             .field("max_tool_calls_in_flight", &self.max_tool_calls_in_flight)

@@ -22,7 +22,7 @@ pub(crate) use runvil_lua::{
     OfferedTool, OverflowReason, ProseState, RenderedTools, Request, RosterEntry, ScriptReport,
     SectionRead, SectionText, SectionVm, TaskDelivery, TaskPhase, TaskStatus, ToolBinding,
     ToolCallCounts, ToolCallOutcome, ToolCallRecord, ToolSet, Uninjected, UsageAnchor, YieldParse,
-    current_catalog_packs, current_dynamic_set, current_static_set, install_preludes, install_ui,
+    current_catalog_packs, current_dynamic_set, current_static_set, install_preludes,
     output_reserve, precheck, prepare_dispatch, prepare_model_dispatch, project_messages,
     render_item, wire_name_of,
 };

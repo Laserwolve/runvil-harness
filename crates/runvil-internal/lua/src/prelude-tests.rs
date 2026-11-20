@@ -2,7 +2,6 @@
 //! collision checks, the top-level seal, and load failures.
 
 use std::num::NonZeroU32;
-use std::sync::Arc;
 
 use mlua::Value;
 use runvil_types::packs::{PackId, Prelude};
@@ -11,7 +10,7 @@ use serde_json::json;
 use super::install_preludes;
 use crate::test_vm::{BuiltVm, TestVm};
 use crate::tests::refusal_line;
-use crate::{CoroStep, LuaProgram, Request, SectionVm, YieldParse, install_ui};
+use crate::{CoroStep, LuaProgram, Request, SectionVm, YieldParse};
 
 #[path = "prelude-tests-environment.rs"]
 mod environment;
@@ -301,19 +300,29 @@ fn a_global_named_tools_store_or_models_is_refused_and_leaves_the_namespace_in_p
 }
 
 #[test]
-fn ui_and_item_collide_on_a_vm_that_binds_neither() {
-    for name in ["ui", "item"] {
-        let vm = section_vm();
-        let bound: bool = vm.eval(&format!("return {name} ~= nil"));
-        assert!(!bound, "the fixture VM binds no `{name}`");
-        let message = install_failure(&vm, &[prelude("kit", &format!("{name} = 1"))]);
-        assert!(
-            message.contains("Pack `kit`")
-                && message.contains(&format!("`{name}`"))
-                && message.contains("reserved"),
-            "the collision names the Pack and the reserved global: {message}"
-        );
-    }
+fn item_collides_on_a_vm_that_does_not_bind_it() {
+    let vm = section_vm();
+    let bound: bool = vm.eval("return item ~= nil");
+    assert!(!bound, "the fixture VM binds no `item`");
+    let message = install_failure(&vm, &[prelude("kit", "item = 1")]);
+    assert!(
+        message.contains("Pack `kit`")
+            && message.contains("`item`")
+            && message.contains("reserved"),
+        "the collision names the Pack and the reserved global: {message}"
+    );
+}
+
+#[test]
+fn a_prelude_may_define_a_global_named_ui() {
+    let vm = section_vm();
+    install_preludes(
+        vm.lua(),
+        &[prelude("kit", "function ui() return 'mine' end")],
+    )
+    .expect("`ui` is no Engine global, so the prelude installs");
+    let served: String = vm.eval("return ui()");
+    assert_eq!(served, "mine", "author code calls the prelude's global");
 }
 
 #[test]
