@@ -10,8 +10,9 @@ publish = false
 # The one crate a Host depends on: the `InferenceBroker` trait the
 # Gateway broker implements, with its boxed future, the chat vocabulary
 # (Message, ToolSchema, Completion) and the universal error the wire
-# code reads and builds through its public constructors, and the
-# canonical metrics and model catalog vocabulary.
+# code reads and builds through its public constructors, the canonical
+# metrics and model catalog vocabulary, and the `HostResources` in which
+# a Host offers the Gateway to its Plugins.
 runvil.workspace = true
 # The web Plugin crate's `SearchProvider` trait and its query,
 # result, and error vocabulary, which `GatewaySearch` implements.
@@ -26,8 +27,8 @@ reqwest.workspace = true
 # metadata sections, of the `GET /v1/models` list, and of the web search
 # request and reply.
 serde.workspace = true
-# The request body, every streamed payload, and the reassembled response
-# are JSON.
+# The request body, every streamed payload, the reassembled response,
+# and the entry that offers the Gateway to a Host's Plugins are JSON.
 serde_json.workspace = true
 # `time` for the per-receive timeout. Non-test code spawns no task.
 tokio = { workspace = true, features = ["time"] }

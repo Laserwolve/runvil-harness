@@ -1,5 +1,6 @@
 //! The standard client a Host uses to run model rounds, list models, and
-//! search the web through the Runvil Gateway.
+//! search the web through the Runvil Gateway, and to offer the Gateway to
+//! the Plugins it loads.
 //!
 //! [`GatewayBroker`] is the [`runvil::harness::InferenceBroker`] that a Host using
 //! the Gateway passes to `Harness::new`. It runs every model round on a
@@ -26,6 +27,13 @@
 //! the Gateway's `/tools/web_search` relay with a 30-second deadline and
 //! maps the reply into the provider's results. The search vendor's
 //! credential also stays in the Gateway.
+//!
+//! [`provide_gateway_resources`] offers the Gateway to the Plugins a Host
+//! loads through the C contract. It adds the Gateway's web search to the
+//! Host's `HostResources` as the entry `runvil/web-search`, which holds
+//! the URL of the Gateway's `/tools/web_search` route and the Gateway's
+//! key. Every tool call of such a Plugin is lent the entry, and a Plugin
+//! that searches the web sends its request to the Gateway itself.
 //!
 //! Under the client sits the OpenAI chat-completions wire code. It turns a
 //! round into a request body, a streamed reply into a
@@ -56,6 +64,10 @@
 //!   checks run on every decoded turn.
 //! - A Gateway bearer key is never written to logs, `Debug`, `Display`, or
 //!   error text.
+//! - The key leaves the crate in two places only: the `Authorization`
+//!   header of a request to the Gateway, and the `runvil/web-search` entry
+//!   that `provide_gateway_resources` offers, which holds it as plain text
+//!   for the Plugin that calls the Gateway.
 //! - A backend error body is bounded and control-escaped before it is
 //!   kept. A chat round keeps it only in the error's message, never in its
 //!   prose, and a search keeps it in its error's message and prose.
@@ -69,6 +81,7 @@ mod broker;
 mod catalog;
 mod config;
 mod failure;
+mod resources;
 mod search;
 mod transport;
 mod wire;
@@ -77,6 +90,7 @@ pub use broker::GatewayBroker;
 pub use catalog::fetch_model_catalog;
 pub use config::GatewayEndpoint;
 pub use config::SecretString;
+pub use resources::provide_gateway_resources;
 pub use search::GatewaySearch;
 pub use transport::GatewayChat;
 pub use wire::classify::make_classify_http_failure_error;

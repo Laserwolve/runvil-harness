@@ -45,8 +45,10 @@ fn make_setup_error(reason: &'static str, message: String) -> Error {
 ///
 /// Wrap a secret, such as the gateway bearer key, in a `SecretString` as soon
 /// as you read it, so an accidental `{:?}` or log line cannot leak it. The
-/// client reads the value only to set the `Authorization` header of its
-/// requests.
+/// crate reads the value in two places only: to set the `Authorization`
+/// header of its requests, and to write the entry that
+/// [`provide_gateway_resources`](crate::provide_gateway_resources) offers
+/// a Host's Plugins, which present the key to the gateway themselves.
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct SecretString(String);
