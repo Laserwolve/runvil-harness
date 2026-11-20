@@ -19,19 +19,19 @@ todos:
     status: completed
   - id: guide
     content: "runvil-docs, one commit, can run beside the Harness work: raw model ids and `ui()` out of src/language, the heading rename and its links, the closing search comes back empty, push to origin"
-    status: pending
+    status: completed
   - id: workshop-adapt
     content: "workshop commit 1, after the merge: pin the merged Harness commit, drop `workspace_roots` from `with_host_state`, make `test-model` the fixture's selected model and switch two test prompts to `models.loop()`, remove the revoke test, verify, commit"
-    status: pending
+    status: completed
   - id: workshop-slot
     content: "workshop commit 2: remove the `WorkspaceRoots` registry slot and the grant generation watch that only it used, verify, commit, push to origin"
-    status: pending
+    status: completed
   - id: classroom
     content: "runvil-classroom, last: remove `discover_operator` from students/parsons/prompts/briefer.md, commit on master, push"
-    status: pending
+    status: completed
   - id: final-record
     content: Record the results of the guide, Workshop, and classroom work in the repo's copy of the plan, commit it in runvil-harness, push to origin
-    status: pending
+    status: completed
 isProject: false
 ---
 
@@ -426,3 +426,44 @@ Checks:
 
 - **Every command of the verification list passed before each of the three code commits**, and every tool was installed. The whole workspace ran 3,972 tests after the first and second commits and 3,973 after the third, all passing, with 25 skipped.
 - **`cargo run -p runvil --example run-prompt` printed `Hello, desk.`**
+
+## The merge
+
+The owner changed one step after Phase 1. The plan said that no pull request is opened and that the owner merges the fork. The owner asked for a pull request instead, to be merged once its CI passed.
+
+- **The pull request is [#57](https://github.com/cppalliance/runvil-harness/pull/57).** All eleven jobs of its CI passed on `fb29b8a2`, on Linux and on Windows.
+- **The merge was a fast-forward push**, so the five commits kept their ids, and `master` of `cppalliance/runvil-harness` and of the fork were identical after it. Workshop pins `fb29b8a2`.
+- **Two review comments stay open on the pull request**, both from the automatic review, and both about gaps that this record or the commit messages already name: no test selects a model other than the first one listed, and no test compares two renders in one run.
+
+## Phase 2: runvil-docs
+
+One commit, `77afe22` on `master` of `vinniefalco/runvil-docs`: 11 files under `src/language/`, with 52 lines added and 144 removed.
+
+- **Two sections are gone**: "The Host's state in `ui()`" in chapter 5 and "Raw model ids and the Host-state snapshot" in chapter 10.
+- **The heading "Run facts in `sys` and `ui`" is now "Run facts in `sys`"**, and 15 links point at its new anchor.
+- **The counts follow the text**: 20 Engine globals, 62 reserved names, three run inputs, and eight steps in the setup order.
+- **Three cuts go past the plan's search list**, all in chapter 10. Each sentence made sense only for a handle of a model id.
+- **The closing search printed nothing**, and neither did a search for the three old anchors. All 2,320 anchored links in `src/language` resolve.
+- **The expected output of the example in chapter 12 was worked out by hand**, as the plan said it would be. No run checked it.
+
+## Phase 3: runvil-workshop
+
+Two commits on `master` of `vinniefalco/runvil-workshop`.
+
+- **`c960d61f` pins the Harness at `fb29b8a2` and adapts.** The fixture change worked as the plan wrote it: the menu selects `test-model`, and both test prompts call `models.loop()`. That settles the risk the plan named. `Cargo.lock` changed its 14 source lines for `runvil-harness` and nothing else.
+- **`41c2aa6b` removes the `WorkspaceRoots` slot.** `bump_roots` had four calls, as the plan counted.
+- **One assertion was rewritten where the plan said to remove it.** `the_registered_routes_serve_the_workspace_api` read a grant back through the slot. It now reads the grant back from `/workspace/tree`, so the test still shows that a grant over HTTP reaches the workspace.
+- **Small edits beyond the plan's list.** Two doc comments in `server/src/agents.rs` and one in `server/src/app.rs` named the workspace roots. Two `drop` calls of lock guards served only `bump_roots`, and they went with it. Four imports had no user left.
+- **Both commits were written before the merge**, and built against the local Harness checkout through a `[patch]` section that was never committed. After the merge, every command of Workshop's verification list passed on the real pin before each commit, with `--locked`.
+- **Test counts.** The two test groups ran 709 and 353 tests before the first commit and 706 and 353 before the second, all passing. The second commit removes three tests.
+
+## The classroom
+
+One commit, `dd13113` on `master` of `cppalliance/runvil-classroom`. `discover_operator` is gone from `students/parsons/prompts/briefer.md`, and `var.operator` is the empty string, so the byline of a brief is the month and the year alone. The prompt has no test, and no run checked the change.
+
+## Left open
+
+- **The guide and Workshop are on the forks only.** `vinniefalco/runvil-docs` is one commit ahead of `cppalliance/runvil-docs`, and `vinniefalco/runvil-workshop` is two commits ahead of `cppalliance/runvil-workshop`.
+- **This record is on the fork of the Harness only**, one commit ahead of `cppalliance/runvil-harness`.
+- **Issue [#29](https://github.com/cppalliance/runvil-harness/issues/29) is about a handle that `models.get` built from a model id.** No such handle exists now, and the issue is still open.
+- **A test broker that lists two models** would let a runner test select the second one. That would answer the first review comment and close the gap named under Phase 1.
