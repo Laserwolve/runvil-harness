@@ -16,7 +16,7 @@ A prompt file names a model by a role, such as `strong`, and a set of tools by a
 
 ### A Host depends on one crate, `runvil`
 
-`runvil` re-exports the Harness, the Engine items a Host reads and builds, and the Rust Plugin API. `Harness`, `Host`, `RunSetup`, `RunReport`, and `RunControl` are at the crate root, and the rest of the Harness is in `runvil::harness`, which includes the loader of the C contract, the `HostResources` a Host hands it, and the stock prompt finders. `runvil::plugin` has the Rust Plugin API of the crate `runvil-plugin`, such as `PackRegistry`, `Pack`, and `PackFactory`. The types of the C contract are in `runvil-plugin-sys`, outside `runvil`. Each re-export is at one path.
+`runvil` re-exports the Harness, the Engine items a Host reads and builds, and the Rust Plugin API. `Harness`, `Host`, `RunSetup`, `RunReport`, and `RunControl` are at the crate root, and the rest of the Harness is in `runvil::harness`, which includes the loader of the C contract, the `HostResources` a Host hands it, the stock prompt finders, and the stock offline broker. `runvil::plugin` has the Rust Plugin API of the crate `runvil-plugin`, such as `PackRegistry`, `Pack`, and `PackFactory`. The types of the C contract are in `runvil-plugin-sys`, outside `runvil`. Each re-export is at one path.
 
 A Host fills its `PackRegistry` in two ways. A Plugin that follows the C contract enters through the loader: `insert_plugin_dir` loads each library Plugin of a directory and returns a `PluginReport`, and `insert_plugin` loads a Plugin that is compiled into the Host. Each takes the Host's `HostResources` beside the registry, and every tool call of a Plugin it loads is lent them (see Inference, the clock, and what a Host hands its Plugins). The Plugin `plugin-mcp` is a Rust function named `install`, which the Host calls with the registry, the Host's list of MCP servers, and the handle of the Host's tokio runtime.
 
@@ -78,7 +78,7 @@ Every find happens in `Host::parse` because a stock finder reads a file with a b
 
 The default of `args` is `{}`, which is what a caller sends when it leaves every argument out. A Host that leaves the field alone therefore starts a valid run of every prompt whose arguments are all optional.
 
-The broker is a required argument because every run needs inference. A Host that leaves it out fails to compile. With an optional broker, the Harness would refuse each run of such a Host as it prepares the run.
+The broker is a required argument because the Harness asks the broker of every run for its models before it prepares the run. A Host that leaves it out fails to compile. A Host that runs prompts without a model passes `OfflineBroker` (see Inference, the clock, and what a Host hands its Plugins), so the code that builds the setup says so. A broker that a Host could leave out would be missed only when a prompt first asks for a model.
 
 ### Each optional field of `RunSetup` has a method that sets it and returns the setup
 
@@ -173,6 +173,12 @@ The Host supplies inference so that the Host's broker owns the Gateway's URL, it
 Before it prepares the run, the Harness awaits `models()` until the broker answers or the Host cancels the run, so a broker may wait until it has a model. The Harness picks the model that `RunSetup.selected_model` names, or the first listed model when the field is `None`. A selection absent from the list ends the run with `RequirementsUnmet` and the reason `model_absent`. The Harness passes the Engine a role map with one entry, `default`, so the picked model fills every role. Workshop's broker uses the wait: it answers once its catalog has a chat-capable model.
 
 The map has one entry because `RunSetup` has one `selected_model`. A model for each role is planned work.
+
+### `OfflineBroker` is the stock broker of a Host that runs prompts without a model
+
+`runvil::harness` has a stock broker, `OfflineBroker`. Its `models()` lists an empty catalog, and its `chat` fails every round with the code `Unavailable`. A run over it that selects no model picks none, and the Harness passes the Engine an empty role map. A prompt that asks no model runs to its end. A `models.infer` or a `models.loop` raises an error of kind `model_required` before a round reaches the broker ([Model calls and conversations](models-and-conversations.md)). A run that selects a model ends with `RequirementsUnmet`, because the list lacks the selection.
+
+The Harness exports the broker because Hosts run prompts without a model: a tool that runs a prompt whose Lua does all the work, and a Host whose Gateway is not configured yet. Each would otherwise write the same broker and import the chat vocabulary of a round to do it. The Host still passes the broker to `RunSetup::new`, so a run without a model is a choice that the Host's code states.
 
 ### The broker returns each reply whole, and a Host streams inside its own broker
 

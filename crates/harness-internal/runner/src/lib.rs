@@ -7,6 +7,8 @@
 //! Host that writes none of its own: [`FindTextPrompt`] one prompt from
 //! text, [`FindFilePrompt`] one from a file, and [`PromptSet`] the prompts
 //! a Host inserts as text, as files, and as directories.
+//! A stock broker, [`performers::OfflineBroker`], serves a Host that runs
+//! prompts without a model.
 //! A launcher hands each run a [`RunSetup`] with everything that
 //! run gets on top of the Host. A [`Harness`] over the Host, the parsed
 //! prompt, and the setup begins the run at the setup's recorder with the
@@ -94,6 +96,7 @@ mod harness;
 mod host;
 mod packs;
 pub mod performers;
+mod performers_offline;
 mod prepare;
 mod prompt_finders;
 pub mod recorder;

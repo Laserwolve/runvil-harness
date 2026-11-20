@@ -4,13 +4,16 @@
 //! the selection with a `RequirementsUnmet` failure, and a cancel before
 //! `run` or while the broker holds its list with the cancel, each before
 //! the run starts; a recorder that refuses a write is a `RecorderFailed`
-//! failure naming the run id it issued; and a broker that panics answers
-//! its round `Dropped`.
+//! failure naming the run id it issued; a broker that panics answers
+//! its round `Dropped`; and a run over the stock offline broker binds no
+//! model, so a round its prompt asks for fails as `model_required` and
+//! never reaches the broker.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::task::Poll;
 
+use harness_runner::performers::OfflineBroker;
 use harness_runner::recorder::{MemoryRecorder, RunId};
 use harness_runner::{Harness, RunReport, RunSetup, display_chain};
 use runvil_engine::model::{Completion, phrase};
@@ -253,4 +256,25 @@ async fn a_panicking_broker_answers_its_round_dropped() {
             "a panic in the {what}: the round is answered Dropped"
         );
     }
+}
+
+#[tokio::test]
+async fn a_run_over_the_offline_broker_binds_no_model_and_fails_a_round_where_the_prompt_asks() {
+    let recorder = Arc::new(MemoryRecorder::new());
+    let setup = RunSetup::new(recorder.clone(), Arc::new(OfflineBroker));
+
+    let report = harness_with(CATCHES_A_ROUND, setup)
+        .run()
+        .await
+        .expect("a run that binds no model is still reported");
+    assert_eq!(
+        report.result,
+        Ok("false:model_required".to_owned()),
+        "the pcall caught the round that found no model"
+    );
+    let records = recorder.records(report.run_id);
+    assert!(
+        answers_to(&records, "Chat").is_empty(),
+        "no round reaches the broker"
+    );
 }

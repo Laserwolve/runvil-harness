@@ -24,7 +24,8 @@
 //!
 //! The runner supplies the tool performer itself: the run's snapshot of
 //! the Host's Packs, taken at preparation. The Host supplies the
-//! [`InferenceBroker`] and the [`Timer`].
+//! [`InferenceBroker`] and the [`Timer`]. [`OfflineBroker`] is the stock
+//! broker of a Host that runs prompts without a model.
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -37,6 +38,8 @@ use runvil_engine::{BoxFuture, Error, Timestamp};
 use runvil_engine::{ToolId, ToolInfo, ToolOutput};
 use runvil_plugin::ToolFiles;
 use serde_json::Value;
+
+pub use crate::performers_offline::OfflineBroker;
 
 /// The model inference the Host supplies to the Harness.
 ///

@@ -74,6 +74,7 @@ auto runvil::harness::FindFilePrompt: Freeze, RefUnwindSafe, Send, Sync, Unpin, 
 auto runvil::harness::FindTextPrompt: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::harness::HostResources: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
 auto runvil::harness::MemoryRecorder: !Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
+auto runvil::harness::OfflineBroker: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::harness::Packs: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
 auto runvil::harness::Plugin: !Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
 auto runvil::harness::PluginReport: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
@@ -175,6 +176,7 @@ derives runvil::harness::FindFilePrompt: Debug
 derives runvil::harness::FindTextPrompt: Debug
 derives runvil::harness::HostResources: Clone, Debug, Default
 derives runvil::harness::MemoryRecorder: Debug, Default
+derives runvil::harness::OfflineBroker: Debug
 derives runvil::harness::Packs: Debug
 derives runvil::harness::Plugin: Debug
 derives runvil::harness::PluginReport: Debug
@@ -284,6 +286,7 @@ impl core::str::traits::FromStr for runvil::packs::PackId { type Err = runvil::E
 impl runvil::PromptFinder for runvil::harness::FindFilePrompt
 impl runvil::PromptFinder for runvil::harness::FindTextPrompt
 impl runvil::PromptFinder for runvil::harness::PromptSet
+impl runvil::harness::InferenceBroker for runvil::harness::OfflineBroker
 impl runvil::harness::RunRecorder for runvil::harness::MemoryRecorder
 impl runvil::vfs::Policy for runvil::vfs::AllowAll
 impl runvil::vfs::Policy for runvil::vfs::ModePolicy
@@ -1221,6 +1224,7 @@ pub struct runvil::harness::FindFilePrompt { /* private fields */ }
 pub struct runvil::harness::FindTextPrompt { /* private fields */ }
 pub struct runvil::harness::HostResources { /* private fields */ }
 pub struct runvil::harness::MemoryRecorder { /* private fields */ }
+pub struct runvil::harness::OfflineBroker;
 pub struct runvil::harness::Packs { /* private fields */ }
 pub struct runvil::harness::Plugin { /* private fields */ }
 pub struct runvil::harness::PluginReport { /* private fields */ }

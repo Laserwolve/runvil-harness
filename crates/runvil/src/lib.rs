@@ -76,14 +76,16 @@ pub use runvil_engine::BoxFuture;
 pub mod harness {
     //! What a Host gives the Harness beside a run's setup, and what the
     //! Harness hands back: the inference broker and the timer a Host
-    //! supplies, the Packs installed from a Pack registry, whose factories
-    //! make each run's instances, the Plugins a Host inserts into that
-    //! registry, from the dynamic libraries in a Plugin directory or
-    //! linked into the Host, with what each insert loaded, and the
-    //! recorder that receives every effect, answer, and event of a run
-    //! and the result each run ends with, beside an in-memory recorder,
-    //! and three stock prompt finders: one prompt from text, one from a
-    //! file, and a set a Host fills from text, files, and directories.
+    //! supplies, beside a stock broker for a Host that runs prompts
+    //! without a model, the Packs installed from a Pack registry, whose
+    //! factories make each run's instances, the Plugins a Host inserts
+    //! into that registry, from the dynamic libraries in a Plugin
+    //! directory or linked into the Host, with what each insert loaded,
+    //! and the recorder that receives every effect, answer, and event of
+    //! a run and the result each run ends with, beside an in-memory
+    //! recorder, and three stock prompt finders: one prompt from text,
+    //! one from a file, and a set a Host fills from text, files, and
+    //! directories.
     //! A Host hands each insert its [`HostResources`], the JSON values
     //! it offers those Plugins under `vendor/name` names, and every tool
     //! call of a Plugin is lent them as they are when the call starts.
@@ -100,6 +102,7 @@ pub mod harness {
     pub use harness_runner::PromptSet;
     pub use harness_runner::display_chain;
     pub use harness_runner::performers::InferenceBroker;
+    pub use harness_runner::performers::OfflineBroker;
     pub use harness_runner::performers::Timer;
     pub use harness_runner::recorder::MemoryRecorder;
     pub use harness_runner::recorder::Record;
