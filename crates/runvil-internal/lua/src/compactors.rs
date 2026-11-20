@@ -151,10 +151,9 @@ const DEFAULT_RESERVE_CAP: u32 = 8192;
 /// This is the binding's `max_tokens` when it sets one, otherwise one
 /// eighth of the window capped at 8,192 tokens. Either way it never
 /// exceeds half the window: nothing checks `max_tokens` against the
-/// window, and a raw model id carries a guessed window, so without the cap
-/// a `max_tokens` at or above the window would refuse every request, an
-/// empty one included. The provider's own overflow reply is the backstop
-/// for a request the cap lets through.
+/// window, so without the cap a `max_tokens` at or above the window would
+/// refuse every request, an empty one included. The provider's own
+/// overflow reply is the backstop for a request the cap lets through.
 #[must_use]
 pub fn output_reserve(context: NonZeroU32, max_tokens: Option<NonZeroU32>) -> u32 {
     let window = context.get();

@@ -60,7 +60,9 @@ A handle has only its fields, so the `models` functions are the one way to run a
 
 ### `models.get` returns a role's handle and leaves the current model as it is
 
-`models.get('fast')` returns the handle of the `fast` role. A role name is a string that Lua passes as an argument. When the Engine's caller passes a state snapshot to `RunParams::with_ui`, as the Harness does for every run, `models.get` also takes a raw Gateway model id, and that handle has a fixed context window of 8192 tokens.
+`models.get('fast')` returns the handle of the `fast` role. A role name is a string that Lua passes as an argument. A name outside the five roles raises an error that lists them.
+
+A prompt names a model by its role, and the Host chooses the model that fills each role ([The Harness and the Host API](harness-and-host.md)).
 
 ## 3. `models.infer` and `models.loop`
 

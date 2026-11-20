@@ -2,7 +2,8 @@
 //! model through the setup's broker, prepares the parsed prompt, and
 //! drives the run as one future; the record opens
 //! with the run's own start, numbered from zero; the `ui()` snapshot serves the
-//! setup's selection and first workspace root; a run that fails after it
+//! setup's selection and first workspace root; `models.get` refuses a
+//! Gateway model id; a run that fails after it
 //! starts is a recorded failed run, never an error of `run`; a Vfs effect's
 //! answer record directly follows its effect record; two runs in flight at
 //! once share the prompt one parse returned; and one run completes
@@ -279,6 +280,13 @@ const READS_UI: &str = "---\nname: reads-ui\ndescription: d\nrunvil: 0\n---\n\n\
     ## Only\n\n```lua\n\
     return tostring(ui().selected_model) .. '|' .. tostring(ui().workspace_root)\n```\n";
 
+/// A prompt that asks `models.get` for a Gateway model id and returns how
+/// the call ended.
+const GETS_A_MODEL_ID: &str = "---\nname: gets-a-model-id\ndescription: d\nrunvil: 0\n---\n\n\
+    ## Only\n\n```lua\n\
+    local ok, err = pcall(models.get, 'vendor/raw-model')\n\
+    return tostring(ok) .. ':' .. tostring(err)\n```\n";
+
 /// A prompt that waits for a message to its main chain and returns it.
 const RETURNS_A_MESSAGE: &str = "---\nname: returns-message\ndescription: d\nrunvil: 0\n---\n\n\
     ## Only\n\n```lua\nreturn 'got ' .. tasks.receive()\n```\n";
@@ -380,6 +388,21 @@ async fn the_ui_snapshot_serves_the_selected_model_and_the_first_workspace_root(
         report.result,
         Ok("nil|nil".to_owned()),
         "no selection and no roots read as nil"
+    );
+}
+
+#[tokio::test]
+async fn models_get_refuses_a_gateway_model_id_that_is_not_a_role() {
+    let recorder = Arc::new(MemoryRecorder::new());
+    let report = plain_harness(&recorder, ScriptedBroker::replying(), GETS_A_MODEL_ID)
+        .run()
+        .await
+        .expect("the run is reported");
+    let text = report.result.expect("the run completes");
+    assert!(
+        text.starts_with("false:")
+            && text.contains("models.get label \"vendor/raw-model\" is not a model role"),
+        "a prompt reaches a model by its role, never by a Gateway model id: {text}"
     );
 }
 

@@ -16,7 +16,7 @@ use self::fixtures::untrusted_echo_tool;
 use super::turn::advance_turn;
 use super::*;
 use crate::lua::{SectionVm, current_static_set};
-use crate::model::{ModelInfo, ModelSet};
+use crate::model::ModelSet;
 use crate::prompt::Prompt;
 use crate::test_support::recording::{Observation, Observer, detail, null_emitter};
 use crate::test_support::scenario::{Scenario, Trace};

@@ -18,7 +18,7 @@ use std::sync::Mutex;
 
 use mlua::{Lua, MultiValue, Table, UserData, UserDataFields, Value};
 
-use runvil_model_client::model::{ModelBinding, ModelId, ModelInvocation, ModelSet, Temperature};
+use runvil_model_client::model::{ModelBinding, ModelSet, Temperature};
 use runvil_types::models::ModelRole;
 
 use crate::error::{self, Result};
@@ -120,39 +120,6 @@ impl UserData for LuaModelHandle {
 /// Whether `value` is a model handle.
 pub(crate) fn is_handle(value: &Value) -> bool {
     matches!(value, Value::UserData(userdata) if userdata.is::<LuaModelHandle>())
-}
-
-/// Whether `models.get` resolves a label outside the five roles as a raw
-/// gateway catalog model id.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RawModelIds {
-    /// A label outside the five roles is an error.
-    Refused,
-    /// A label outside the five roles resolves as a raw gateway catalog model id.
-    Resolved,
-}
-
-/// The context window a raw-model-id binding records: the fallback has no
-/// catalog metadata, so a conservative default keeps the compactor
-/// precheck safe rather than refusing the model.
-const RAW_ID_CONTEXT: NonZeroU32 = match NonZeroU32::new(8192) {
-    Some(value) => value,
-    None => unreachable!(),
-};
-
-/// Builds the [`RawModelIds::Resolved`] binding for `alias`: no invocation
-/// overrides and [`RAW_ID_CONTEXT`].
-fn raw_gateway_binding(alias: &str) -> mlua::Result<ModelBinding> {
-    let id = ModelId::gateway(alias).map_err(|error| {
-        mlua::Error::external(format!("models.get model id {alias:?} is invalid: {error}"))
-    })?;
-    Ok(ModelBinding::new(
-        alias,
-        alias,
-        id,
-        ModelInvocation::new(),
-        RAW_ID_CONTEXT,
-    ))
 }
 
 /// The failure of a poisoned model selection lock.
@@ -343,9 +310,7 @@ fn parse_use_options(options: Value, rest: &MultiValue) -> mlua::Result<UseOptio
 
 /// Installs the `models` table the module doc describes into one section VM;
 /// every section installs it through this one path.
-/// `models.use` stores its selection in `selection`, and `raw_ids` is the
-/// [`RawModelIds`] fallback `models.get` applies to a label outside the five
-/// roles.
+/// `models.use` stores its selection in `selection`.
 ///
 /// # Errors
 /// Returns a `LuaRuntime` failure if a Lua table or callback cannot be created or
@@ -355,7 +320,6 @@ pub(crate) fn install_models(
     globals: &Table,
     set: &Arc<ModelSet>,
     selection: &Arc<Mutex<Option<ModelBinding>>>,
-    raw_ids: RawModelIds,
 ) -> Result<()> {
     let models = lua.create_table().map_err(error::make_lua_error)?;
 
@@ -395,14 +359,8 @@ pub(crate) fn install_models(
     let frozen = Arc::clone(set);
     let get_fn = lua
         .create_function(move |_, label: String| -> mlua::Result<LuaModelHandle> {
-            // Gateway ids include `/`, `.`, and `:`, so the id's own
-            // validation is the only gate.
-            let binding = match (find_role(&label), raw_ids) {
-                (Some(role), _) => role_binding(&frozen, role)?,
-                (None, RawModelIds::Resolved) => raw_gateway_binding(&label)?,
-                (None, RawModelIds::Refused) => return Err(not_a_role("models.get", &label)),
-            };
-            Ok(LuaModelHandle::from_binding(binding))
+            let role = find_role(&label).ok_or_else(|| not_a_role("models.get", &label))?;
+            Ok(LuaModelHandle::from_binding(role_binding(&frozen, role)?))
         })
         .map_err(error::make_lua_error)?;
     models.set("get", get_fn).map_err(error::make_lua_error)?;

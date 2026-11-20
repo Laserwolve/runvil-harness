@@ -363,7 +363,6 @@ pub(crate) struct TestVm<'a> {
     sys: Option<&'a Json>,
     var: Option<&'a Json>,
     limits: Option<(usize, u32)>,
-    raw_model_ids: bool,
     /// The reader behind the `prompt` reads, set when the VM takes the
     /// control globals and the coroutine shims.
     shims: Option<TestRead>,
@@ -386,7 +385,6 @@ impl<'a> TestVm<'a> {
             sys: None,
             var: None,
             limits: None,
-            raw_model_ids: false,
             shims: None,
         }
     }
@@ -457,13 +455,6 @@ impl<'a> TestVm<'a> {
         self
     }
 
-    /// The raw-model-id fallback `models.get` takes for an undeclared alias.
-    #[track_caller]
-    pub(crate) fn raw_model_ids(mut self) -> Self {
-        self.raw_model_ids = true;
-        self
-    }
-
     /// The control globals, whose prompt reads find no section, and every
     /// coroutine yield shim.
     #[track_caller]
@@ -521,25 +512,22 @@ impl<'a> TestVm<'a> {
         }
     }
 
-    /// Construction, the limits, the raw-model-id opt-in, and Engine
-    /// injection, handing back the VM beside its selection (which starts on
-    /// the default binding, if any) and the access it shares.
+    /// Construction, the limits, and Engine injection, handing back the VM
+    /// beside its selection (which starts on the default binding, if any)
+    /// and the access it shares.
     #[track_caller]
     fn run_injection(&mut self) -> (SectionVm, Selection, ScopedAccess) {
         let tools = Arc::new(std::mem::take(&mut self.tools));
         let set = Arc::new(std::mem::take(&mut self.models));
         let selection = Arc::new(Mutex::new(set.binding("default").cloned()));
         let access = self.access.take().unwrap_or_else(fresh_access);
-        let mut fresh =
+        let fresh =
             SectionVm::new_for_section(&test_nonce(), &tools, &set, &self.emitter, self.section)
                 .expect("the test VM builds");
         if let Some((memory_bytes, log_events)) = self.limits {
             fresh
                 .apply_lua_limits(memory_bytes, log_events)
                 .expect("the limits apply");
-        }
-        if self.raw_model_ids {
-            fresh.allow_raw_model_ids();
         }
         let empty = json!({});
         let vm = fresh

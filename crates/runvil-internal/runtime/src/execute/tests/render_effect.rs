@@ -2,9 +2,9 @@
 //! before the first Chat effect when the offers name a catalog tool and
 //! none otherwise, each Pack asked once, in first-offer order, for only the
 //! sets it was offered into, the entry its tool calls name, the binding of
-//! a handle round or a raw model id, the same answer fed to a fresh run
-//! sending the same tools, and a dropped or broken answer ending the round
-//! with nothing fixed.
+//! a handle round, the same answer fed to a fresh run sending the same
+//! tools, and a dropped or broken answer ending the round with nothing
+//! fixed.
 
 use runvil_prompt::test_support::{one_section, prompt};
 use runvil_types::packs::PackId;
@@ -14,7 +14,7 @@ use super::fixtures::{echo_tool, scoped_tool};
 use super::models_loop::{loop_model_name, loop_scenario};
 use super::*;
 use crate::execute::run::{AnswerRecord, EffectRecord, PackToolSets};
-use crate::model::{ModelId, ThinkingMode, ToolSchema};
+use crate::model::ToolSchema;
 use crate::test_support::drive;
 use crate::test_support::rig::Rig;
 use crate::test_support::scenario::{chat_answer, text_of};
@@ -245,37 +245,6 @@ fn a_handle_round_renders_and_then_chats_on_the_handles_binding() {
         gateway.requests()[0].options.model(),
         loop_model_name("strong")
     );
-}
-
-#[test]
-fn a_raw_gateway_model_id_renders_with_a_model_info_built_from_its_binding() {
-    let gateway = ScriptedChat::new(vec![text("done")]);
-    let source = one_section(
-        "tools.offer('tools/echo')
-         messages:user('go')
-         models.loop(models.get('raw-model'))
-         return messages[#messages].content",
-    );
-    let mut driving = loop_scenario(source)
-        .params(|ctx| ctx.with_ui(json!({})))
-        .offer("echo", echo_tool())
-        .chat(&gateway)
-        .start();
-    let mut infos = Vec::new();
-    while driving.step_with(|effect| {
-        if let Effect::Render { binding, .. } = effect {
-            infos.push(binding.render_info());
-        }
-    }) {}
-    let (trace, _) = driving.end();
-    assert_eq!(trace.text(), "done");
-    let raw = ModelInfo::new(
-        ModelId::gateway("raw-model").expect("a fixture model id"),
-        "raw-model",
-        NonZeroU32::new(8192).expect("the raw id window is non-zero"),
-        ThinkingMode::Never,
-    );
-    assert_eq!(infos, [raw]);
 }
 
 /// Runs the echo section, answering its render through `render` and its

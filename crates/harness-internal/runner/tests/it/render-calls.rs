@@ -1,10 +1,7 @@
 //! The rendered tools' calls: each call's events name the vendor of its
 //! tool id's Pack, a model-only tool rendered into the Dynamic Set runs
-//! through `CallDynamicTool`, and two entries on two models render their
-//! own names and flags, so a stop spares only the call whose rendered tool
-//! survives stops.
-
-use runvil_plugin::ModelId;
+//! through `CallDynamicTool`, and a stop spares a held call only when the
+//! render of its entry marks the tool to survive stops.
 
 use super::*;
 use crate::harness::{run_beside, until};
@@ -105,125 +102,88 @@ async fn call_dynamic_tool_runs_a_model_only_tool_the_render_put_in_the_dynamic_
     );
 }
 
-/// `Main` spawns one task per model and joins both: `OnM` loops on the
-/// default role, bound to the Host's model `m`, and `OnN` on the raw
-/// model id `n`. Each offers the render Pack's tool, asks for a held call
-/// of the model-only tool, and reports how its loop ended.
-const ON_TWO_MODELS: [(&str, &str); 3] = [
-    (
-        "Main",
-        "local on_m = tasks.spawn('../OnM')\nlocal on_n = tasks.spawn('../OnN')\n\
-         local ended = tasks.join({ on_m, on_n })\n\
-         return ended[1].result .. '|' .. ended[2].result",
-    ),
-    (
-        "OnM",
-        "tools.offer('render/echo')\nmessages:user('hold on m')\n\
-         local ok, err = pcall(models.loop)\n\
-         return tostring(ok) .. ':' .. (ok and messages[#messages].content or err.kind)",
-    ),
-    (
-        "OnN",
-        "tools.offer('render/echo')\nmessages:user('hold on n')\n\
-         local n = models.get('n')\nlocal ok, err = pcall(models.loop, n)\n\
-         return tostring(ok) .. ':' .. (ok and messages[#messages].content or err.kind)",
-    ),
-];
+/// A section that offers the render Pack's tool, asks for a held call of
+/// the model-only tool, and reports how its loop ended.
+const HOLDS_THE_SECRET: [(&str, &str); 1] = [(
+    "Only",
+    "tools.offer('render/echo')\nmessages:user('hold it')\n\
+     local ok, err = pcall(models.loop)\n\
+     return tostring(ok) .. ':' .. (ok and messages[#messages].content or err.kind)",
+)];
 
 #[tokio::test]
-async fn two_models_get_their_own_renders_and_a_stop_spares_only_the_surviving_call() {
-    let seen = Seen::new();
-    let recorder = Arc::new(MemoryRecorder::new());
-    let broker = calling(vec![
-        (
-            "hold on m",
+async fn a_stop_spares_a_held_call_only_when_its_entrys_render_marks_the_tool_to_survive() {
+    // One run for each render: the first marks the model-only tool to
+    // survive stops, and the second leaves it unmarked.
+    for surviving in [true, false] {
+        let seen = Seen::new();
+        let recorder = Arc::new(MemoryRecorder::new());
+        let broker = calling(vec![(
+            "hold it",
             vec![call(
                 "c1",
                 "secret_m",
-                json!({ "value": "m", "hold": true }),
+                json!({ "value": "x", "hold": true }),
             )],
-        ),
-        (
-            "hold on n",
-            vec![call(
-                "c1",
-                "secret_n",
-                json!({ "value": "n", "hold": true }),
-            )],
-        ),
-    ]);
-    let harness = render_harness(
-        &recorder,
-        broker,
-        &seen,
-        json!({ "surviving": [MODEL] }),
-        &prompt(&ON_TWO_MODELS),
-    );
-    let watched = Arc::clone(&seen);
-    let report = run_beside(harness, |control| async move {
-        until("both held calls are in flight", || {
-            watched.calls().len() == 2
+        )]);
+        let marked: &[&str] = if surviving { &[MODEL] } else { &[] };
+        let harness = render_harness(
+            &recorder,
+            broker,
+            &seen,
+            json!({ "surviving": marked }),
+            &prompt(&HOLDS_THE_SECRET),
+        );
+        let watched = Arc::clone(&seen);
+        let report = run_beside(harness, |control| async move {
+            until("the held call is in flight", || watched.calls().len() == 1).await;
+            control.stop_round();
+            if surviving {
+                for _ in 0..16 {
+                    tokio::task::yield_now().await;
+                }
+                assert!(
+                    watched.dropped().is_empty(),
+                    "the stop left in flight the call whose rendered tool survives stops"
+                );
+                watched.open();
+            } else {
+                until("the stop drops the call", || !watched.dropped().is_empty()).await;
+            }
         })
-        .await;
-        control.stop_round();
-        until("the stop drops a call", || !watched.dropped().is_empty()).await;
-        for _ in 0..16 {
-            tokio::task::yield_now().await;
-        }
+        .await
+        .expect("the run is reported");
+
+        let (ended, outcome, dropped): (&str, &str, &[&str]) = if surviving {
+            ("true:done", "render/secret x on m", &[])
+        } else {
+            ("false:canceled", "Dropped", &[MODEL])
+        };
         assert_eq!(
-            watched.dropped(),
-            ["n"],
+            report.result,
+            Ok(ended.to_owned()),
+            "the spared call answers and its loop goes on, and the dropped call's loop raises"
+        );
+        assert_eq!(
+            seen.dropped(),
+            dropped,
             "the stop drops only the call whose rendered tool does not survive stops"
         );
-        watched.open();
-    })
-    .await
-    .expect("the run is reported");
-
-    assert_eq!(
-        report.result,
-        Ok("true:done|false:canceled".to_owned()),
-        "the spared call answers and its loop goes on, and the dropped call's loop raises"
-    );
-    let mut models: Vec<ModelId> = seen
-        .renders()
-        .iter()
-        .map(|rendered| rendered.model.id().clone())
-        .collect();
-    models.sort();
-    assert_eq!(
-        models,
-        [
-            ModelId::gateway("m").unwrap(),
-            ModelId::gateway("n").unwrap()
-        ],
-        "each entry renders for its own round's model"
-    );
-    let records = recorder.records(report.run_id);
-    let mut rendered: Vec<Value> = answered(&records, "Render")
-        .into_iter()
-        .map(|(_, answer)| answer["Render"][0]["static_set"].clone())
-        .collect();
-    rendered.sort_by_key(|set| set[0]["wire_name"].as_str().map(str::to_owned));
-    let expected = |model: &str, surviving: bool| {
-        serde_json::to_value(shown(vec![echo()], model, surviving)).unwrap()
-    };
-    assert_eq!(
-        rendered,
-        [expected("m", true), expected("n", false)],
-        "each render names the tools for its model, and only m's marks the model-only tool \
-         to survive stops"
-    );
-    let mut calls: Vec<(Value, String)> = answered(&records, "ToolCall")
-        .into_iter()
-        .map(|(effect, answer)| (effect["origin"]["model"].clone(), outcome_of(&answer)))
-        .collect();
-    calls.sort_by_key(|(model, _)| model.as_str().map(str::to_owned));
-    assert_eq!(
-        calls,
-        [
-            (json!("m"), "render/secret m on m".to_owned()),
-            (json!("n"), "Dropped".to_owned()),
-        ]
-    );
+        let records = recorder.records(report.run_id);
+        let rendered: Vec<Value> = answered(&records, "Render")
+            .into_iter()
+            .map(|(_, answer)| answer["Render"][0]["static_set"].clone())
+            .collect();
+        assert_eq!(
+            rendered,
+            [serde_json::to_value(shown(vec![echo()], MODEL, surviving)).unwrap()],
+            "the render marks the model-only tool to survive stops only for a model that \
+             the Pack's configuration lists"
+        );
+        let calls: Vec<(Value, String)> = answered(&records, "ToolCall")
+            .into_iter()
+            .map(|(effect, answer)| (effect["origin"]["model"].clone(), outcome_of(&answer)))
+            .collect();
+        assert_eq!(calls, [(json!(MODEL), outcome.to_owned())]);
+    }
 }

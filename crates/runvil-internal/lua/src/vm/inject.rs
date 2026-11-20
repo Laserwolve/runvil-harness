@@ -105,13 +105,7 @@ impl SectionVm<Uninjected> {
             &self.adhoc_tools,
             &self.messages,
         )?;
-        install_models(
-            &self.lua,
-            &globals,
-            &self.bound_models,
-            selection,
-            self.raw_model_ids,
-        )?;
+        install_models(&self.lua, &globals, &self.bound_models, selection)?;
         install_messages(&self.lua, &self.messages)?;
         install_compactors(&self.lua, &globals, &self.messages)
     }
@@ -132,7 +126,6 @@ impl SectionVm<Uninjected> {
             log_byte_budget,
             adhoc_tools,
             cancel_hook,
-            raw_model_ids,
             messages,
             state: Uninjected,
         } = self;
@@ -150,7 +143,6 @@ impl SectionVm<Uninjected> {
             log_byte_budget,
             adhoc_tools,
             cancel_hook,
-            raw_model_ids,
             messages,
             state,
         }

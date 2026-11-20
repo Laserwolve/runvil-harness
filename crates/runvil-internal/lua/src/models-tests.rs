@@ -404,18 +404,6 @@ fn models_use_applies_its_options_on_top_of_a_handle() {
 }
 
 #[test]
-fn models_use_accepts_a_raw_id_handle_from_models_get() {
-    let vm = TestVm::new().raw_model_ids().build();
-    vm.eval::<()>("models.use(models.get('vendor/raw-model'))");
-    let binding = vm
-        .current_model()
-        .expect("the current model is readable")
-        .expect("a selection resolves");
-    assert_eq!(binding.alias(), "vendor/raw-model");
-    assert_eq!(binding.id().name(), "vendor/raw-model");
-}
-
-#[test]
 fn models_use_rejects_an_argument_that_is_neither_a_role_nor_a_handle() {
     let vm = models_vm();
     let error = vm.eval_err("models.use(5)");
@@ -438,32 +426,13 @@ fn models_use_rejects_an_argument_that_is_neither_a_role_nor_a_handle() {
         "a rejected call must not select"
     );
 }
-#[test]
-fn models_get_resolves_a_label_outside_the_roles_as_a_raw_gateway_id_only_when_permitted() {
-    let resolved: String = TestVm::new().raw_model_ids().build().eval(
-        "local h = models.get('qwen/qwen3-8b'); return h.name .. '|' .. h.model_id .. '|' .. h.context",
-    );
-    assert_eq!(
-        resolved, "qwen/qwen3-8b|qwen/qwen3-8b|8192",
-        "the handle freezes the raw gateway id under the fallback context window"
-    );
 
+#[test]
+fn models_get_rejects_a_label_outside_the_roles_when_the_caller_supplied_no_model() {
     let error = TestVm::new().build().eval_err("models.get('ghost')");
     assert!(
         error.to_string().contains("is not a model role"),
-        "the strict path names the role rule: {error}"
-    );
-}
-
-#[test]
-fn the_raw_id_fallback_still_validates_the_gateway_id() {
-    let error = TestVm::new()
-        .raw_model_ids()
-        .build()
-        .eval_err("models.get('bad\\nid')");
-    assert!(
-        error.to_string().contains("is invalid"),
-        "the raw path validates as a gateway id, not as a role label: {error}"
+        "the rejection names the role rule, not the missing model: {error}"
     );
 }
 

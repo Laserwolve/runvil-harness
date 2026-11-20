@@ -1,8 +1,8 @@
 //! The model-first `tasks.fanout(model, worker, collection)`: every arm runs
 //! on the given model, the parent's own model is what it was before the call
-//! (also when a spawn fails part-way), a raw-id handle works with no model
-//! supplied, a first argument that is not a handle and a wrong argument count
-//! are refused, and an arm's own switch stays inside that arm.
+//! (also when a spawn fails part-way), a first argument that is not a handle
+//! and a wrong argument count are refused, and an arm's own switch stays
+//! inside that arm.
 
 use super::*;
 
@@ -61,24 +61,6 @@ fn a_spawn_failure_part_way_still_restores_the_parents_model() {
         trace.text(),
         "strong|false|recursion exceeded cap of 8|strong"
     );
-}
-
-#[test]
-fn a_raw_id_handle_fans_out_with_no_model_supplied() {
-    let md = sections(&[
-        (
-            "## Main",
-            "local r = tasks.fanout(models.get('vendor/raw-model'), 'Arm', {'a', 'b'})\n\
-             return table.concat(r, ',')",
-        ),
-        ("### Arm", "return models.current().model_id"),
-    ]);
-    let trace = Scenario::new(md)
-        .models(ModelSet::default())
-        .limits(ceiling(4))
-        .params(|ctx| ctx.with_ui(serde_json::json!({})))
-        .run();
-    assert_eq!(trace.text(), "vendor/raw-model,vendor/raw-model");
 }
 
 #[test]

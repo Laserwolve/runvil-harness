@@ -27,7 +27,6 @@ use crate::error::{self, Error, Result};
 use crate::hardening::{CancelHook, harden, install_cancel_hook};
 use crate::iteration::install_deterministic_iteration;
 use crate::messages::MessageList;
-use crate::models::RawModelIds;
 use crate::program::LuaProgram;
 use crate::scope::Offers;
 use crate::walk_budget::{DEFAULT_LUA_MEMORY_BYTES, HeapCeiling};
@@ -56,8 +55,8 @@ type Jump = (String, Option<NonZeroU32>);
 /// The failure of a poisoned jump slot.
 const JUMP_SLOT_POISONED: &str = "jump slot poisoned";
 
-/// A section VM's stage before Engine injection: construction, the run's
-/// limits, and the raw-model-id opt-in.
+/// A section VM's stage before Engine injection: construction and the
+/// run's limits.
 #[derive(Debug)]
 pub struct Uninjected;
 
@@ -129,10 +128,6 @@ pub struct SectionVm<S = Injected> {
     /// The VM's cancellation hook, shared with every block coroutine's hook
     /// (hooks are per-coroutine in PUC Lua).
     cancel_hook: CancelHook,
-    /// The [`RawModelIds`] fallback `models.get` applies; set by
-    /// [`allow_raw_model_ids`](SectionVm::allow_raw_model_ids) before Engine
-    /// injection, refused everywhere else.
-    raw_model_ids: RawModelIds,
     /// The section's one conversation, served as the `messages` global.
     messages: MessageList,
     /// The lifecycle stage: [`Uninjected`] or [`Injected`].
@@ -188,7 +183,6 @@ impl SectionVm<Uninjected> {
             log_byte_budget: Arc::new(AtomicUsize::new(log_byte_budget(DEFAULT_LUA_LOG_EVENTS))),
             adhoc_tools: AdhocTools::default(),
             cancel_hook: CancelHook::default(),
-            raw_model_ids: RawModelIds::Refused,
             messages: MessageList::default(),
             state: Uninjected,
         };
@@ -228,16 +222,6 @@ impl SectionVm<Uninjected> {
         vm.tool_set = Arc::clone(tools);
         vm.bound_models = Arc::clone(models);
         Ok(vm)
-    }
-
-    /// Opts the VM into the raw-model-id fallback, on whenever the caller
-    /// passes an application-state snapshot (`RunParams::with_ui`): `models.get`
-    /// resolves a label outside the five roles as a raw gateway catalog model
-    /// id. Engine injection's `models` table install reads the flag, so only
-    /// an uninjected VM takes it. A run without a snapshot never calls it, so
-    /// `models.get` accepts only the five roles.
-    pub fn allow_raw_model_ids(&mut self) {
-        self.raw_model_ids = RawModelIds::Resolved;
     }
 
     /// Records `file`, the file the run's prompt came from, as the file

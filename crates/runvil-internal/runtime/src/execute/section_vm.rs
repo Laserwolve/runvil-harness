@@ -73,9 +73,8 @@ pub(crate) struct SectionVmSetup<'a> {
     /// resolves it, captured by the `models.loop` shim as its round cap.
     pub(crate) max_tool_iterations: usize,
     /// The run's application-state snapshot, when the caller supplied one:
-    /// its presence gives the section VM the `ui()` global and the
-    /// raw-model-id `models.get` fallback. Shared through the run's `Arc`,
-    /// so every section VM serializes the one tree.
+    /// its presence gives the section VM the `ui()` global. Shared through
+    /// the run's `Arc`, so every section VM serializes the one tree.
     pub(crate) ui: Option<&'a Arc<serde_json::Value>>,
     /// The preludes of the Packs the section's prompt declares, installed
     /// in order after the coroutine shims and before `require`.
@@ -90,9 +89,7 @@ pub(crate) struct SectionVmSetup<'a> {
 ///
 /// The sequence is fixed and shared: the prompt's file label, then Engine
 /// injection with the frame
-/// constructor's [`VmSeed`], preceded by the raw-model-id opt-in when the run
-/// supplied a snapshot (Engine injection's `models` table install reads that
-/// flag, so the opt-in must land first), then
+/// constructor's [`VmSeed`], then
 /// [`SectionVm::install_engine_globals`], the
 /// `ui()` global when the run supplied a snapshot, the `item` global when
 /// the seed includes one, the control surface
@@ -111,7 +108,7 @@ pub(crate) struct SectionVmSetup<'a> {
 /// load, as one that calls a tool or the store does, or whose global
 /// collides), or the `require` install.
 pub(crate) fn setup_section_vm<R, L, P>(
-    mut vm: SectionVm<Uninjected>,
+    vm: SectionVm<Uninjected>,
     setup: &SectionVmSetup<'_>,
     read: R,
     resolve: L,
@@ -126,11 +123,6 @@ where
     P: Fn(&str, Option<NonZeroU32>, ProseState<'_>) -> mlua::Result<String> + Send + Sync + 'static,
 {
     vm.set_prompt_file(setup.file);
-    // The raw-model-id fallback reads its flag during Engine injection, so
-    // the snapshot's opt-in lands first.
-    if setup.ui.is_some() {
-        vm.allow_raw_model_ids();
-    }
     let mut vm = vm
         .inject_values(setup.args, setup.sys, setup.seed.var, setup.selection)
         .map_err(|failure| failure.teardown(setup.emitter, setup.section_name))?;

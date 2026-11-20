@@ -461,24 +461,5 @@ fn models_use_of_a_handle_applies_its_options_on_top_of_the_handles_model() {
         "the temperature applies on top of the handle's own binding"
     );
 }
-
-#[test]
-fn a_raw_id_handle_runs_the_next_round_on_its_gateway_model() {
-    let gateway = ScriptedChat::new(vec![text("a")]);
-    let trace = two_role_scenario(
-        "
-        models.use(models.get('vendor/raw-model'))
-        return models.infer('one')",
-    )
-    .params(|ctx| ctx.with_ui(serde_json::json!({})))
-    .chat(&gateway)
-    .run();
-    assert_eq!(trace.text(), "a");
-    assert_eq!(
-        gateway.requested_models(),
-        ["vendor/raw-model"],
-        "a raw-id handle from models.get is accepted by models.use"
-    );
-}
 #[path = "prepare-refusals.rs"]
 mod refusals;

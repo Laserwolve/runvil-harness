@@ -4,7 +4,7 @@
 //! tool nor reads its count by id. Each section entry's render and the
 //! model's calls of both rendered tools sit in the `entries` child module;
 //! the calls' events, a model-only tool in the Dynamic Set, and a stop
-//! between two entries' renders in the `calls` child module.
+//! during a held call of a rendered tool in the `calls` child module.
 
 use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};

@@ -139,12 +139,8 @@ impl RunParams {
     ///
     /// With a snapshot set, every section VM gets a `ui()` global that
     /// returns it. The caller takes the snapshot at run start, so a change
-    /// to application state takes effect on the next run. A snapshot also
-    /// makes `models.get` resolve a label outside the five roles as a raw
-    /// gateway model id. So a prompt can run
-    /// `models.loop(models.get(ui().selected_model))` and run on the model the
-    /// user picked. The default is `None`, which leaves the `ui` global
-    /// absent and limits `models.get` to the five roles.
+    /// to application state takes effect on the next run. The default is
+    /// `None`, which leaves the `ui` global absent.
     #[must_use]
     pub fn with_ui(mut self, snapshot: serde_json::Value) -> RunParams {
         self.ui = Some(snapshot);
