@@ -17,10 +17,7 @@ const CHECKS_USER: &str = "---\nname: checks-user\ndescription: d\nrunvil: 0\n--
 
 /// The setup of a run with a user, recorded through `recorder`.
 fn with_user(recorder: &Arc<MemoryRecorder>) -> RunSetup {
-    RunSetup {
-        has_user: true,
-        ..setup_over(recorder)
-    }
+    setup_over(recorder).has_user(true)
 }
 
 #[tokio::test]

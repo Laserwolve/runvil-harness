@@ -5,7 +5,6 @@
 
 use std::sync::Arc;
 
-use harness_runner::RunSetup;
 use harness_runner::recorder::MemoryRecorder;
 use runvil_engine::make_tool_error;
 use runvil_engine::vfs::{Origin, VfsRef};
@@ -93,10 +92,7 @@ impl Pack for Record {
 async fn a_tool_writes_the_setups_filesystem_through_its_context_and_shares_no_file_with_the_store()
 {
     let vfs = VfsRef::default();
-    let setup = RunSetup {
-        vfs: vfs.clone(),
-        ..setup_over(&Arc::new(MemoryRecorder::new()))
-    };
+    let setup = setup_over(&Arc::new(MemoryRecorder::new())).vfs(vfs.clone());
     let report = report_of(CALLS_RECORD, building(CONTEXT), setup).await;
     assert_eq!(
         report.result,

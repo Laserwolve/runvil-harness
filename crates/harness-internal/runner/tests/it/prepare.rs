@@ -4,7 +4,8 @@
 //! recorder that refuses the run's first record fails the run naming it;
 //! each run's begin draws a fresh seed and reads its start from the
 //! Host's timer, both handed to the recorder; the setup's limits reach
-//! the prepared run; each run starts with an empty store, which shares no
+//! the prepared run; a setup built in one chain holds each value its
+//! methods set; each run starts with an empty store, which shares no
 //! file with the setup's filesystem; each run makes its own instance of
 //! each of its Packs and drops it by the time `Harness::run` returns,
 //! handing its factory nothing but the Pack id; and the run's tool
@@ -15,7 +16,7 @@
 //! `ready` child module, and the built-in `runvil/user`, which only a run
 //! with a user holds, sits in the `user` child module.
 
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -338,10 +339,7 @@ async fn the_setups_limits_reach_the_run() {
     let rounds = broker.rounds();
     let mut limits = RunLimits::default();
     limits.tool_iterations_ceiling = NonZeroU32::new(2).expect("2 is non-zero");
-    let setup = RunSetup {
-        limits,
-        ..RunSetup::new(recorder(), Arc::new(broker))
-    };
+    let setup = RunSetup::new(recorder(), Arc::new(broker)).limits(limits);
 
     let report = report_of(LOOPS_ON_ECHO, building(TOOLS), setup).await;
     assert_eq!(completed(report.result), "false|tool_loop_exhausted");
@@ -349,6 +347,38 @@ async fn the_setups_limits_reach_the_run() {
         rounds.lock().unwrap().len(),
         2,
         "the setup's ceiling ends the loop after two rounds"
+    );
+}
+
+#[test]
+fn a_setup_built_in_one_chain_holds_each_value_its_methods_set() {
+    let vfs = VfsRef::default();
+    let mut limits = RunLimits::default();
+    limits.tool_iterations_ceiling = NonZeroU32::new(2).expect("2 is non-zero");
+    let cap = NonZeroUsize::new(3).expect("3 is non-zero");
+    let setup = setup_over(&recorder())
+        .vfs(vfs.clone())
+        .selected_model("picked")
+        .args(r#"{"name":"Ada"}"#)
+        .limits(limits)
+        .max_tool_calls_in_flight(cap)
+        .has_user(true);
+
+    assert_eq!(setup.selected_model.as_deref(), Some("picked"));
+    assert_eq!(setup.args, r#"{"name":"Ada"}"#);
+    assert_eq!(setup.limits, limits);
+    assert_eq!(setup.max_tool_calls_in_flight, cap);
+    assert!(setup.has_user);
+    // `VfsRef` has no equality, so the check writes a file through the
+    // test's handle and reads it through the setup's.
+    let files = vfs.acquire(Origin::new("setup chain test")).unwrap();
+    files.write("/held.md", b"here").unwrap();
+    drop(files);
+    let held = setup.vfs.acquire(Origin::new("setup chain test")).unwrap();
+    assert_eq!(
+        held.read_string("/held.md"),
+        Ok("here".to_owned()),
+        "the setup holds the filesystem its `vfs` method set"
     );
 }
 

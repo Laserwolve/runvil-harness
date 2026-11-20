@@ -341,7 +341,13 @@ pub fn runvil::PromptFinder::find(&self, name: &str) -> core::result::Result<all
 pub fn runvil::RunControl::cancel(&self)
 pub fn runvil::RunControl::send(&self, text: alloc::string::String) -> bool
 pub fn runvil::RunControl::stop_round(&self)
+pub fn runvil::RunSetup::args(self, args: impl core::convert::Into<alloc::string::String>) -> runvil::RunSetup
+pub fn runvil::RunSetup::has_user(self, has_user: bool) -> runvil::RunSetup
+pub fn runvil::RunSetup::limits(self, limits: runvil::RunLimits) -> runvil::RunSetup
+pub fn runvil::RunSetup::max_tool_calls_in_flight(self, max: core::num::nonzero::NonZeroUsize) -> runvil::RunSetup
 pub fn runvil::RunSetup::new(recorder: alloc::sync::Arc<dyn runvil::harness::RunRecorder>, broker: alloc::sync::Arc<dyn runvil::harness::InferenceBroker>) -> runvil::RunSetup
+pub fn runvil::RunSetup::selected_model(self, model: impl core::convert::Into<alloc::string::String>) -> runvil::RunSetup
+pub fn runvil::RunSetup::vfs(self, vfs: runvil::vfs::VfsRef) -> runvil::RunSetup
 pub fn runvil::SourceLoc::line(file: impl core::convert::Into<alloc::string::String>, line: core::num::nonzero::NonZeroU32) -> runvil::SourceLoc
 pub fn runvil::SourceLoc::new(file: impl core::convert::Into<alloc::string::String>, start_line: core::num::nonzero::NonZeroU32, start_column: core::num::nonzero::NonZeroU32, end_line: core::num::nonzero::NonZeroU32, end_column: core::num::nonzero::NonZeroU32) -> core::option::Option<runvil::SourceLoc>
 pub fn runvil::Timestamp::to_rfc3339(self) -> alloc::string::String

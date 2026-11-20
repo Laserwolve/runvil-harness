@@ -74,19 +74,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 3. Give this run its recorder, its broker, and the operator's name;
     //    every other field keeps its default, such as an empty memory
     //    filesystem for the run's tool calls.
-    let recorder = Arc::new(MemoryRecorder::new());
-    let setup = RunSetup {
-        args: r#"{"text":"desk"}"#.to_owned(),
-        ..RunSetup::new(recorder.clone(), Arc::new(Offline))
-    };
+    let setup = RunSetup::new(Arc::new(MemoryRecorder::new()), Arc::new(Offline))
+        .args(r#"{"text":"desk"}"#);
 
-    // 4. Run it to its end; the Harness is spent.
-    let report = Harness::new(host, prompt, setup).run().await?;
-
-    // 5. The report says how the run ended: its result is the greeting
-    //    the prompt returned, and the recorder holds the same result.
-    assert_eq!(recorder.result(report.run_id), Some(report.result.clone()));
-    let greeting = report.result?;
+    // 4. Run it to its end; the Harness is spent. The first `?` is a
+    //    recorder's refusal, and the second is how the run ended. A Host
+    //    that wants the run's id or its unread messages keeps the report.
+    let greeting = Harness::new(host, prompt, setup).run().await?.result?;
     assert_eq!(greeting, "Hello, desk.");
     println!("{greeting}");
     Ok(())

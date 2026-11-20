@@ -80,6 +80,12 @@ The default of `args` is `{}`, which is what a caller sends when it leaves every
 
 The broker is a required argument because every run needs inference. A Host that leaves it out fails to compile. With an optional broker, the Harness would refuse each run of such a Host as it prepares the run.
 
+### Each optional field of `RunSetup` has a method that sets it and returns the setup
+
+Each field that `RunSetup::new` starts at a default has a method of the same name, which takes the setup, sets the field, and returns the setup. A Host writes a setup as one expression, as in `RunSetup::new(recorder, broker).args(text).has_user(true)`. The method `selected_model` takes the model id itself. The fields are public too, so a Host that holds a setup assigns a field directly.
+
+The methods let a Host name only the fields it changes. The recorder and the broker are set by `RunSetup::new` alone, because they are its required arguments.
+
 ### The Harness reads each `RunSetup` field once, and the run's tool calls work in the one file system that the setup holds
 
 The Harness reads each field once per run. This matters most for `vfs`, the file system that the run's tool calls work in: the Harness performs every file request of the run's tool calls on that one file system. The run's store is outside it. The Engine makes each run an empty store of its own, which the run's own Lua fills and which ends with the run. The `Policy` of that file system, such as a `ModePolicy` in its Ask, Plan, or Agent mode, sees the file operations of tool calls. So does the operation sink that `VfsRefBuilder::on_op` installs. A store operation passes both by.

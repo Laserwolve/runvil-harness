@@ -47,7 +47,8 @@ impl RunSetup {
     /// A setup over `recorder` and `broker`. Every other field starts
     /// empty or at its default: an empty memory filesystem, no selection,
     /// the empty object `{}` as its args, `RunLimits::default()`, at most
-    /// 10 tool calls in flight, and no user.
+    /// 10 tool calls in flight, and no user. Each of those fields has a
+    /// method of its name that sets it and returns the setup.
     #[must_use]
     pub fn new(recorder: Arc<dyn RunRecorder>, broker: Arc<dyn InferenceBroker>) -> RunSetup {
         RunSetup {
@@ -60,6 +61,49 @@ impl RunSetup {
             max_tool_calls_in_flight: DEFAULT_MAX_TOOL_CALLS_IN_FLIGHT,
             has_user: false,
         }
+    }
+
+    /// Sets the filesystem the run's tool calls work in.
+    #[must_use]
+    pub fn vfs(mut self, vfs: VfsRef) -> RunSetup {
+        self.vfs = vfs;
+        self
+    }
+
+    /// Sets the model id the user selected.
+    #[must_use]
+    pub fn selected_model(mut self, model: impl Into<String>) -> RunSetup {
+        self.selected_model = Some(model.into());
+        self
+    }
+
+    /// Sets the run's arguments: the text of one JSON object.
+    #[must_use]
+    pub fn args(mut self, args: impl Into<String>) -> RunSetup {
+        self.args = args.into();
+        self
+    }
+
+    /// Sets the run's resource limits.
+    #[must_use]
+    pub fn limits(mut self, limits: RunLimits) -> RunSetup {
+        self.limits = limits;
+        self
+    }
+
+    /// Sets the most tool calls in flight at once.
+    #[must_use]
+    pub fn max_tool_calls_in_flight(mut self, max: NonZeroUsize) -> RunSetup {
+        self.max_tool_calls_in_flight = max;
+        self
+    }
+
+    /// Sets whether a user answers the main chain's inbox (`true`), so the
+    /// run holds `runvil/user`, or the run has no user (`false`).
+    #[must_use]
+    pub fn has_user(mut self, has_user: bool) -> RunSetup {
+        self.has_user = has_user;
+        self
     }
 }
 

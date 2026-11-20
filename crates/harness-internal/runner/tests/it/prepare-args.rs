@@ -19,10 +19,7 @@ const GREETS: &str = "---\nname: greets\ndescription: d\nrunvil: 0\n\
 /// The setup of a run recorded through `recorder` whose arguments are
 /// `args`.
 fn with_args(recorder: &Arc<MemoryRecorder>, args: &str) -> RunSetup {
-    RunSetup {
-        args: args.to_owned(),
-        ..setup_over(recorder)
-    }
+    setup_over(recorder).args(args)
 }
 
 #[tokio::test]

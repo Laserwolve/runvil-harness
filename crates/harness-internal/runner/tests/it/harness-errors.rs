@@ -96,10 +96,7 @@ async fn a_model_list_the_broker_cannot_fetch_ends_the_recorded_run_with_the_bro
 #[tokio::test]
 async fn a_selection_absent_from_the_model_list_ends_the_recorded_run_as_an_unmet_requirement() {
     let recorder = Arc::new(FailingRecorder::never_failing());
-    let setup = RunSetup {
-        selected_model: Some("absent".to_owned()),
-        ..setup(recorder.clone(), ScriptedBroker::replying())
-    };
+    let setup = setup(recorder.clone(), ScriptedBroker::replying()).selected_model("absent");
 
     let report = harness_with(PLAIN, setup)
         .run()
