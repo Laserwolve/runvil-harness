@@ -7,13 +7,13 @@ todos:
     status: completed
   - id: tests
     content: "Make the scripted broker in crates/runvil/tests/suite/broker.rs keep the model each round asks for, and add two helpers and the two tests"
-    status: pending
+    status: completed
   - id: breaks
     content: "Apply each of the three breaks, confirm a test now fails, and revert it"
-    status: pending
+    status: completed
   - id: verify
     content: "Run every verification command and vibelight"
-    status: pending
+    status: completed
   - id: pr
     content: "Push the branch qa-plan-tests to the fork and open one PR for the whole effort against cppalliance/runvil-harness"
     status: pending
@@ -121,6 +121,9 @@ The change is itself tests, so its own check is that each break fails a test. Th
 - Assumptions, risks, and notes:
   - The Workshop repository has a test that selects a second model and checks the next request names it. That test should notice Break B, but only after the Harness change reached Workshop through its pinned commit. It was not run against the break.
   - The tests fail if `prompts/hello.md` changes its prose or stops making exactly one model round. The person who changes that sample updates these tests in the same change.
+  - Result of the breaks: the workspace runs 3,986 tests. Break A fails the no-selection test, Break B fails the selection test, and Break C fails both. Every other test passes under each.
+  - Result of the exit criteria: every command passed except the custom lints, which were not run locally because `cargo-dylint` is not installed on the author's machine. CI's `dylint` job runs them on the pull request.
+  - `vibelight` outlines each crate's library code and not its `tests/` folder, so it was also run on `broker.rs` alone. Its first run flagged a message repeated in three tests. The two new tests now return their error in place of that message, and the second run reported no lead.
 
 ### Deferred and Out of Scope
 
