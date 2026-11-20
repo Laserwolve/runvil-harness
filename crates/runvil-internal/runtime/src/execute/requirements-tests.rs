@@ -176,12 +176,12 @@ fn params_naming_no_reserved_pack_id_pass_the_start_checks() {
 
 #[test]
 fn a_declared_pack_the_roster_lists_as_unavailable_is_refused_with_its_reason_not_as_missing() {
-    let ctx = params().with_packs([unavailable("web", "the search provider is missing")]);
+    let ctx = params().with_packs([unavailable("web", "the network is off")]);
     assert_eq!(
         refusal(prompt("uses: [web]\n"), ctx),
         Some(
             "the environment cannot satisfy this prompt:\n\
-             - web is unavailable: the search provider is missing (at prompt:5)"
+             - web is unavailable: the network is off (at prompt:5)"
                 .to_owned()
         )
     );
@@ -190,7 +190,7 @@ fn a_declared_pack_the_roster_lists_as_unavailable_is_refused_with_its_reason_no
 #[test]
 fn declared_packs_the_roster_lacks_are_missing_and_list_before_the_unavailable_ones() {
     let ctx = params().with_packs([
-        unavailable("web", "the search provider is missing"),
+        unavailable("web", "the network is off"),
         unavailable("mcp", "the server is down"),
         usable("kit"),
     ]);
@@ -200,7 +200,7 @@ fn declared_packs_the_roster_lacks_are_missing_and_list_before_the_unavailable_o
             "the environment cannot satisfy this prompt:\n\
              - missing required Pack: other\n\
              - missing required Pack: gone\n\
-             - web is unavailable: the search provider is missing\n\
+             - web is unavailable: the network is off\n\
              - mcp is unavailable: the server is down (at prompt:5)"
                 .to_owned()
         ),

@@ -155,7 +155,6 @@ const PLUGIN_DOC_DIRS = [
   "crates/runvil",
   "crates/harness-internal",
   "crates/harness-gateway-client",
-  "crates/plugin-web",
   "crates/plugin-mcp",
 ];
 

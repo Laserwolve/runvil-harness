@@ -11,8 +11,7 @@
 //!   out `build-*` and other unaffiliated crates.
 //! - `plugin-*` crates may depend only on `runvil-plugin` and outside
 //!   libraries. Engine and Harness crates must not depend on `plugin-*`
-//!   crates, except `harness-gateway-client`, which implements web's
-//!   `SearchProvider`.
+//!   crates.
 //! - Public API: a crate outside the Engine family may depend on
 //!   the family only through its two public crates, `runvil-engine` and
 //!   `runvil-plugin`, and a crate outside the Harness family on that
@@ -116,12 +115,9 @@ const PUBLIC_ENGINE: [&str; 2] = ["runvil-engine", "runvil-plugin"];
 /// The Harness family's facade: the one outside crate permitted into
 /// `crates/harness-internal/`.
 const HARNESS_FACADE: &str = "runvil";
-/// The Harness gateway client, which implements web's `SearchProvider`:
-/// the one Harness crate that may name a Plugin crate.
-const GATEWAY_CLIENT: &str = "harness-gateway-client";
 /// The Harness family's two public root crates, the facade and the gateway
 /// client: the only Harness crates outside crates may name.
-const PUBLIC_HARNESS: [&str; 2] = [HARNESS_FACADE, GATEWAY_CLIENT];
+const PUBLIC_HARNESS: [&str; 2] = [HARNESS_FACADE, "harness-gateway-client"];
 /// The Plugin contract: the one Engine crate Plugin crates may name.
 const PLUGIN_CONTRACT: &str = "runvil-plugin";
 
@@ -192,8 +188,7 @@ fn boundary_breach(package: &CrateInfo, dep: &CrateInfo) -> Option<String> {
 
 /// The reason an edge from `package` to `dep` breaches the Plugin family's
 /// rules, or `None` when they allow it: a Plugin crate names only its
-/// allow-list, and no Engine or Harness crate but the gateway client names
-/// a Plugin crate.
+/// allow-list, and no Engine or Harness crate names a Plugin crate.
 fn plugin_breach(package: &CrateInfo, dep: &CrateInfo) -> Option<&'static str> {
     let (from, to) = (family(&package.package), family(&dep.package));
     let allowed = [PLUGIN_CONTRACT, package.package.as_str()].contains(&dep.package.as_str());
@@ -201,10 +196,8 @@ fn plugin_breach(package: &CrateInfo, dep: &CrateInfo) -> Option<&'static str> {
         (Family::Plugin, _) if !allowed => {
             Some("plugin crates may depend only on runvil-plugin and outside libraries")
         }
-        (Family::Engine | Family::Harness, Family::Plugin) if package.package != GATEWAY_CLIENT => {
-            Some(
-                "Engine and harness crates must not depend on plugin crates; only harness-gateway-client may",
-            )
+        (Family::Engine | Family::Harness, Family::Plugin) => {
+            Some("Engine and harness crates must not depend on plugin crates")
         }
         _ => None,
     }

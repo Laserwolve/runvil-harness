@@ -1,6 +1,6 @@
 # Runvil Engine and Harness
 
-Multi-crate Rust workspace for the Engine, the Harness that runs it, and the Rust Plugins a Host links in. A Host lives in a repository of its own. The Gateway is a separate product in its own repository, `cppalliance/runvil-gateway`.
+Multi-crate Rust workspace for the Engine, the Harness that runs it, and `plugin-mcp`, the Rust Plugin a Host links in. A Host lives in a repository of its own. The Gateway is a separate product in its own repository, `cppalliance/runvil-gateway`.
 
 ## Definitions
 

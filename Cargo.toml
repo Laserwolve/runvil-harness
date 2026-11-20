@@ -32,7 +32,6 @@ runvil-types = { path = "crates/runvil-internal/types" }
 runvil = { path = "crates/runvil" }
 harness-runner = { path = "crates/harness-internal/runner" }
 harness-plugin-loader = { path = "crates/harness-internal/plugin-loader" }
-plugin-web = { path = "crates/plugin-web" }
 runvil-lua = { path = "crates/runvil-internal/lua" }
 runvil-markdown = { path = "crates/runvil-internal/markdown" }
 runvil-model-client = { path = "crates/runvil-internal/model-client" }
@@ -57,16 +56,11 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 # makes reqwest honor Windows registry and macOS proxies.
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls", "stream", "system-proxy"] }
 rand = "0.9"
-readabilityrs = "0.1"
-htmd = "0.5"
-mime = "0.3"
-encoding_rs = "0.8"
 url = "2"
-ipnet = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time", "sync"] }
 thiserror = "2"
-# Dev-only: the mock servers that the Gateway client's and the Plugins'
-# tests send real requests to.
+# Dev-only: the mock servers that the Gateway client's and the mcp
+# Plugin's tests send real requests to.
 axum = "0.8"
 # Pinned to 3.9.0, which fixes RUSTSEC-2026-0457, -0461, and -0462. `plugin-mcp`
 # was written against 3.5.1 (its `ClientConfig` handler,
@@ -75,8 +69,6 @@ axum = "0.8"
 # which `transport-streamable-http-client` turns on. Each crate that uses it
 # names the features it needs.
 rmcp = { version = "=3.9.0", default-features = false }
-async-trait = "0.1"
-flate2 = "1"
 futures-util = "0.3"
 mlua = { version = "0.12", features = ["lua55", "vendored", "serialize", "send"] }
 # Reads each crate's manifest for build-xtask's structural checks.
@@ -104,7 +96,7 @@ libc = "0.2"
 # Benchmark framework for the executor and Lua-boundary benches; dev-only.
 criterion = "0.5"
 # The Engine's GetDynamicTools pattern search; already in the tree through
-# criterion and readabilityrs.
+# criterion.
 regex = "1"
 
 # The dylint libraries `cargo dylint --all` runs. The lints live in their
