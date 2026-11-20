@@ -4,19 +4,19 @@ overview: "Step 3 of the fluent walk: export `runvil::harness::OfflineBroker` an
 todos:
   - id: plan-copy
     content: "Harness commit 0: copy the approved plan alone to runvil-harness/plan/2026-11-20-2-stock-offline-broker.plan.md and commit it on master"
-    status: in_progress
+    status: completed
   - id: harness-add
     content: "Harness commit 1: add `OfflineBroker` (performers_offline.rs, the wiring, the doc comments), the two unit tests and the runner test, the three edits of harness-and-host.md, bless the runvil listing (exactly four added lines), run verify.ps1 -Tag s3a (3,976 tests expected), commit"
-    status: pending
+    status: completed
   - id: harness-use
     content: "Harness commit 2: switch the four copies (run-prompt.rs, the facade suite, test-plugin run.rs, environment-tests.rs), rewrite the testing page entry, run verify.ps1 -Tag s3b and the example, commit"
-    status: pending
+    status: completed
   - id: workshop-dry-run
     content: "Workshop dry run under a temporary [patch] on the local Harness: switch the two copies and the bindings-tests import, run clippy and nextest for workshop-agents and workshop-server, then restore Cargo.toml and Cargo.lock"
-    status: pending
+    status: completed
   - id: record
     content: "Harness commit 3: add 'What the build found' for both repos and the todo statuses to the repo copy of the plan, and commit it alone"
-    status: pending
+    status: completed
   - id: harness-pr
     content: Push Harness master to origin and open the pull request from vinniefalco:master
     status: pending
@@ -297,3 +297,43 @@ Nothing here gains from running in parallel on one machine: the Harness verifica
 - Fetching a commit that only an open pull request holds is how I expect `cargo` and GitHub to behave, but I have not tried it in these repos. The fallback above covers it.
 - If PR #56 merges into the Harness while this work is open, upstream `master` moves and I stop.
 - PR #27 edits the example, so its conflict with `master` grows. That is expected.
+
+# What the build found
+
+The plan held in both repos. This record was written after the two Harness code commits and the Workshop dry run, and before anything was pushed. These points differ from the plan above, or add to it.
+
+## Harness commit 0, `9c91ace9`: the plan
+
+- **The copy is one status ahead of the approved plan.** Cursor's todo list wrote `in_progress` for the first todo into the plan file before the copy was made, so the commit holds `in_progress` there where the approved plan said `pending`. The rest of the file is the approved text.
+
+## Harness commit 1, `f14e80a0`: the type
+
+- **The run reports `false:model_required`.** That settles the first risk. A `pcall` catches the failure of a `models.infer` in a run that bound no model, the kind is `model_required`, and the record of the run holds no `Chat` effect.
+- **The `runvil` listing gained exactly the four predicted lines**, and the Engine listing stayed as it was.
+- **The custom lints passed the new code as the plan wrote it.**
+- **The two unit tests sit in a `tests` module at the bottom of `performers_offline.rs`.** The test of a round builds one `ModelBinding` and one `Round` by hand, because `chat` takes both.
+- **Three doc comments name the broker**: the crate doc of `harness-runner`, the module doc of `performers`, and the doc of `runvil::harness`. That last paragraph was wrapped again, so its diff is longer than the one clause it gained.
+- **Every command of the verification list passed.** The whole workspace ran 3,976 tests, all passing, with 25 skipped.
+
+## Harness commit 2, `3b1ee6a5`: the four sites
+
+- **The switch went as the plan wrote it.** The facade suite had five setups over its copy, the test Plugin had one, and the model lookup tests had three uses of `EmptyBroker`.
+- **The imports that left each file are the ones the plan listed.** The example imports the three lines the plan gave.
+- **The example's comment of step 3 now says why the broker is the stock one**: the prompt asks no model.
+- **The model lookup tests now cover a selection over the stock broker.** `a_selection_the_list_lacks_is_an_unmet_requirement_naming_the_selection` passes `OfflineBroker` to `current_model` with a selected model, and the lookup ends as `RequirementsUnmet`.
+- **Every command of the verification list passed again.** The count stayed at 3,976, and `cargo run -p runvil --example run-prompt` printed `Hello, desk.`.
+
+## The Workshop dry run
+
+- **Workshop built against the local Harness checkout** through a temporary `[patch]` section, which was taken out again with `git restore` on `Cargo.toml` and `Cargo.lock`.
+- **Clippy with warnings denied passed for `workshop-agents` and `workshop-server`.** Their tests passed too: 21 in `workshop-agents`, and 256 in `workshop-server` with 2 skipped.
+- **In `server/src/agents/tests.rs` the imports that left are the ones the plan named**: `Round`, `InferenceBroker`, `BoxFuture`, and the whole `runvil::model` import.
+- **The three test edits wait in Workshop's working tree** for the commit that pins the Harness.
+
+## Still to come when this record was written
+
+- The push of the Harness to the fork, and its pull request.
+- The Workshop commit on the real pin, with Workshop's whole verification list, and its pull request.
+- The two merges, the Harness first.
+
+Each of those is reported in its pull request and in the chat, because a record of them would be one more commit after the merge.
