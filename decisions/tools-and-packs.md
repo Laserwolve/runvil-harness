@@ -256,15 +256,15 @@ The `mcp` Pack reads the caller from its `ToolContext`. For a call the model mad
 
 ### A library Plugin is written against `runvil-plugin-sdk`, and a Rust Plugin against `runvil-plugin`
 
-Two crates define what a Pack author writes against, and each shipped Plugin uses one of them. `std`, `bashkit`, and `web` are written against `runvil-plugin-sdk`, the safe layer over the C contract. The author implements the SDK's traits for a Plugin and a Pack, and the SDK's macro exports the entry point. Each of them depends on that crate and on libraries from outside Runvil, so it builds independently of the Harness. `plugin-mcp` is written against `runvil-plugin`, which defines the `Pack` trait, `PackFactory`, `PackInfo`, `PackRegistry`, `ToolContext`, and `HostServices`, and re-exports the Engine and file-system types an author needs. The `## Invariants` section of that crate's docs is the rule list for its Pack authors. A Host imports the same items from `runvil::plugin`.
+Two crates define what a Pack author writes against, and each shipped Plugin uses one of them. `std`, `bashkit`, and `web` are written against `runvil-plugin-sdk`, the safe layer over the C contract. The author implements the SDK's traits for a Plugin and a Pack, and the SDK's macro exports the entry point. Each of them depends on that crate and on libraries from outside Runvil, so it builds independently of the Harness. `plugin-mcp` is written against `runvil-plugin`, which defines the `Pack` trait, `PackFactory`, `PackInfo`, `PackRegistry`, and `ToolContext`, and re-exports the Engine and file-system types an author needs. The `## Invariants` section of that crate's docs is the rule list for its Pack authors. A Host imports the same items from `runvil::plugin`.
 
 The two crates are two APIs, and the design is one. The Rust API has abilities that the contract lacks, and the move of `plugin-mcp` onto the contract is planned work. The rest of this section describes the Rust API, and the section on the C contract describes the contract.
 
-### A Rust Plugin is a function named `install`
+### A Rust Plugin is a function named `install`, and its arguments are its own
 
-The Host calls `install` with the registry, a configuration, and the Host's services. For each Pack, the function reads the configuration under the Pack's id and the services it needs, builds a factory, and calls `PackRegistry::insert` with the Pack's `PackInfo` and the factory. When setup fails, it calls `PackRegistry::insert_unavailable` with a reason.
+A Rust Plugin is a function that inserts its Packs into the Host's `PackRegistry`. The Host calls `install` with the registry and whatever else that Plugin takes, as plain arguments. `plugin_mcp::install` takes the Host's list of MCP servers, which is the `mcpServers` object of an `mcp.json` file, and the handle of the Host's tokio runtime. For each Pack, the function builds a factory from its arguments and calls `PackRegistry::insert` with the Pack's `PackInfo` and the factory. When setup fails, it calls `PackRegistry::insert_unavailable` with a reason.
 
-The Host owns the registry, and Plugins fill it. The owner's rule: "A host can only install plugins". The `install` function is the Rust-only way into the registry. A library Plugin inserts its Packs through the contract's `insert_pack`, and the loader calls `PackRegistry::insert` for it.
+The arguments are plain because a Rust Plugin is compiled into the Host and shares the Host's Rust types, so the compiler checks that the Host passes each one. The Host owns the registry, and Plugins fill it. The owner's rule: "A host can only install plugins". The `install` function is the Rust-only way into the registry. A library Plugin inserts its Packs through the contract's `insert_pack`, and the loader calls `PackRegistry::insert` for it.
 
 ### The Harness makes one Pack instance for each run
 
@@ -284,7 +284,7 @@ The Harness calls `new_pack` while it prepares the run, so a factory returns qui
 
 `ToolContext::tool` returns the id of the called tool. `ToolContext::files` returns the call's files, a `ToolFiles`: the call asks for one operation of the `VfsOp` list with `request` and awaits its `VfsOutcome`. A request works under the call's own identity, on paths rooted at `/` of the file system that the Host gave the run. Each store is a separate value outside that file system, so a file that `store.write` wrote stays out of a tool's reach ([Files and the VFS](files-and-the-vfs.md)). The Engine keeps the file access of the call, so a request is the call's one way to the run's files. `ToolContext::origin` says which section and which caller made the call. The context lends each of them only until the call ends, so the Rust compiler rejects a Pack that stores the files.
 
-The owner's rule: "The tool can't keep the access. ... it has to give it up, after the call is done". A Rust Pack reads the services it needs at `install` and stores them in its factory.
+The owner's rule: "The tool can't keep the access. ... it has to give it up, after the call is done". What a Rust Pack needs for longer than one call, its Plugin takes as an argument of `install` and stores in the Pack's factory.
 
 ### The rules that every `Pack::call` follows
 
@@ -318,9 +318,9 @@ The Harness performs every file operation of a tool on the file access of its ca
 
 The check is in the file system because every operation passes through the access, so the check covers every tool, including each tool written later.
 
-### Host services are named, typed objects that `install` reads
+### A Rust Pack runs on the Host's async runtime, and a library Plugin owns a runtime
 
-A service has a two-segment id, such as `runvil/tokio-runtime`, and a `ServiceKey<T>` binds the id to a Rust type. The Host fills one `HostServices` map and passes it to each Plugin's `install`. A Rust Pack that needs an async runtime reads the Host's runtime handle from that map. A Plugin of the C contract reads no service, because a Rust object stays on the Host's side of the contract. Each of its tool calls is lent the Host's resources, which are JSON values (see The C contract), and the bashkit Plugin starts a runtime of its own for its timers.
+A Rust Pack that needs an async runtime uses the Host's. Its Plugin takes the handle of that runtime as an argument of `install`, and the Pack's factory keeps the handle. The `mcp` Pack spawns the connection to each server, and each call of a server's tool, on it. A library Plugin links a copy of tokio of its own, so the Host's handle is of no use to it, and a Rust object stays on the Host's side of the contract. A library Plugin that needs a runtime therefore owns one, as the bashkit Plugin and the web Plugin do. What the Host hands a library Plugin is its resources, which are JSON values that each of the Plugin's tool calls is lent (see The C contract).
 
 ### A Pack's Lua prelude runs once in each section VM
 
@@ -378,7 +378,7 @@ In the loader, `insert_plugin_dir` loads every dynamic library in a directory, a
 
 `std`, `bashkit`, and `web` are library Plugins. The shipped Plugin that is compiled into the Host, `plugin-mcp`, is a third kind. It is a Rust `install` function written against `runvil-plugin`, which the Host calls itself, so the contract's calls go to the library Plugins alone. The docs of `runvil-plugin` call that third kind a linked Plugin as well. The move of `plugin-mcp` onto the contract is planned work.
 
-A Pack from the contract has tools only, and a tool has a name, a wire name, a description, parameters, and the flag that says it changes files. The other `ToolInfo` flags, the prelude, `ready`, `render`, the call's origin, a configuration, Host services, and a Pack inserted as unavailable exist in the Rust API alone. The contract is still to gain the ones that a shipped Pack uses.
+A Pack from the contract has tools only, and a tool has a name, a wire name, a description, parameters, and the flag that says it changes files. The other `ToolInfo` flags, the prelude, `ready`, `render`, the call's origin, a configuration at `install`, and a Pack inserted as unavailable exist in the Rust API alone. The contract is still to gain the ones that a shipped Pack uses.
 
 A loaded Plugin stays loaded while the `PluginReport`, one of its Packs in the registry, or a run's instance of one of its Packs holds it, so it unloads after its last Pack instance is deleted. `insert_plugin_dir` records a library that fails to load in the `PluginReport` and continues with the next one.
 
@@ -426,7 +426,7 @@ The result starts with the lines `url:`, `truncated:`, and `extraction:`. The fi
 
 ### `mcp` is one Pack with two tools for remote servers
 
-The Pack takes the whole `mcpServers` object as its config and connects to each server in the background. It offers `mcp/get_dynamic_tools`, which lists the servers and their tools, and `mcp/call_dynamic_tool`, which calls one. The listing shows each server as `ready`, `loading`, or `error`. The owner's rule: "there should just be 2 static tools that the mcp pack offers".
+The Plugin's `install` takes the whole `mcpServers` object as its list of servers, beside the handle of the Host's tokio runtime, and the Pack connects to each server in the background. It offers `mcp/get_dynamic_tools`, which lists the servers and their tools, and `mcp/call_dynamic_tool`, which calls one. The listing shows each server as `ready`, `loading`, or `error`. The owner's rule: "there should just be 2 static tools that the mcp pack offers".
 
 The client speaks Streamable HTTP through the `rmcp` SDK and returns results as text. An entry for a local server, one started with a `command`, shows as `error`. Local servers are still to be built, because each one needs a launcher program (`npx`, `uvx`), a job object or process group so that the server dies with Workshop, and handling for Windows `.cmd` shims.
 
@@ -454,7 +454,7 @@ The Pack uses `rmcp`'s own HTTP client, which refuses redirects, so the client s
 
 Each of these items is still to be built.
 
-- **One Plugin API.** `plugin-mcp` written against the C contract and inserted with `insert_plugin`, so that a Pack compiled into the Host goes through the same contract as a Pack from a library and the `install` function, which is what the Plugin is, goes away. The contract first needs what the Pack uses and contract 0.6 lacks: a configuration for its list of servers, the call's origin, the `describes_tools` flag, the Host's runtime handle, a Pack inserted as unavailable with a reason, and error causes.
+- **One Plugin API.** `plugin-mcp` written against the C contract and inserted with `insert_plugin`, so that a Pack compiled into the Host goes through the same contract as a Pack from a library and the `install` function, which is what the Plugin is, goes away. The contract first needs what the Pack uses and contract 0.6 lacks: a configuration for its list of servers, the call's origin, the `describes_tools` flag, the Host's runtime handle, a Pack inserted as unavailable with a reason, and error causes. The Plugin is compiled into the Host, and its `install` takes the list of servers and the Host's runtime handle as arguments.
 - **Glob in `std`.** A `std/glob` that finds files by a name pattern and returns their paths. The tool answers a fixed text that says it is missing from this build.
 - **Approval by a person.** The step that asks the operator to approve a file change. When the run's policy answers `Ask`, the file system refuses the operation with `VfsError::ApprovalRequired` and a reason, which a library Pack's tool receives as a denied file error with the same reason, and under Workshop the policy allows every operation, because Workshop's runs use `AllowAll`.
 - **Ignore files.** Applying `.gitignore`, so that Grep skips a folder such as `target/` and spends its budget of 100,000 files elsewhere. Walks skip `.git` and names that contain a control character.

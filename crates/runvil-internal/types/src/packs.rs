@@ -11,8 +11,8 @@
 //! tool names its Pack through its [`ToolId`] prefix. Which Packs a run
 //! holds, and so which tools its catalog offers, is the caller's choice.
 //! The Plugin contract - the `PackInfo`, the `Pack` trait, and the
-//! services a Pack reads - is in `runvil-plugin`, and building Packs is
-//! the caller's; the Engine never builds a Pack.
+//! registry a Plugin inserts its Packs into - is in `runvil-plugin`, and
+//! building Packs is the caller's; the Engine never builds a Pack.
 
 use std::str::FromStr;
 

@@ -1,5 +1,5 @@
-//! What the topics share: the runtime service, the Pack `install` inserts
-//! for a map of servers and the instances its factory makes, calls of its
+//! What the topics share: the Pack `install` inserts for a map of servers
+//! on the test's runtime and the instances its factory makes, calls of its
 //! two tools, waits on a server's status, and a server that never answers.
 
 use std::sync::Arc;
@@ -7,10 +7,10 @@ use std::time::Duration;
 
 use runvil_plugin::testing::TestCall;
 use runvil_plugin::{
-    Error, HostServices, OutputTrust, Pack, PackFactory, PackId, PackInfo, PackRegistry,
-    ServiceKey, TOKIO_RUNTIME, ToolCaller, ToolId, ToolOutput,
+    Error, OutputTrust, Pack, PackFactory, PackId, PackInfo, PackRegistry, ToolCaller, ToolId,
+    ToolOutput,
 };
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 use tokio::net::TcpListener;
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
@@ -20,17 +20,6 @@ use crate::fixture::Fixture;
 /// A header value no reason, listing, or error may repeat.
 pub(crate) const SECRET: &str = "ghp_secret_token_value_0042";
 
-const RUNTIME: ServiceKey<Handle> = ServiceKey::new(TOKIO_RUNTIME);
-
-/// Host-wide services holding the test's runtime.
-pub(crate) fn runtime_services() -> HostServices {
-    let mut services = HostServices::new();
-    services
-        .provide(&RUNTIME, Arc::new(Handle::current()))
-        .expect("an empty map takes the runtime");
-    services
-}
-
 /// A factory or the reason its Pack was inserted unavailable.
 pub(crate) type Inserted = Result<Arc<dyn PackFactory>, Error>;
 
@@ -38,26 +27,23 @@ pub(crate) type Inserted = Result<Arc<dyn PackFactory>, Error>;
 /// insert.
 const BUILTINS: [&str; 2] = ["runvil/subagents", "runvil/user"];
 
-/// Each Pack `install` inserts into a fresh registry with `config` and the
-/// Host-wide `services`, beside its Pack id and its factory or the reason
-/// it was inserted unavailable.
-pub(crate) fn inserted(
-    config: Value,
-    services: &HostServices,
-) -> Vec<(PackInfo, PackId, Inserted)> {
+/// Each Pack `install` inserts into a fresh registry for the server map
+/// `servers`, on the test's runtime, beside its Pack id and its factory
+/// or the reason it was inserted unavailable.
+pub(crate) fn inserted(servers: Value) -> Vec<(PackInfo, PackId, Inserted)> {
     let mut packs = PackRegistry::new();
-    plugin_mcp::install(&mut packs, config, services).expect("a fresh registry takes the Pack");
+    plugin_mcp::install(&mut packs, servers, Handle::current())
+        .expect("a fresh registry takes the Pack");
     packs
         .into_entries()
         .filter(|(info, _, _)| !BUILTINS.contains(&info.fqn))
         .collect()
 }
 
-/// The factory `install` inserts for the server map `servers` with the
-/// Host-wide `services`, or the reason it inserted the Pack unavailable.
-pub(crate) fn factory(servers: Value, services: &HostServices) -> Inserted {
-    let config = Map::from_iter([("mcp".to_owned(), servers)]);
-    let mut inserted = inserted(Value::Object(config), services);
+/// The factory `install` inserts for the server map `servers`, on the
+/// test's runtime, or the reason it inserted the Pack unavailable.
+pub(crate) fn factory(servers: Value) -> Inserted {
+    let mut inserted = inserted(servers);
     let (_info, _id, factory) = inserted.pop().expect("install inserts one Pack");
     factory
 }
@@ -70,7 +56,7 @@ pub(crate) fn instance(factory: &Arc<dyn PackFactory>) -> Arc<dyn Pack> {
 
 /// The Pack over the server map `servers`, on the test's runtime.
 pub(crate) fn pack_over(servers: Value) -> Arc<dyn Pack> {
-    let factory = factory(servers, &runtime_services()).expect("a server map inserts the Pack");
+    let factory = factory(servers).expect("a server map inserts the Pack");
     instance(&factory)
 }
 

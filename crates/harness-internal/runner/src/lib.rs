@@ -75,8 +75,9 @@
 //!   Host did not install it from, and that run is refused. A run makes
 //!   its own instance of each of its Packs, waits on the `ready` of each
 //!   instance, and drops its instances when its future ends.
-//! - Host services reach only a Plugin's `install`, and a tool call gets
-//!   only facts about that call.
+//! - A run hands a Pack's factory the Pack id alone, and a tool call
+//!   only facts about that call. What a Pack needs from the Host, its
+//!   factory holds from the time the Host filled its `PackRegistry`.
 //! - A factory that refuses or panics leaves its Pack unavailable to that
 //!   run alone: a refusal is logged at debug and a panic at error, and the
 //!   next run calls the factory again.

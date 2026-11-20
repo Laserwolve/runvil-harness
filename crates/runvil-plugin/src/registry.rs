@@ -121,7 +121,7 @@ impl PackRegistry {
     }
 
     /// Adds the Pack `info` names as a Plugin's Pack that is unavailable for
-    /// `reason`, such as bad config or a missing Host-wide service.
+    /// `reason`, such as a configuration the Plugin cannot use.
     /// `Host::parse` refuses a prompt that declares it, naming `reason`.
     ///
     /// # Errors

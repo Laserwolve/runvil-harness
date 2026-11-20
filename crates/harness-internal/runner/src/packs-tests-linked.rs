@@ -18,10 +18,7 @@ fn vendors() -> Packs {
         ("acme/poop", ["poop/scoop"]),
     ] {
         registry
-            .insert(
-                info(fqn),
-                factory(listed, offering(&tools), HostServices::new()),
-            )
+            .insert(info(fqn), listed(offering(&tools)))
             .unwrap();
     }
     registry

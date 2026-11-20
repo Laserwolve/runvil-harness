@@ -61,9 +61,9 @@ pub trait ToolFiles: Send + Sync {
 /// files, move them into a spawned task or thread, or keep them past the
 /// call.
 ///
-/// A call gets no services. A Plugin's `install` keeps the Host-wide
-/// services its Pack needs in the Pack's
-/// [`PackFactory`](crate::PackFactory), which hands them to each run's
+/// What a Pack needs from its Host reaches it another way. The Plugin's
+/// `install` takes it as arguments and keeps it in the Pack's
+/// [`PackFactory`](crate::PackFactory), which hands it to each run's
 /// instance it makes at [`new_pack`](crate::PackFactory::new_pack).
 pub struct ToolContext<'a> {
     tool: &'a ToolId,
@@ -118,10 +118,10 @@ impl<'a> ToolContext<'a> {
 ///
 /// A section entry is one execution of a section: re-entering a section,
 /// a fanout arm, a task, and a child started with `call` are each their
-/// own entry. The context holds plain data only, free of Rust-only handles
-/// such as [`HostServices`](crate::HostServices), so a later C verb can
-/// pass it serialized. The Harness builds it with [`RenderContext::new`],
-/// and later facts join as fields without breaking existing Packs.
+/// own entry. The context holds plain data only, free of Rust-only
+/// handles, so a later C verb can pass it serialized. The Harness builds
+/// it with [`RenderContext::new`], and later facts join as fields without
+/// breaking existing Packs.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct RenderContext<'a> {

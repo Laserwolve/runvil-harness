@@ -5,20 +5,18 @@
 //! first segment is the vendor, and its Pack id is the second segment,
 //! `web`, which prefixes its tools (`web/fetch`). A Plugin is an entry
 //! point which installs zero or more Packs. A linked Plugin is the
-//! `install` function of a Plugin crate (a `plugin-*` crate):
+//! `install` function of a Plugin crate (a `plugin-*` crate), which
+//! inserts its Packs into the Host's [`PackRegistry`]. Its signature is
+//! its own: it takes the registry and whatever else its Host hands it,
+//! as plain arguments, such as a configuration or the handle of the
+//! Host's async runtime. A Plugin that takes one configuration value is:
 //!
 //! ```text
-//! pub fn install(
-//!     packs: &mut PackRegistry,
-//!     config: Value,
-//!     services: &HostServices,
-//! ) -> Result<(), Error>
+//! pub fn install(packs: &mut PackRegistry, config: &Value) -> Result<(), Error>
 //! ```
 //!
-//! For each Pack it offers, it reads the sub-object of `config` under that
-//! Pack's id (`null` when the key is missing) and the Host-wide
-//! `services`, then calls [`PackRegistry::insert`] with a [`PackFactory`]
-//! holding what the Pack's instances share, or
+//! For each Pack it offers, it calls [`PackRegistry::insert`] with a
+//! [`PackFactory`] holding what the Pack's instances share, or
 //! [`PackRegistry::insert_unavailable`] with the reason its setup failed,
 //! and returns the first error. A Plugin can also be a C entry
 //! point that follows the C contract in the `runvil-plugin-sys` crate: a
@@ -47,8 +45,6 @@
 //! [`Pack::render`] returns the tools the model sees, given the tools a
 //! section offered from the Pack and the [`RenderContext`] that names the
 //! section entry and its model.
-//! [`HostServices`] maps service ids to the shared objects a Host provides,
-//! each read back through a typed [`ServiceKey`].
 //!
 //! The Engine never depends on this crate; it sees only `ToolInfo` values,
 //! preludes, and ids. The Engine and filesystem names a Plugin author
@@ -71,9 +67,10 @@
 //!   Pack's [`PackFactory`], and of no other Pack. The instance drops
 //!   when the run ends, so cleanup goes in its `Drop`; there is no
 //!   shutdown hook.
-//! - Host services reach only a Plugin's `install`. A factory keeps what
-//!   its instances need from them, and a call gets only facts about
-//!   itself, through its [`ToolContext`].
+//! - A linked Plugin takes what its Packs need from the Host as the
+//!   arguments of its `install`. A factory keeps what its instances need
+//!   of them, and a call gets only facts about itself, through its
+//!   [`ToolContext`].
 //! - [`PackFactory::new_pack`] runs inside the run's future, so it must
 //!   not block, do I/O, or panic. A refusal or a panic makes the Pack
 //!   unavailable to that run alone.
@@ -114,21 +111,19 @@
 //!   [`Pack::call`]: it must not block while polled, it must not panic,
 //!   and it is cancellation-aware.
 //! - [`Pack::render`] takes and returns plain data: its
-//!   [`RenderContext`] and its tool lists hold no Rust-only handle such as
-//!   [`HostServices`], so a later C verb can pass them serialized. A fact
-//!   joins [`RenderContext`] only as plain data.
+//!   [`RenderContext`] and its tool lists hold no Rust-only handle, so a
+//!   later C verb can pass them serialized. A fact joins
+//!   [`RenderContext`] only as plain data.
 
 mod context;
 mod pack;
 mod registry;
-mod service;
 #[cfg(feature = "test-support")]
 pub mod testing;
 
 pub use context::{RenderContext, ToolContext, ToolFiles};
 pub use pack::{Pack, PackFactory, PackInfo};
 pub use registry::{PackOrigin, PackRegistry};
-pub use service::{HostServices, ServiceId, ServiceKey, TOKIO_RUNTIME};
 
 pub use runvil_types::error::{Error, ErrorCode, ErrorFact, SourceLoc};
 pub use runvil_types::future::BoxFuture;

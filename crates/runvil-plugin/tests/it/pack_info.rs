@@ -1,9 +1,9 @@
 //! A fixture Plugin crate's whole Pack side: a `GREETER` constant, an
-//! `install` that reads a Host-wide service into the Pack's factory, a
-//! factory that names its tool under the Pack id it receives, a plain
-//! function of the Pack id that is a factory too, and an `impl Pack` whose
-//! `call` answers from what its instance holds and whose `render` is the
-//! default.
+//! `install` that puts the greeting its Host hands it into the Pack's
+//! factory, a factory that names its tool under the Pack id it receives,
+//! a plain function of the Pack id that is a factory too, and an
+//! `impl Pack` whose `call` answers from what its instance holds and
+//! whose `render` is the default.
 
 use std::future::Future;
 use std::num::NonZeroU32;
@@ -13,44 +13,42 @@ use std::task::{Context, Poll, Waker};
 
 use runvil_plugin::testing::TestCall;
 use runvil_plugin::{
-    BoxFuture, Error, ErrorCode, HostServices, ModelId, ModelInfo, OutputTrust, Pack, PackFactory,
-    PackId, PackInfo, PackRegistry, RenderContext, ServiceKey, ThinkingMode, ToolContext, ToolId,
-    ToolInfo, ToolOutput, make_tool_error,
+    BoxFuture, Error, ErrorCode, ModelId, ModelInfo, OutputTrust, Pack, PackFactory, PackId,
+    PackInfo, PackRegistry, RenderContext, ThinkingMode, ToolContext, ToolId, ToolInfo, ToolOutput,
+    make_tool_error,
 };
 use serde_json::{Value, json};
-
-/// The Host-wide service `install` reads.
-const GREETING: ServiceKey<str> = ServiceKey::new("acme/greeting");
 
 const GREETER: PackInfo = PackInfo::new("acme/greeter").prelude("local pack = ...\n");
 
 /// The fixture's Plugin: inserts `GREETER` with a factory over the
-/// Host-wide greeting, or unavailable when its config is set or the
-/// greeting is missing.
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "the Plugin signature fixes the argument types"
-)]
-fn install(packs: &mut PackRegistry, config: Value, services: &HostServices) -> Result<(), Error> {
-    if !config["greeter"].is_null() {
-        return packs.insert_unavailable(
-            GREETER,
-            make_tool_error(ErrorCode::ToolOther, "greeter takes no configuration"),
-        );
-    }
-    match services.get(&GREETING) {
-        Some(greeting) => packs.insert(GREETER, Greetings { greeting }),
-        None => packs.insert_unavailable(
-            GREETER,
-            make_tool_error(
-                ErrorCode::ToolOther,
-                "greeter needs acme/greeting, and this Host provides none",
-            ),
-        ),
+/// greeting in `config`, the one plain argument its Host hands it, or
+/// unavailable when `config` sets no greeting it can use.
+fn install(packs: &mut PackRegistry, config: &Value) -> Result<(), Error> {
+    match greeting(config) {
+        Ok(greeting) => packs.insert(GREETER, Greetings { greeting }),
+        Err(reason) => packs.insert_unavailable(GREETER, reason),
     }
 }
 
-/// The factory: what every instance shares, the Host-wide greeting.
+/// The greeting `config` sets under `greeting`, or the reason the greeter
+/// cannot be set up.
+fn greeting(config: &Value) -> Result<Arc<str>, Error> {
+    match &config["greeting"] {
+        Value::String(greeting) => Ok(Arc::from(greeting.as_str())),
+        Value::Null => Err(make_tool_error(
+            ErrorCode::ToolOther,
+            "greeter needs a greeting, and its configuration sets none",
+        )),
+        _ => Err(make_tool_error(
+            ErrorCode::ToolOther,
+            "greeter's greeting must be a string",
+        )),
+    }
+}
+
+/// The factory: what every instance shares, the greeting `install` was
+/// handed.
 struct Greetings {
     greeting: Arc<str>,
 }
@@ -122,14 +120,6 @@ fn block_on<F: Future>(future: F) -> F::Output {
     }
 }
 
-fn host_wide() -> HostServices {
-    let mut services = HostServices::new();
-    services
-        .provide(&GREETING, Arc::from("Hello"))
-        .expect("a valid, new id is accepted");
-    services
-}
-
 /// The factory `install` inserts as `fqn` into a registry, or the reason
 /// it inserted the Pack unavailable.
 fn factory_of(packs: PackRegistry, fqn: &str) -> Result<Arc<dyn PackFactory>, Error> {
@@ -140,18 +130,18 @@ fn factory_of(packs: PackRegistry, fqn: &str) -> Result<Arc<dyn PackFactory>, Er
     factory
 }
 
-/// The greeter's factory `install` inserts with `config` and the Host-wide
-/// `services`, or the reason it inserted the Pack unavailable.
-fn installed(config: Value, services: &HostServices) -> Result<Arc<dyn PackFactory>, Error> {
+/// The greeter's factory `install` inserts with `config`, or the reason
+/// it inserted the Pack unavailable.
+fn installed(config: &Value) -> Result<Arc<dyn PackFactory>, Error> {
     let mut packs = PackRegistry::new();
-    install(&mut packs, config, services).expect("a fresh registry takes the greeter");
+    install(&mut packs, config).expect("a fresh registry takes the greeter");
     factory_of(packs, GREETER.fqn)
 }
 
-/// The greeter's factory, inserted usable over the Host-wide greeting.
+/// The greeter's factory, inserted usable over the greeting `Hello`.
 fn greetings() -> Arc<dyn PackFactory> {
-    let Ok(factory) = installed(Value::Null, &host_wide()) else {
-        panic!("install inserts the greeter usable when its Host-wide service is provided");
+    let Ok(factory) = installed(&json!({ "greeting": "Hello" })) else {
+        panic!("install inserts the greeter usable when its configuration sets a greeting");
     };
     factory
 }
@@ -174,19 +164,17 @@ fn the_factory_names_the_tools_under_the_pack_id_it_receives() {
 
 #[test]
 fn install_inserts_the_pack_unavailable_when_its_setup_fails() {
-    for (config, services, reason) in [
+    for (config, reason) in [
         (
             Value::Null,
-            HostServices::new(),
-            "greeter needs acme/greeting, and this Host provides none",
+            "greeter needs a greeting, and its configuration sets none",
         ),
         (
-            json!({ "greeter": 1 }),
-            host_wide(),
-            "greeter takes no configuration",
+            json!({ "greeting": 1 }),
+            "greeter's greeting must be a string",
         ),
     ] {
-        let Err(error) = installed(config, &services) else {
+        let Err(error) = installed(&config) else {
             panic!("{reason}: install inserts the greeter unavailable");
         };
         assert_eq!(error.to_string(), reason);

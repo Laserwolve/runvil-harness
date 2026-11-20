@@ -11,9 +11,6 @@ use runvil_plugin::{ModelId, ModelInfo, RenderContext, ThinkingMode};
 
 use super::*;
 
-/// A Host-wide service each [`Rendering`] Pack logs its renders in.
-const RENDERS: ServiceKey<Mutex<Vec<Rendered>>> = ServiceKey::new("tests/renders");
-
 /// One render a [`Rendering`] Pack performed.
 #[derive(Debug, Clone, PartialEq)]
 struct Rendered {
@@ -23,7 +20,7 @@ struct Rendered {
     offered: Vec<String>,
 }
 
-/// A [`Listed`] Pack whose render logs what it is asked in [`RENDERS`]
+/// A [`Listed`] Pack whose render logs what it is asked in `renders`
 /// and adds `<pack>/extra`, a tool only the model sees.
 struct Rendering {
     name: PackId,
@@ -31,17 +28,17 @@ struct Rendering {
     renders: Arc<Mutex<Vec<Rendered>>>,
 }
 
-/// Makes a [`Rendering`] Pack from a [`listed`] configuration, refusing
-/// when the Host provides no [`RENDERS`].
-fn rendering(name: &PackId, config: &Value, wide: &HostServices) -> Result<Arc<dyn Pack>, Error> {
-    let renders = wide
-        .get(&RENDERS)
-        .ok_or_else(|| make_tool_error(ErrorCode::ToolOther, "rendering needs tests/renders"))?;
-    Ok(Arc::new(Rendering {
-        name: name.clone(),
-        listed: listed(name, config, wide)?,
-        renders,
-    }))
+/// The factory of a [`Rendering`] Pack made from a [`listed`]
+/// configuration, which logs each render of each instance it makes in
+/// `renders`.
+fn rendering(config: Value, renders: Arc<Mutex<Vec<Rendered>>>) -> Factory {
+    Box::new(move |name: &PackId| -> Result<Arc<dyn Pack>, Error> {
+        Ok(Arc::new(Rendering {
+            name: name.clone(),
+            listed: new_listed(name, &config),
+            renders: Arc::clone(&renders),
+        }))
+    })
 }
 
 impl Pack for Rendering {
@@ -112,20 +109,17 @@ fn ids(answer: &[PackToolSets<ToolInfo>]) -> Vec<(String, Vec<String>, Vec<Strin
 #[tokio::test]
 async fn a_render_asks_each_usable_pack_once_per_set_it_was_offered_into_and_answers_in_order() {
     let renders = Arc::new(Mutex::new(Vec::new()));
-    let mut wide = HostServices::new();
-    wide.provide(&RENDERS, Arc::clone(&renders)).unwrap();
-    let host = host_with(
-        &wide,
-        &[
-            (
-                PackInfo::new("runvil/one"),
-                rendering,
-                offering(&["one/a", "one/b"]),
-            ),
-            (PackInfo::new("runvil/two"), rendering, offering(&["two/a"])),
-            (PackInfo::new("runvil/backed"), backed, Value::Null),
-        ],
-    );
+    let host = host_with(vec![
+        (
+            PackInfo::new("runvil/one"),
+            rendering(offering(&["one/a", "one/b"]), Arc::clone(&renders)),
+        ),
+        (
+            PackInfo::new("runvil/two"),
+            rendering(offering(&["two/a"]), Arc::clone(&renders)),
+        ),
+        (PackInfo::new("runvil/backed"), backed(None)),
+    ]);
     let run = begin(&host, BTreeMap::new(), &prompt(""));
     let offered = vec![
         sets("two", &["two/a"], &[]),

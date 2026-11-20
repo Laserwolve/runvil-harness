@@ -17,16 +17,12 @@ mod support;
 use std::time::Duration;
 
 use fixture::Fixture;
-use runvil_plugin::HostServices;
 use serde_json::{Value, json};
-use support::{
-    SECRET, call, factory, inserted, instance, list, pack_over, ready, remote, runtime_services,
-    settled,
-};
+use support::{SECRET, call, factory, inserted, instance, list, pack_over, ready, remote, settled};
 
 #[tokio::test]
 async fn install_adds_runvil_mcp_with_no_prelude() {
-    let inserted = inserted(Value::Null, &runtime_services());
+    let inserted = inserted(Value::Null);
     let [(info, id, factory)] = inserted.as_slice() else {
         panic!("install inserts one Pack");
     };
@@ -37,51 +33,16 @@ async fn install_adds_runvil_mcp_with_no_prelude() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn install_reads_the_server_map_under_its_pack_id() {
-    let servers = json!({ "docs": { "url": "http://127.0.0.1:1/mcp" } });
-    for (config, expected) in [
-        (json!({ "mcp": servers, "web": {} }), vec!["docs"]),
-        (json!({ "web": {} }), vec![]),
-    ] {
-        let mut inserted = inserted(config.clone(), &runtime_services());
-        let (_info, _id, factory) = inserted.pop().expect("install inserts one Pack");
-        let pack = instance(&factory.expect("a server map inserts the Pack"));
-        let listing = list(&pack, json!({})).await;
-        let namespaces: Vec<&str> = listing["namespaces"]
-            .as_array()
-            .expect("the listing holds the namespaces")
-            .iter()
-            .map(|entry| entry["namespace"].as_str().expect("a namespace is named"))
-            .collect();
-        assert_eq!(namespaces, expected, "{config}");
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_config_that_is_not_an_object_inserts_the_pack_unavailable() {
-    for config in [json!([]), json!("servers"), json!(1)] {
-        let error = factory(config.clone(), &runtime_services())
+async fn a_server_list_that_is_not_an_object_inserts_the_pack_unavailable() {
+    for servers in [json!([]), json!("servers"), json!(1)] {
+        let error = factory(servers.clone())
             .err()
             .expect("only an object or null is a server map");
-        assert!(
-            error.to_string().contains("JSON object"),
-            "{config}: {error}"
-        );
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_missing_runtime_service_inserts_the_pack_unavailable_naming_it_even_with_no_servers() {
-    for config in [
-        Value::Null,
-        json!({ "docs": { "url": "http://127.0.0.1:1/mcp" } }),
-    ] {
-        let error = factory(config.clone(), &HostServices::new())
-            .err()
-            .expect("no runtime is a failure");
-        assert!(
-            error.to_string().contains("runvil/tokio-runtime"),
-            "{config}: {error}"
+        assert_eq!(
+            error.to_string(),
+            "the MCP configuration must be a JSON object of servers by name, as the \
+             `mcpServers` object of an mcp.json file is",
+            "{servers}"
         );
     }
 }
@@ -89,11 +50,8 @@ async fn a_missing_runtime_service_inserts_the_pack_unavailable_naming_it_even_w
 #[tokio::test(flavor = "multi_thread")]
 async fn two_instances_from_one_install_report_the_same_server_status() {
     let fixture = Fixture::start().await;
-    let factory = factory(
-        json!({ "remote": remote(&fixture, &json!({})) }),
-        &runtime_services(),
-    )
-    .expect("a server map inserts the Pack");
+    let factory = factory(json!({ "remote": remote(&fixture, &json!({})) }))
+        .expect("a server map inserts the Pack");
     let first = instance(&factory);
     let second = instance(&factory);
 

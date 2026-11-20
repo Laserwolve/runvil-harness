@@ -7,8 +7,9 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-# The Plugin contract: `PackInfo`, the Pack trait, the context a
-# call is lent, and the tool, error, and service vocabulary.
+# The Plugin contract: `PackInfo`, the Pack trait, the registry `install`
+# inserts the Pack into, the context a call is lent, and the tool and
+# error vocabulary.
 runvil-plugin.workspace = true
 # The official MCP client. `client` is the handshake and the peer, the
 # reqwest transport is the Streamable HTTP client, and `reqwest` adds
@@ -18,7 +19,8 @@ rmcp = { workspace = true, features = ["client", "transport-streamable-http-clie
 reqwest.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
-# The Host's runtime handle every connection and call is spawned onto.
+# The Host's runtime handle, which `install` takes as an argument, and
+# which every connection and call is spawned onto.
 tokio.workspace = true
 
 [dev-dependencies]

@@ -185,13 +185,10 @@ fn an_entry_no_vendor_has_is_missing_and_an_absent_vendor_name_is_unavailable() 
 
 #[test]
 fn the_roster_covers_every_declared_pack_the_run_cannot_serve() {
-    let host = host_with(
-        &HostServices::new(),
-        &[
-            (PackInfo::new("acme/broken"), backed, Value::Null),
-            (info("acme/fine"), listed, Value::Null),
-        ],
-    );
+    let host = host_with(vec![
+        (PackInfo::new("acme/broken"), backed(None)),
+        (info("acme/fine"), listed(Value::Null)),
+    ]);
     let declares = prompt("uses:\n  - absent\n  - acme/fine\n  - acme/broken\n");
     let run = begin(&host, BTreeMap::new(), &declares);
     assert_eq!(
@@ -199,7 +196,7 @@ fn the_roster_covers_every_declared_pack_the_run_cannot_serve() {
         BTreeMap::from([
             (
                 name("broken"),
-                unavailable_for("backed needs tests/backend, and this host provides none"),
+                unavailable_for("backed needs a backend, and it was handed none"),
             ),
             (name("fine"), usable_from("acme")),
             (name("subagents"), usable_from("runvil")),
@@ -211,7 +208,7 @@ fn the_roster_covers_every_declared_pack_the_run_cannot_serve() {
         refusal(&run, &declares),
         "the environment cannot satisfy this prompt:\n\
          - missing required Pack: absent\n\
-         - broken is unavailable: backed needs tests/backend, and this host provides none \
+         - broken is unavailable: backed needs a backend, and it was handed none \
          (at prompt:5)"
     );
 }
@@ -219,14 +216,12 @@ fn the_roster_covers_every_declared_pack_the_run_cannot_serve() {
 #[test]
 fn refusals_name_each_declared_pack_not_installed_or_inserted_unavailable() {
     let mut registry = PackRegistry::new();
-    for (fqn, make) in [
-        ("runvil/web", listed as Make),
-        ("acme/poop", listed),
-        ("acme/broken", backed),
+    for (fqn, factory) in [
+        ("runvil/web", listed(Value::Null)),
+        ("acme/poop", listed(Value::Null)),
+        ("acme/broken", backed(None)),
     ] {
-        registry
-            .insert(info(fqn), factory(make, Value::Null, HostServices::new()))
-            .unwrap();
+        registry.insert(info(fqn), factory).unwrap();
     }
     registry
         .insert_unavailable(

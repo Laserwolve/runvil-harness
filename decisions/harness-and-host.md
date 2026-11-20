@@ -1,6 +1,6 @@
 # The Harness and the Host API: design decisions
 
-This page covers the `runvil` crate, `Host`, `RunSetup`, one Harness for each run, the effect loop, inference brokers, Host services, the resources a Host offers the Plugins of the C contract, the recorder and run events, the run inbox from the Host's side, and stop and cancel. A Host is an application that runs prompts, and it depends on one crate, `runvil`. At startup it builds one `Host` struct: its installed Packs, a prompt finder, and a timer. For each run it fills a `RunSetup` with a recorder, an inference broker, a file system, and the run's settings, and creates one `Harness`. `Harness::run` is one future. It steps the Engine, performs each effect, writes every event, effect, and answer to the recorder, and returns a `RunReport`. A `RunControl` sends messages to the run, stops the work in flight, or cancels the run.
+This page covers the `runvil` crate, `Host`, `RunSetup`, one Harness for each run, the effect loop, inference brokers, the timer, what a Host hands a Rust Plugin, the resources a Host offers the Plugins of the C contract, the recorder and run events, the run inbox from the Host's side, and stop and cancel. A Host is an application that runs prompts, and it depends on one crate, `runvil`. At startup it builds one `Host` struct: its installed Packs, a prompt finder, and a timer. For each run it fills a `RunSetup` with a recorder, an inference broker, a file system, and the run's settings, and creates one `Harness`. `Harness::run` is one future. It steps the Engine, performs each effect, writes every event, effect, and answer to the recorder, and returns a `RunReport`. A `RunControl` sends messages to the run, stops the work in flight, or cancels the run.
 
 ## 1. The three layers and the `runvil` crate
 
@@ -16,9 +16,9 @@ A prompt file names a model by a role, such as `strong`, and a set of tools by a
 
 ### A Host depends on one crate, `runvil`
 
-`runvil` re-exports the Harness, the Engine items a Host reads and builds, and the Rust Plugin API. `Harness`, `Host`, `RunSetup`, `RunReport`, and `RunControl` are at the crate root, and the rest of the Harness is in `runvil::harness`, which includes the loader of the C contract, the `HostResources` a Host hands it, and the stock prompt finders. `runvil::plugin` has the Rust Plugin API of the crate `runvil-plugin`, such as `PackRegistry`, `Pack`, and `HostServices`. The types of the C contract are in `runvil-plugin-sys`, outside `runvil`. Each re-export is at one path.
+`runvil` re-exports the Harness, the Engine items a Host reads and builds, and the Rust Plugin API. `Harness`, `Host`, `RunSetup`, `RunReport`, and `RunControl` are at the crate root, and the rest of the Harness is in `runvil::harness`, which includes the loader of the C contract, the `HostResources` a Host hands it, and the stock prompt finders. `runvil::plugin` has the Rust Plugin API of the crate `runvil-plugin`, such as `PackRegistry`, `Pack`, and `PackFactory`. The types of the C contract are in `runvil-plugin-sys`, outside `runvil`. Each re-export is at one path.
 
-A Host fills its `PackRegistry` in two ways. A Plugin that follows the C contract enters through the loader: `insert_plugin_dir` loads each library Plugin of a directory and returns a `PluginReport`, and `insert_plugin` loads a Plugin that is compiled into the Host. Each takes the Host's `HostResources` beside the registry, and every tool call of a Plugin it loads is lent them (see Inference, the clock, and Host services). The Plugin `plugin-mcp` is a Rust function named `install`, which the Host calls with the registry, a configuration value, and the Host's services.
+A Host fills its `PackRegistry` in two ways. A Plugin that follows the C contract enters through the loader: `insert_plugin_dir` loads each library Plugin of a directory and returns a `PluginReport`, and `insert_plugin` loads a Plugin that is compiled into the Host. Each takes the Host's `HostResources` beside the registry, and every tool call of a Plugin it loads is lent them (see Inference, the clock, and what a Host hands its Plugins). The Plugin `plugin-mcp` is a Rust function named `install`, which the Host calls with the registry, the Host's list of MCP servers, and the handle of the Host's tokio runtime.
 
 The owner's goal: "I want the outside world to only see one runvil crate, not runvil-*."
 
@@ -28,9 +28,9 @@ The owner's goal: "I want the outside world to only see one runvil crate, not ru
 
 ### `harness-gateway-client` is the Harness family's second public crate
 
-`harness-gateway-client` contains what a Host needs to use the Gateway: `GatewayBroker`, which implements `InferenceBroker`; `GatewayChat`, the HTTP client it uses; `fetch_model_catalog`; and `provide_gateway_resources`, which offers the Gateway to the Plugins of the C contract (see Inference, the clock, and Host services). It is the one Harness crate besides `runvil` that an outside crate may depend on.
+`harness-gateway-client` contains what a Host needs to use the Gateway: `GatewayBroker`, which implements `InferenceBroker`; `GatewayChat`, the HTTP client it uses; `fetch_model_catalog`; and `provide_gateway_resources`, which offers the Gateway to the Plugins of the C contract (see Inference, the clock, and what a Host hands its Plugins). It is the one Harness crate besides `runvil` that an outside crate may depend on.
 
-The client is a crate of its own for two reasons. Inference is a Host service and `runvil` excludes tokio, so `runvil` leaves HTTP to the Host. Every Host still needs a standard Gateway client.
+The client is a crate of its own for two reasons. The Host supplies inference and `runvil` excludes tokio, so `runvil` leaves HTTP to the Host. Every Host still needs a standard Gateway client.
 
 ### The Harness's async code uses `futures-util`, and any executor can poll a run
 
@@ -154,7 +154,7 @@ A `Step::Pending` with an empty effect list, while every earlier effect is answe
 
 When the main chain, the run's root task, waits on its inbox of sent messages, `Step::Pending` sets `waiting_for_input`, and the loop waits for a `RunControl::send` or a cancel. The same applies to a run whose `has_user` is `false`, since a Host may still call `RunControl::send` from code.
 
-## 4. Inference, the clock, and Host services
+## 4. Inference, the clock, and what a Host hands its Plugins
 
 ### The Host supplies model inference as an `InferenceBroker`
 
@@ -178,13 +178,13 @@ The owner's rule: "the engine, the harness would not know anything about streami
 
 `Timer` is a trait with the methods `sleep(duration)` and `now()`. `sleep` returns the future that the loop polls for a `Timer` effect. `now` returns the time that the Harness records as the run's start and passes to the Engine, and its default reads the system clock.
 
-The timer is a required field of `Host`. As an entry of `HostServices` it could be missing, and a missing timer would show only at a timed wait inside a run.
+The timer is a required field of `Host`, so a Host that leaves it out fails to compile. A timer that a Host could leave out would be missed only at a timed wait inside a run.
 
-### The Host fills one `HostServices` map, and the `install` of each Rust Plugin reads it
+### The Host hands a Rust Plugin what its Packs need as the arguments of `install`
 
-`HostServices` is a map from a two-segment id, such as `runvil/tokio-runtime`, to a typed object. The Host fills one map at startup and passes it to the `install` function of each Rust Plugin, and a Pack factory stores what its instances need. A contract Plugin reads no service, because a Rust object stays on the Host's side of the C contract, so the bashkit Plugin owns a tokio runtime of its own. What a Host hands a contract Plugin is its resources (see the next entry). The recorder, the broker, and the timer are required values outside the map.
+A Rust Plugin is a function named `install` that inserts its Packs into the Host's `PackRegistry`, and the Host calls it at startup. The function's signature is its own: it takes the registry and whatever else its Packs need from the Host, as plain arguments, and a Pack factory stores what its instances need. `plugin_mcp::install` takes the Host's list of MCP servers and the handle of the Host's tokio runtime. A contract Plugin is handed JSON values, the Host's resources (see the next entry), because a Rust object stays on the Host's side of the C contract. The bashkit Plugin and the web Plugin therefore each own a tokio runtime.
 
-A `ServiceKey` binds each id to the type of its object, so a Host provides only an object of that type under the key. [Tools and Packs](tools-and-packs.md) covers a Pack's side.
+A plain argument is enough because a Rust Plugin is compiled into the Host and shares the Host's Rust types, and the compiler checks that the Host passes each argument. [Tools and Packs](tools-and-packs.md) covers a Pack's side.
 
 ### The Host fills one `HostResources`, and each tool call of a contract Plugin is lent them as text
 
@@ -291,7 +291,7 @@ Each of these items is still to be built.
 - **Small records for large answers.** Today an answer record stores the whole tool output, or the whole file text for a `store` call, so the record contains a copy of everything a script reads. For a file operation of a tool call the answer record holds a receipt, such as the number of bytes of a read.
 - **Request limits for a Host.** Today `GatewayBroker` always gives a chat round a receive timeout of 120 seconds and a reply cap of 16 MiB. Its model list request has the same cap and waits as long as the Gateway takes to answer.
 - **A step hook.** Pack code that rewrites an effect or its answer between `Run::step` and the performers. Today the loop starts each effect as `Run::step` returned it and resumes the run with each answer as its performer returned it.
-- **More Host services.** Secrets, a schedule, a model client for Packs, and the parent environment of a sub-run. Today `plugin-mcp` reads `runvil/tokio-runtime`, the Host's runtime handle. The Host's services are out of a contract Plugin's reach, and such a Plugin reads the Host's resources.
-- **One Plugin API.** `mcp` as a Plugin that follows the C contract, which a Host inserts with `insert_plugin`, and with it contract functions for configuration, an unavailable Pack with its reason, and the origin of a call, and something in place of the runtime handle that it reads from the Host's services. Today the Plugin is a Rust function named `install` ([Tools and Packs](tools-and-packs.md)).
+- **More for a Host to hand its Packs.** Secrets, a schedule, a model client for Packs, and the parent environment of a sub-run. Today a library Plugin is lent the Host's resources, and the one resource that a shipped Pack reads is the Gateway's web search.
+- **One Plugin API.** `mcp` as a Plugin that follows the C contract, which a Host inserts with `insert_plugin`, and with it contract functions for configuration, an unavailable Pack with its reason, and the origin of a call, and something in place of the runtime handle that the Host passes to `install`. Today the Plugin is a Rust function named `install`, compiled into the Host, which takes its list of servers and the Host's runtime handle as arguments ([Tools and Packs](tools-and-packs.md)).
 - **Approvals.** An approval as an effect of its own, with the dialog in the Host. Today the effect kinds are `Chat`, `Render`, `ToolCall`, `Vfs`, and `Timer`. When the `Policy` of `RunSetup.vfs` returns `Ask` for a file operation of a tool call, the file system refuses it with `VfsError::ApprovalRequired`, and a store operation passes the `Policy` by.
 - **Requirement gaps before a run.** A call that returns every gap as data before a run exists. Today `Host::parse` reports missing Packs, and every other gap ends a run with a `RequirementsUnmet` error.

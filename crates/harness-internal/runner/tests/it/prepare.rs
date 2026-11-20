@@ -540,7 +540,7 @@ async fn each_run_makes_its_own_instance_and_drops_it_by_the_time_harness_run_re
 }
 
 #[tokio::test]
-async fn a_run_makes_its_packs_with_no_run_services() {
+async fn a_run_hands_a_packs_factory_nothing_but_the_pack_id() {
     let named = Arc::new(Mutex::new(Vec::new()));
     let seen = Arc::clone(&named);
     let mut packs = registry(&[]);

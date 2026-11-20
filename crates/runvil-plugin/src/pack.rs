@@ -70,9 +70,9 @@ pub trait Pack: Send + Sync {
     /// Performs one tool call.
     ///
     /// `cx` names the called tool and lends the call's files and its
-    /// origin. What the call needs from the Host's services, its factory
-    /// took at `install` and shares with the instance. `args` is the JSON
-    /// the model or the script passed.
+    /// origin. What the call needs from the Host, its factory took at
+    /// `install` and shares with the instance. `args` is the JSON the
+    /// model or the script passed.
     ///
     /// # Invariants
     ///
@@ -139,9 +139,9 @@ pub trait Pack: Send + Sync {
 
 /// Makes each run's instance of one installed Pack.
 ///
-/// A Plugin builds it at `install`, from its config and the Host-wide
-/// services, and keeps in it what every run's instance shares, such as a
-/// connection pool.
+/// A Plugin builds it at `install`, from the arguments its Host hands
+/// that function, and keeps in it what every run's instance shares, such
+/// as a connection pool.
 pub trait PackFactory: Send + Sync {
     /// Makes this run's instance named `id`.
     ///
@@ -176,19 +176,16 @@ where
 /// keeps it in a private constant, builds it with [`PackInfo::new`],
 /// adding a [`PackInfo::description`], and a [`PackInfo::prelude`] only
 /// where it has one, and inserts it from its `install` function, or
-/// inserts it unavailable when its setup fails:
+/// inserts it unavailable when its setup fails. This `install` takes
+/// one plain argument from its Host, a configuration:
 ///
 /// ```text
 /// const GREETER: PackInfo = PackInfo::new("acme/greeter")
 ///     .description("Greet the person running the prompt")
 ///     .prelude(PRELUDE);
 ///
-/// pub fn install(
-///     packs: &mut PackRegistry,
-///     config: Value,
-///     services: &HostServices,
-/// ) -> Result<(), Error> {
-///     match greeting(&config["greeter"], services) {
+/// pub fn install(packs: &mut PackRegistry, config: &Value) -> Result<(), Error> {
+///     match greeting(config) {
 ///         Ok(greeting) => packs.insert(GREETER, Greetings { greeting }),
 ///         Err(reason) => packs.insert_unavailable(GREETER, reason),
 ///     }

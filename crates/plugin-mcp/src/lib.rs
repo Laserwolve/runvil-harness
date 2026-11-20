@@ -3,12 +3,20 @@
 //! and calls through two static tools.
 //!
 //! The crate's Plugin, [`install`], inserts the Pack `runvil/mcp`, whose
-//! Pack id is `mcp`, configured by the sub-object of its config under
-//! `mcp`. A Host passes the `mcpServers` object of an `mcp.json` file
-//! there: each server's entry under the server's name. A `null`
-//! configuration means no servers, and any other value that is not an
-//! object leaves the Pack unavailable. The Pack has no prelude, so
-//! declaring it, as in `uses: [mcp]`, only makes it required.
+//! Pack id is `mcp`. A Host calls it with two plain arguments beside its
+//! registry. The first is the server list: the `mcpServers` object of an
+//! `mcp.json` file, which holds each server's entry under the server's
+//! name. A `null` server list means no servers, and any other value that
+//! is not an object leaves the Pack unavailable. The second is the handle
+//! of the Host's tokio runtime. The Pack has no prelude, so declaring it,
+//! as in `uses: [mcp]`, only makes it required.
+//!
+//! This Pack is compiled into the Host and is not a library Plugin. It
+//! uses parts of the Rust Pack API that the C contract has no form for:
+//! the caller of a call, the `describes_tools` flag, and a configuration
+//! at `install`. Its servers' tools are meant to join a section's
+//! Dynamic Set through `Pack::render`, which the contract has no verb
+//! for either.
 //!
 //! The Pack offers exactly two tools under the Pack id its factory
 //! receives, such as `mcp/get_dynamic_tools` under `mcp`, modeled on
@@ -52,20 +60,19 @@
 //! form passes through unchanged. `headers` may not set `accept`,
 //! `Mcp-Session-Id`, or `Last-Event-Id`, which the client owns.
 //!
-//! Installing the Pack does no I/O. `install` reads the Host's runtime
-//! from the Plugin contract's [`runvil_plugin::TOKIO_RUNTIME`] service,
-//! even with no servers, and starts one background task per parsed entry
-//! on it, which connects, runs the handshake, and lists every page of
-//! tools within two minutes. Every instance the Pack's factory makes
-//! shares those servers, so every run sees the same server states. The
-//! Pack's `ready` resolves at once, so a run can see the two
-//! tools while servers are still connecting, and the listing shows each
-//! such server as `loading`. A server that fails to start shows as
-//! `error` with the reason, and its task keeps trying in the background,
-//! waiting 1 second after the first failure and doubling up to a minute,
-//! so the server lists its tools once it answers. A server that is ready
-//! stays ready, and a later failure shows as a transport error on the
-//! call.
+//! Installing the Pack does no I/O. `install` starts one background task
+//! per parsed entry on the Host's runtime, and the task connects, runs
+//! the handshake, and lists every page of tools within two minutes. A
+//! call to a server's tool is spawned on that runtime too. Every instance
+//! the Pack's factory makes shares those servers, so every run sees the
+//! same server states. The Pack's `ready` resolves at once, so a run can
+//! see the two tools while servers are still connecting, and the listing
+//! shows each such server as `loading`. A server that fails to start
+//! shows as `error` with the reason, and its task keeps trying in the
+//! background, waiting 1 second after the first failure and doubling up
+//! to a minute, so the server lists its tools once it answers. A server
+//! that is ready stays ready, and a later failure shows as a transport
+//! error on the call.
 //!
 //! A call sends `tools/call` with the tool's name and waits up to five
 //! minutes. Text blocks and embedded text resources come back joined
@@ -93,8 +100,8 @@
 //!   without the envelope.
 //! - No reason, log line, `Debug` output, or error names an `env` or
 //!   `headers` value. They may name keys.
-//! - It runs on the Host's runtime, read through the contract's
-//!   `TOKIO_RUNTIME` service, and `install` does no I/O.
+//! - It runs on the Host's runtime, whose handle `install` takes as an
+//!   argument, and `install` does no I/O.
 //! - It starts no process: each local entry is refused at `install`, on
 //!   its own.
 //! - Dropping a call tells the server to drop the request.
@@ -109,8 +116,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use runvil_plugin::{
-    Error, ErrorCode, HostServices, Pack, PackFactory, PackId, PackInfo, PackRegistry, ServiceKey,
-    TOKIO_RUNTIME, make_tool_error,
+    Error, ErrorCode, Pack, PackFactory, PackId, PackInfo, PackRegistry, make_tool_error,
 };
 use serde_json::{Map, Value};
 use tokio::runtime::Handle;
@@ -122,42 +128,29 @@ use crate::server::{Server, State};
 
 /// The Pack's `PackInfo`.
 ///
-/// Its FQN is `runvil/mcp`, so its Pack id is `mcp`. Its config is the
-/// `mcpServers` object of an `mcp.json` file, and its `install` reads
-/// the Plugin contract's [`runvil_plugin::TOKIO_RUNTIME`] service. It has
-/// no prelude.
+/// Its FQN is `runvil/mcp`, so its Pack id is `mcp`. It has no prelude.
 const MCP: PackInfo =
     PackInfo::new("runvil/mcp").description("Tools from every configured MCP server");
 
-/// The Plugin: inserts the `mcp` Pack into `packs`. It parses
-/// `config["mcp"]`, which is `null`, meaning no servers, when `config`
-/// has no `mcp` key, reads the Tokio runtime from `services`, and starts
-/// one connection task per good server entry, into servers every
-/// instance shares. Config that is not `null` or an object, or a missing
-/// runtime, inserts the Pack unavailable, naming the problem. A bad entry
-/// is refused alone, as a namespace with status `error`.
+/// The Plugin: inserts the `mcp` Pack into `packs`. `servers` is the
+/// `mcpServers` object of an `mcp.json` file, which holds each server's
+/// entry under the server's name, and `null` means no servers. `runtime`
+/// is the handle of the Host's tokio runtime. `install` starts one
+/// connection task per good server entry on `runtime`, into servers
+/// every instance shares. A `servers` that is not `null` or an object
+/// inserts the Pack unavailable, naming the problem. A bad entry is
+/// refused alone, as a namespace with status `error`.
 ///
 /// # Errors
 /// Returns the registry's refusal, such as an
 /// [`InvalidValue`](runvil_plugin::ErrorCode::InvalidValue) error with the
 /// reason `duplicate_pack` when `packs` holds `runvil/mcp` already.
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "the Plugin signature fixes the argument types"
-)]
-pub fn install(
-    packs: &mut PackRegistry,
-    config: Value,
-    services: &HostServices,
-) -> Result<(), Error> {
-    match Servers::start(config["mcp"].clone(), services) {
+pub fn install(packs: &mut PackRegistry, servers: Value, runtime: Handle) -> Result<(), Error> {
+    match Servers::start(servers, runtime) {
         Ok(servers) => packs.insert(MCP, servers),
         Err(reason) => packs.insert_unavailable(MCP, reason),
     }
 }
-
-/// The key `install` reads the Host's runtime through.
-const RUNTIME: ServiceKey<Handle> = ServiceKey::new(TOKIO_RUNTIME);
 
 /// The Pack's factory: every configured server under its name, which
 /// every instance shares, and the Host's runtime its calls are spawned
@@ -168,11 +161,11 @@ struct Servers {
 }
 
 impl Servers {
-    /// Reads the runtime, parses each server's entry in `config` on its
-    /// own, and starts one connection task per parsed entry. It does no
-    /// I/O itself.
-    fn start(config: Value, services: &HostServices) -> Result<Servers, Error> {
-        let entries = match config {
+    /// Parses each server's entry in `servers` on its own, and starts
+    /// one connection task per parsed entry on `runtime`. It does no I/O
+    /// itself.
+    fn start(servers: Value, runtime: Handle) -> Result<Servers, Error> {
+        let entries = match servers {
             Value::Null => Map::new(),
             Value::Object(entries) => entries,
             _ => {
@@ -183,12 +176,6 @@ impl Servers {
                 ));
             }
         };
-        let runtime = services.get(&RUNTIME).ok_or_else(|| {
-            make_tool_error(
-                ErrorCode::ToolOther,
-                "MCP needs runvil/tokio-runtime, and this host provides none",
-            )
-        })?;
         let env = |key: &str| std::env::var(key).ok();
         let home = std::env::home_dir().map(|dir| dir.to_string_lossy().into_owned());
         let vars = Vars { env: &env, home };
@@ -214,7 +201,7 @@ impl Servers {
         }
         Ok(Servers {
             namespaces: Arc::new(namespaces),
-            runtime: Handle::clone(&runtime),
+            runtime,
         })
     }
 }

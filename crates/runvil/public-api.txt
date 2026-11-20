@@ -115,12 +115,10 @@ auto runvil::model::ToolSchema: Freeze, RefUnwindSafe, Send, Sync, Unpin, Unwind
 auto runvil::packs::GlobalName: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::packs::PackId: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::packs::PackRef: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
-auto runvil::plugin::HostServices: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
 auto runvil::plugin::PackInfo: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::plugin::PackOrigin: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::plugin::PackRegistry: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
 auto runvil::plugin::RenderContext: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
-auto runvil::plugin::ServiceId: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::plugin::ToolContext: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
 auto runvil::prompt::ArgsSchema: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::prompt::Frontmatter: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
@@ -218,12 +216,10 @@ derives runvil::model::ToolSchema: Clone, Debug, Eq, PartialEq, Serialize
 derives runvil::packs::GlobalName: Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd
 derives runvil::packs::PackId: Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize
 derives runvil::packs::PackRef: Clone, Debug, Deserialize, Eq, PartialEq
-derives runvil::plugin::HostServices: Clone, Debug, Default
 derives runvil::plugin::PackInfo: Clone, Copy, Debug
 derives runvil::plugin::PackOrigin: Clone, Copy, Debug, Eq, PartialEq
 derives runvil::plugin::PackRegistry: Debug, Default
 derives runvil::plugin::RenderContext: Debug
-derives runvil::plugin::ServiceId: Clone, Copy, Debug, Eq, Hash, PartialEq
 derives runvil::plugin::ToolContext: Debug
 derives runvil::prompt::ArgsSchema: Clone, Debug, Default, Deserialize, Eq, PartialEq
 derives runvil::prompt::Frontmatter: Clone, Debug, Deserialize, Eq, PartialEq
@@ -268,7 +264,6 @@ impl core::fmt::Display for runvil::ids::TaskId
 impl core::fmt::Display for runvil::model::Role
 impl core::fmt::Display for runvil::packs::GlobalName
 impl core::fmt::Display for runvil::packs::PackId
-impl core::fmt::Display for runvil::plugin::ServiceId
 impl core::fmt::Display for runvil::vfs::PathReason
 impl core::fmt::Display for runvil::vfs::VfsError
 impl core::fmt::Display for runvil::vfs::VfsPath
@@ -302,16 +297,6 @@ impl<'a> runvil::plugin::ToolContext<'a>
 impl<'a> runvil::vfs::OpEvent<'a>
 impl<Func> runvil::PromptFinder for Func where Func: core::ops::function::Fn(&str) -> core::result::Result<alloc::string::String, runvil::Error> + core::marker::Send + core::marker::Sync
 impl<Func> runvil::plugin::PackFactory for Func where Func: core::ops::function::Fn(&runvil::packs::PackId) -> core::result::Result<alloc::sync::Arc<dyn runvil::plugin::Pack>, runvil::Error> + core::marker::Send + core::marker::Sync
-impl<T: ?core::marker::Sized + core::marker::Send + core::marker::Sync + 'static> core::clone::Clone for runvil::plugin::ServiceKey<T>
-impl<T: ?core::marker::Sized + core::marker::Send + core::marker::Sync + 'static> core::fmt::Debug for runvil::plugin::ServiceKey<T>
-impl<T: ?core::marker::Sized + core::marker::Send + core::marker::Sync + 'static> core::marker::Copy for runvil::plugin::ServiceKey<T>
-impl<T: ?core::marker::Sized + core::marker::Send + core::marker::Sync + 'static> runvil::plugin::ServiceKey<T>
-impl<T> core::marker::Freeze for runvil::plugin::ServiceKey<T> where core::marker::PhantomData<fn() -> alloc::sync::Arc<T>>: core::marker::Freeze, T: ?core::marker::Sized
-impl<T> core::marker::Send for runvil::plugin::ServiceKey<T> where core::marker::PhantomData<fn() -> alloc::sync::Arc<T>>: core::marker::Send, T: ?core::marker::Sized
-impl<T> core::marker::Sync for runvil::plugin::ServiceKey<T> where core::marker::PhantomData<fn() -> alloc::sync::Arc<T>>: core::marker::Sync, T: ?core::marker::Sized
-impl<T> core::marker::Unpin for runvil::plugin::ServiceKey<T> where core::marker::PhantomData<fn() -> alloc::sync::Arc<T>>: core::marker::Unpin, T: ?core::marker::Sized
-impl<T> core::panic::unwind_safe::RefUnwindSafe for runvil::plugin::ServiceKey<T> where core::marker::PhantomData<fn() -> alloc::sync::Arc<T>>: core::panic::unwind_safe::RefUnwindSafe, T: ?core::marker::Sized
-impl<T> core::panic::unwind_safe::UnwindSafe for runvil::plugin::ServiceKey<T> where core::marker::PhantomData<fn() -> alloc::sync::Arc<T>>: core::panic::unwind_safe::UnwindSafe, T: ?core::marker::Sized
 pub async fn runvil::Harness::run(self) -> core::result::Result<runvil::RunReport, runvil::Error>
 pub const fn runvil::ErrorCode::number(self) -> u16
 pub const fn runvil::ErrorCode::prose(self) -> &'static str
@@ -329,14 +314,11 @@ pub const fn runvil::model::ModelRole::as_str(self) -> &'static str
 pub const fn runvil::plugin::PackInfo::description(self, description: &'static str) -> runvil::plugin::PackInfo
 pub const fn runvil::plugin::PackInfo::new(fqn: &'static str) -> runvil::plugin::PackInfo
 pub const fn runvil::plugin::PackInfo::prelude(self, prelude: &'static str) -> runvil::plugin::PackInfo
-pub const fn runvil::plugin::ServiceKey::id(&self) -> runvil::plugin::ServiceId
-pub const fn runvil::plugin::ServiceKey::new(literal: &'static str) -> runvil::plugin::ServiceKey<T>
 pub const fn runvil::vfs::Access::id(&self) -> runvil::vfs::ExecId
 pub const runvil::Timestamp::UNIX_EPOCH: runvil::Timestamp
 pub const runvil::model::ModelId::GATEWAY: &'static str
 pub const runvil::model::ModelRole::ALL: [runvil::model::ModelRole; 5]
 pub const runvil::model::Role::ALL: &'static [runvil::model::Role]
-pub const runvil::plugin::TOKIO_RUNTIME: &str
 pub enum runvil::ErrorCode
 pub enum runvil::ErrorFact
 pub enum runvil::harness::RecordKind
@@ -532,10 +514,6 @@ pub fn runvil::packs::PackId::is_reserved(&self) -> bool
 pub fn runvil::packs::PackId::parse(name: &str) -> core::result::Result<runvil::packs::PackId, runvil::Error>
 pub fn runvil::packs::PackRef::id(&self) -> &runvil::packs::PackId
 pub fn runvil::packs::PackRef::vendor(&self) -> &str
-pub fn runvil::plugin::HostServices::get<T: ?core::marker::Sized + core::marker::Send + core::marker::Sync + 'static>(&self, key: &runvil::plugin::ServiceKey<T>) -> core::option::Option<alloc::sync::Arc<T>>
-pub fn runvil::plugin::HostServices::new() -> runvil::plugin::HostServices
-pub fn runvil::plugin::HostServices::provide<T: ?core::marker::Sized + core::marker::Send + core::marker::Sync + 'static>(&mut self, key: &runvil::plugin::ServiceKey<T>, provider: alloc::sync::Arc<T>) -> core::result::Result<(), runvil::Error>
-pub fn runvil::plugin::HostServices::provides(&self, id: &runvil::plugin::ServiceId) -> bool
 pub fn runvil::plugin::Pack::call<'a>(&'a self, cx: runvil::plugin::ToolContext<'a>, args: serde_json::value::Value) -> runvil::BoxFuture<'a, core::result::Result<runvil::ToolOutput, runvil::Error>>
 pub fn runvil::plugin::Pack::ready(&self) -> runvil::BoxFuture<'_, core::result::Result<(), runvil::Error>> { .. }
 pub fn runvil::plugin::Pack::render<'a>(&'a self, _cx: runvil::plugin::RenderContext<'a>, offered: alloc::vec::Vec<runvil::ToolInfo>) -> runvil::BoxFuture<'a, alloc::vec::Vec<runvil::ToolInfo>> { .. }
@@ -1253,10 +1231,7 @@ pub struct runvil::model::ModelBinding { /* private fields */ }
 pub struct runvil::model::Temperature(/* private fields */)
 pub struct runvil::packs::GlobalName { /* private fields */ }
 pub struct runvil::packs::PackRef { /* private fields */ }
-pub struct runvil::plugin::HostServices { /* private fields */ }
 pub struct runvil::plugin::PackRegistry { /* private fields */ }
-pub struct runvil::plugin::ServiceId { /* private fields */ }
-pub struct runvil::plugin::ServiceKey<T: ?core::marker::Sized + core::marker::Send + core::marker::Sync + 'static> { /* private fields */ }
 pub struct runvil::plugin::ToolContext<'a> { /* private fields */ }
 pub struct runvil::prompt::ArgsSchema { /* private fields */ }
 pub struct runvil::prompt::Frontmatter { /* private fields */ }
