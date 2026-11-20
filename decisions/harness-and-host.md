@@ -176,7 +176,7 @@ The map has one entry because `RunSetup` has one `selected_model`. A model for e
 
 ### `OfflineBroker` is the stock broker of a Host that runs prompts without a model
 
-`runvil::harness` has a stock broker, `OfflineBroker`. Its `models()` lists an empty catalog, and its `chat` fails every round with the code `Unavailable`. A run over it that selects no model picks none, and the Harness passes the Engine an empty role map. A prompt that asks no model runs to its end. A `models.infer` or a `models.loop` raises an error of kind `model_required` before a round reaches the broker ([Model calls and conversations](models-and-conversations.md)). A run that selects a model ends with `RequirementsUnmet`, because the list lacks the selection.
+`runvil::harness` has a stock broker, `OfflineBroker`. Its `models()` lists an empty catalog, and its `chat` fails every round with the code `Unavailable`. A run over it that selects no model picks none, and the Harness passes the Engine an empty role map. A prompt that asks no model runs to its end. A `models.infer` or a `models.loop` raises an error of kind `model_required` before a round reaches the broker ([Model calls and conversations](models-and-conversations.md)). A run that selects a valid model id ends with `RequirementsUnmet`, because the list lacks the selection.
 
 The Harness exports the broker because Hosts run prompts without a model: a tool that runs a prompt whose Lua does all the work, and a Host whose Gateway is not configured yet. Each would otherwise write the same broker and import the chat vocabulary of a round to do it. The Host still passes the broker to `RunSetup::new`, so a run without a model is a choice that the Host's code states.
 

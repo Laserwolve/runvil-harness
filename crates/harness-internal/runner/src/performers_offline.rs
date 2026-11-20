@@ -16,7 +16,7 @@ use crate::performers::InferenceBroker;
 /// therefore binds none: a prompt that asks no model runs to its end, and
 /// a `models.infer` or `models.loop` fails as
 /// [`ModelRequired`](ErrorCode::ModelRequired) before a round reaches the
-/// broker. A run whose setup selects a model ends as
+/// broker. A run whose setup selects a valid model id ends as
 /// [`RequirementsUnmet`](ErrorCode::RequirementsUnmet), because the list
 /// lacks the selection.
 ///
