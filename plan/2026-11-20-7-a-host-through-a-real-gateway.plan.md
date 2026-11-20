@@ -7,10 +7,10 @@ todos:
     status: completed
   - id: test
     content: "Add crates/harness-gateway-client/tests/live.rs with the one ignored test"
-    status: pending
+    status: completed
   - id: runs
     content: "Run the test against a real Gateway with a model, with and without a named model, and against a stopped Gateway"
-    status: pending
+    status: completed
   - id: verify
     content: "Run the verification commands and vibelight"
     status: pending
@@ -123,6 +123,8 @@ The change is itself a test. It is checked by running it against a real Gateway,
 - Assumptions, risks, and notes:
   - The runs recorded here used a Gateway built from `cppalliance/runvil-gateway` at commit `52fd92d`, serving Qwen3 0.6B from a local file.
   - `cargo nextest run -p harness-gateway-client --test live` with no other test selected ends with "no tests to run", since the only test of that file is ignored. A run of the crate or the workspace reports it as skipped.
+  - Result of the runs: with the Gateway running, the test passed with no model named, in 0.35 seconds, and with the model named, in 0.08 seconds. With the Gateway stopped it failed with `Transport` and the message named `http://127.0.0.1:8189/v1/models` and "Connection refused". The crate's own run reports 157 passed and 1 skipped.
+  - Result of the exit criteria, in part. Passed: `cargo fmt --all --check`, `cargo clippy -p harness-gateway-client --all-targets --all-features`, the crate's tests, `cargo test -p build-xtask`, and the wording check. `vibelight`, run on `live.rs` alone, reported no lead. Not run locally, to keep the author's machine usable: the workspace-wide test and clippy runs, the docs builds, the facade check, and the custom lints. CI runs them on the pull request, so the `verify` item stays open until then.
 
 ### Deferred and Out of Scope
 
