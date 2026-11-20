@@ -7,13 +7,13 @@ todos:
     status: completed
   - id: test
     content: "Make the recording broker in crates/harness-internal/runner/tests/it/effect_loop-broker.rs keep each round's options and tool names, and add the test"
-    status: pending
+    status: completed
   - id: breaks
     content: "Apply each of the two breaks, confirm the test now fails, and revert it"
-    status: pending
+    status: completed
   - id: verify
     content: "Run every verification command and vibelight"
-    status: pending
+    status: completed
   - id: pr
     content: "Push the branch qa-plan-tests to the fork and open one PR for the whole effort against cppalliance/runvil-harness"
     status: pending
@@ -117,6 +117,9 @@ The change is itself a test, so its own check is that each break fails it. The r
   - The Engine's side is checked by `models_use_forwards_binding_completion_options_to_the_gateway`, and the client's side by `complete_sends_completion_options_and_stream_flags_on_the_wire`.
   - Dropping a round's messages already fails at least eleven tests, so the messages need no new check.
   - The model's name in a round's options is checked by the tests of `plan/2026-11-20-5-model-the-broker-is-asked-for.plan.md`, so this test leaves it out.
+  - Result of the breaks: under each break the workspace runs 3,987 tests, the new test fails, and the other 3,986 pass.
+  - Result of the exit criteria: every command passed except the custom lints, which were not run locally because `cargo-dylint` is not installed on the author's machine. CI's `dylint` job runs them on the pull request.
+  - `vibelight` outlines each crate's library code and not its `tests/` folder, so it was also run on `effect_loop-broker.rs` alone. Its first run flagged a type alias used once. What the broker keeps for a round is now a small struct, and the second run reported no lead.
 
 ### Deferred and Out of Scope
 
