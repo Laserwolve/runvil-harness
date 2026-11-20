@@ -10,33 +10,13 @@ use runvil_engine::model::{
 use serde_json::json;
 
 use super::*;
-
-/// Lists no model; a round is never made.
-struct EmptyBroker;
-
-impl InferenceBroker for EmptyBroker {
-    fn models(&self) -> BoxFuture<'static, Result<ModelCatalog, Error>> {
-        Box::pin(async { Ok(ModelCatalog::empty()) })
-    }
-
-    fn chat(
-        &self,
-        _binding: ModelBinding,
-        _messages: Vec<Message>,
-        _tools: Vec<ToolSchema>,
-        _options: CompletionOptions,
-        _round: Round,
-    ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
-        let code = ErrorCode::Unavailable;
-        Box::pin(async move { Err(make_completion_error(code, phrase(code))) })
-    }
-}
+use crate::performers::OfflineBroker;
 
 #[tokio::test]
 async fn no_selection_and_an_empty_broker_catalog_bind_no_model() {
     // No selection and a broker that lists nothing: nothing to resolve,
     // so the roles stay unbound rather than the run failing.
-    let model = current_model(None, &EmptyBroker)
+    let model = current_model(None, &OfflineBroker)
         .await
         .expect("an empty list is not a failure");
     assert!(model.is_none());
@@ -59,7 +39,7 @@ impl InferenceBroker for UnlistedBroker {
         options: CompletionOptions,
         round: Round,
     ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
-        EmptyBroker.chat(binding, messages, tools, options, round)
+        OfflineBroker.chat(binding, messages, tools, options, round)
     }
 }
 
@@ -79,7 +59,7 @@ async fn a_model_list_the_broker_cannot_fetch_keeps_the_brokers_failure() {
 
 #[tokio::test]
 async fn a_selection_the_list_lacks_is_an_unmet_requirement_naming_the_selection() {
-    let error = current_model(Some("absent"), &EmptyBroker)
+    let error = current_model(Some("absent"), &OfflineBroker)
         .await
         .expect_err("an absent selection fails the lookup");
     assert_eq!(error.code, ErrorCode::RequirementsUnmet);

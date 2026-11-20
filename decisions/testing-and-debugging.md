@@ -52,11 +52,11 @@ The facade re-exports items of the internal crates, so those crates test behavio
 
 Each test is a separate function with a sentence for its name, so that one failure names one test.
 
-### Harness tests write their own brokers, and the Harness exports `MemoryRecorder`
+### Harness tests write their own scripted brokers, and the Harness exports `OfflineBroker` and `MemoryRecorder`
 
-A Harness test supplies the model through an `InferenceBroker` that the test code defines. The suite of the `runvil` facade uses a broker that lists an empty catalog and refuses every round as `Unavailable`. `MemoryRecorder` is public and stores each run's records in a vector. `harness-runner` keeps the function that drives the effect loop public, so that tests have one entry point to the effect loop.
+A Harness test that needs a model's replies supplies them through an `InferenceBroker` that the test code defines. A test whose prompt asks no model uses `OfflineBroker`, the stock broker of a Host that runs prompts without a model ([The Harness and the Host API](harness-and-host.md)). `MemoryRecorder` is public and stores each run's records in a vector. `harness-runner` keeps the function that drives the effect loop public, so that tests have one entry point to the effect loop.
 
-A public scripted broker would be test API that only the Harness's own tests use, so the Harness leaves it out.
+A public scripted broker would be test API that only the Harness's own tests use, so the Harness leaves it out. `OfflineBroker` is public because Hosts use it, and the tests use it because it is there.
 
 ## 3. Rules for test code
 

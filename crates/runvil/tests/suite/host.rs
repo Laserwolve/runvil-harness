@@ -11,14 +11,14 @@ use std::task::{Poll, Waker};
 
 use runvil::effect::Round;
 use runvil::event::ReplyOrigin;
-use runvil::harness::{InferenceBroker, MemoryRecorder, RecordKind};
+use runvil::harness::{InferenceBroker, MemoryRecorder, OfflineBroker, RecordKind};
 use runvil::model::{
     Completion, CompletionOptions, CompletionResult, Message, ModelBinding, ModelCatalog, ModelId,
     ModelInfo, ThinkingMode, ToolSchema,
 };
 use runvil::{BoxFuture, Harness, RunSetup};
 
-use crate::support::{Offline, launch, no_packs};
+use crate::support::{launch, no_packs};
 
 /// Reads the operator's next message and returns it.
 const RECEIVES: &str = concat!(
@@ -171,7 +171,7 @@ async fn tasks_receive_returns_the_message_the_host_sends_byte_for_byte() {
     let typed = "Hello, desk.\r\n\"quoted\" 🦀";
     let setup = RunSetup {
         has_user: true,
-        ..RunSetup::new(Arc::new(MemoryRecorder::new()), Arc::new(Offline))
+        ..RunSetup::new(Arc::new(MemoryRecorder::new()), Arc::new(OfflineBroker))
     };
     let harness = launch(no_packs(), RECEIVES, setup);
     assert!(
@@ -205,7 +205,7 @@ async fn a_run_canceled_before_it_begins_is_recorded_as_canceled_before_it_start
     let harness = launch(
         no_packs(),
         PATIENT,
-        RunSetup::new(recorder.clone(), Arc::new(Offline)),
+        RunSetup::new(recorder.clone(), Arc::new(OfflineBroker)),
     );
     harness.control().cancel();
     let report = harness.run().await.expect("the run is reported");

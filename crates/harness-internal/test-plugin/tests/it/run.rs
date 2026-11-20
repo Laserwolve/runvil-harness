@@ -17,13 +17,8 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use harness_plugin_loader::{HostResources, PluginReport, insert_plugin_dir};
-use runvil::effect::Round;
 use runvil::harness::{
-    InferenceBroker, MemoryRecorder, Packs, Record, RecordKind, RunId, RunMeta, RunRecorder, Timer,
-};
-use runvil::model::{
-    Completion, CompletionOptions, Message, ModelBinding, ModelCatalog, ToolSchema,
-    make_completion_error, phrase,
+    MemoryRecorder, OfflineBroker, Packs, Record, RecordKind, RunId, RunMeta, RunRecorder, Timer,
 };
 use runvil::vfs::{MemoryBackend, Op, Origin, Policy, Verdict, VfsError, VfsPath, VfsRef};
 use runvil::{BoxFuture, Error, ErrorCode, Harness, Host, RunControl, RunReport, RunSetup};
@@ -46,27 +41,6 @@ fn prompt_of(sections: &str) -> String {
 /// A prompt that declares the fixture's Pack and runs `lua`.
 fn prompt(lua: &str) -> String {
     prompt_of(&format!("## Only\n\n```lua\n{lua}\n```\n"))
-}
-
-/// Lists no model and refuses every round, since no prompt here asks one.
-struct Offline;
-
-impl InferenceBroker for Offline {
-    fn models(&self) -> BoxFuture<'static, Result<ModelCatalog, Error>> {
-        Box::pin(async { Ok(ModelCatalog::empty()) })
-    }
-
-    fn chat(
-        &self,
-        _binding: ModelBinding,
-        _messages: Vec<Message>,
-        _tools: Vec<ToolSchema>,
-        _options: CompletionOptions,
-        _round: Round,
-    ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
-        let code = ErrorCode::Unavailable;
-        Box::pin(async move { Err(make_completion_error(code, phrase(code))) })
-    }
 }
 
 /// Sleeps on tokio's timer.
@@ -129,7 +103,7 @@ fn harness_recorded(host: &Arc<Host>, vfs: VfsRef, recorder: Arc<dyn RunRecorder
     let prompt = host.parse(PROMPT).expect("the prompt parses");
     let setup = RunSetup {
         vfs,
-        ..RunSetup::new(recorder, Arc::new(Offline))
+        ..RunSetup::new(recorder, Arc::new(OfflineBroker))
     };
     Harness::new(Arc::clone(host), prompt, setup)
 }

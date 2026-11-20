@@ -1,20 +1,15 @@
 //! A Host runs one prompt through a Harness: it builds a Host over a
 //! fresh Pack registry, which holds only the built-ins, a finder that
 //! serves its one prompt, and a tokio timer, parses the prompt by its
-//! name, hands the run a recorder, an offline inference broker, and the
+//! name, hands the run a recorder, the stock offline broker, and the
 //! operator's name, and prints the greeting the prompt returns.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use runvil::effect::Round;
-use runvil::harness::{FindTextPrompt, InferenceBroker, MemoryRecorder, Packs, Timer};
-use runvil::model::{
-    Completion, CompletionOptions, Message, ModelBinding, ModelCatalog, ToolSchema,
-    make_completion_error, phrase,
-};
+use runvil::harness::{FindTextPrompt, MemoryRecorder, OfflineBroker, Packs, Timer};
 use runvil::plugin::PackRegistry;
-use runvil::{BoxFuture, Error, ErrorCode, Harness, Host, RunSetup};
+use runvil::{BoxFuture, Harness, Host, RunSetup};
 
 /// The name the Host finds the greeting prompt by.
 const GREET_NAME: &str = "greet.md";
@@ -26,27 +21,6 @@ const GREET: &str = concat!(
     "return 'Hello, ' .. args.text .. '.'\n",
     "```\n",
 );
-
-/// Lists no model and refuses every round, since the prompt asks no model.
-struct Offline;
-
-impl InferenceBroker for Offline {
-    fn models(&self) -> BoxFuture<'static, Result<ModelCatalog, Error>> {
-        Box::pin(async { Ok(ModelCatalog::empty()) })
-    }
-
-    fn chat(
-        &self,
-        _binding: ModelBinding,
-        _messages: Vec<Message>,
-        _tools: Vec<ToolSchema>,
-        _options: CompletionOptions,
-        _round: Round,
-    ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
-        let code = ErrorCode::Unavailable;
-        Box::pin(async move { Err(make_completion_error(code, phrase(code))) })
-    }
-}
 
 /// Sleeps on tokio's timer.
 struct Clock;
@@ -71,10 +45,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 2. Find the prompt by its name and parse it.
     let prompt = host.parse(GREET_NAME)?;
 
-    // 3. Give this run its recorder, its broker, and the operator's name;
-    //    every other field keeps its default, such as an empty memory
-    //    filesystem for the run's tool calls.
-    let setup = RunSetup::new(Arc::new(MemoryRecorder::new()), Arc::new(Offline))
+    // 3. Give this run its recorder, its broker, and the operator's name.
+    //    The prompt asks no model, so the broker is the stock offline
+    //    one, which lists no model. Every other field keeps its default,
+    //    such as an empty memory filesystem for the run's tool calls.
+    let setup = RunSetup::new(Arc::new(MemoryRecorder::new()), Arc::new(OfflineBroker))
         .args(r#"{"text":"desk"}"#);
 
     // 4. Run it to its end; the Harness is spent. The first `?` is a

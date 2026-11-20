@@ -4,10 +4,10 @@
 
 use std::sync::Arc;
 
-use runvil::harness::MemoryRecorder;
+use runvil::harness::{MemoryRecorder, OfflineBroker};
 use runvil::{ErrorCode, Harness, RunSetup};
 
-use crate::support::{Offline, launch, no_packs};
+use crate::support::{launch, no_packs};
 
 /// A prompt that returns its `text` argument, shouted.
 const SHOUTS: &str = concat!(
@@ -21,7 +21,7 @@ const SHOUTS: &str = concat!(
 fn harness(source: &str) -> Harness {
     let setup = RunSetup {
         args: r#"{"text":"hello"}"#.to_owned(),
-        ..RunSetup::new(Arc::new(MemoryRecorder::new()), Arc::new(Offline))
+        ..RunSetup::new(Arc::new(MemoryRecorder::new()), Arc::new(OfflineBroker))
     };
     launch(no_packs(), source, setup)
 }

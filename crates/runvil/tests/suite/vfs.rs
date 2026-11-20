@@ -7,7 +7,7 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use runvil::harness::{MemoryRecorder, Packs, RecordKind, RunId};
+use runvil::harness::{MemoryRecorder, OfflineBroker, Packs, RecordKind, RunId};
 use runvil::packs::PackId;
 use runvil::plugin::{Pack, PackInfo, PackRegistry, ToolContext};
 use runvil::vfs::{
@@ -18,7 +18,7 @@ use runvil::{
 };
 use serde_json::{Value, json};
 
-use crate::support::{Offline, launch, no_packs};
+use crate::support::{launch, no_packs};
 
 /// Reads the notes through the desk's tool, waits for the operator's
 /// message, and returns the notes and the message.
@@ -206,7 +206,7 @@ async fn a_hosts_edit_of_a_file_the_run_read_applies_while_the_run_waits_on_its_
     let setup = RunSetup {
         has_user: true,
         vfs: vfs.clone(),
-        ..RunSetup::new(recorder.clone(), Arc::new(Offline))
+        ..RunSetup::new(recorder.clone(), Arc::new(OfflineBroker))
     };
     let harness = launch(desk_packs(), REVIEW, setup);
     let control = harness.control();
@@ -254,7 +254,7 @@ async fn a_hosts_policy_and_watcher_never_see_a_store_operation() {
     let (vfs, seen) = watched(Shut);
     let setup = RunSetup {
         vfs: vfs.clone(),
-        ..RunSetup::new(Arc::new(MemoryRecorder::new()), Arc::new(Offline))
+        ..RunSetup::new(Arc::new(MemoryRecorder::new()), Arc::new(OfflineBroker))
     };
     let report = launch(no_packs(), KEEPS, setup)
         .run()
