@@ -7,13 +7,13 @@ todos:
     status: completed
   - id: tests
     content: "Add the three helpers and the five tests to crates/runvil-engine/tests/suite/shipped.rs, and read the research prompt through the new helper"
-    status: pending
+    status: completed
   - id: breaks
     content: "Apply each of the five breaks, confirm a test now fails, and revert it"
-    status: pending
+    status: completed
   - id: verify
     content: "Run every verification command and vibelight"
-    status: pending
+    status: completed
   - id: pr
     content: "Push the branch to the fork and open one PR against cppalliance/runvil-harness"
     status: pending
@@ -130,6 +130,9 @@ The change is itself tests, so its own check is that each break fails a test. Th
   - Existing tests already check each behavior the samples use, with prompts written inside the tests: `a_prompt_with_no_args_key_runs_on_the_empty_object_and_on_one_string_named_text`, `finite_pipeline_runs_the_unified_surface_end_to_end`, `a_switch_in_one_section_is_still_in_effect_in_the_next`, and `a_context_minimum_above_the_filling_models_is_refused`. What is new here is that the shipped files are run.
   - The tests fail whenever a sample's text changes. That is intended: the person who changes a sample updates its test in the same change.
   - A model round's record names the role it ran under as `alias` (`crates/runvil-internal/runtime/src/execute/run/effect.rs`). The tests read the role from there.
+  - Result of the breaks: each of the five fails exactly the test the Functional Specification names. With all five applied, the workspace runs 3,984 tests, the five new ones fail, and the other 3,979 pass.
+  - Result of the exit criteria: every command passed except the custom lints, which were not run locally because `cargo-dylint` is not installed on the author's machine. CI's `dylint` job runs them on the pull request.
+  - `vibelight` outlines each crate's library code and not its `tests/` folder, so it was also run on `shipped.rs` alone. Its first run flagged a role passed as a string and two near-identical test bodies. The role is now a `ModelRole`, and the three one-round tests share one checking helper. Two leads remain: the bodies of the greet and hello tests are still alike, because the two samples do the same thing, and the literal `web/search` repeats in the three functions that were already there.
 
 ### Deferred and Out of Scope
 
