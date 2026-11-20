@@ -19,10 +19,10 @@ todos:
     status: completed
   - id: harness-pr
     content: Push Harness master to origin and open the pull request from vinniefalco:master
-    status: pending
+    status: completed
   - id: workshop-commit
     content: "Workshop commit: pin the three rev values to the Harness head, cargo fetch, run verify-workshop.ps1 -Tag s3w (706 and 353 tests expected), commit, push to origin, open the pull request"
-    status: pending
+    status: completed
   - id: merge
     content: "When ci-green passes on both pull requests and neither upstream master moved: git push upstream master in the Harness and confirm, then the same in Workshop"
     status: pending
@@ -337,3 +337,14 @@ The plan held in both repos. This record was written after the two Harness code 
 - The two merges, the Harness first.
 
 Each of those is reported in its pull request and in the chat, because a record of them would be one more commit after the merge.
+
+## After the pull requests opened
+
+A review of the Harness pull request led to one more commit, so this note was added with it, before either merge.
+
+- **The pull requests are [#58](https://github.com/cppalliance/runvil-harness/pull/58) on the Harness and [#30](https://github.com/cppalliance/runvil-workshop/pull/30) on Workshop.**
+- **`cargo fetch` got `c581ba33` from `cppalliance/runvil-harness` while only the open pull request held it.** That settles the fourth risk, so the planned order stood: both pull requests were open before either merge.
+- **Workshop commit `9fb795ef` passed Workshop's whole verification list on the real pin.** Its two test groups ran 706 and 353 tests, all passing, the same counts as before. `Cargo.lock` changed its 14 source lines for `runvil-harness` and no other line.
+- **The automatic review found one overstated sentence**, in the entry of `OfflineBroker` on the Harness page and in the doc comment of the type. Both said that a run that selects a model ends with `RequirementsUnmet`. A selected id that is empty or holds a control character is refused as a model id, and the Harness then logs a warning and the run picks no model. Commit `081c6ad5` limits both sentences to a valid model id, so those two sentences differ from the text this plan gave.
+- **Workshop keeps its pin at `c581ba33`.** That commit holds all of the code, and `master` of `cppalliance/runvil-harness` holds it after the merge, two commits below its head.
+- **What a selection that is no valid model id does is still to be written on the Harness page**, for any broker. That behavior is older than this work.
