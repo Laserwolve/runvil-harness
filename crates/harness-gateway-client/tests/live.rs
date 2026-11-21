@@ -73,9 +73,11 @@ impl Gateway {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../prompts")
             .join(HELLO);
+        let hello =
+            fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
         let host = Arc::new(Host {
             packs: Packs::new(PackRegistry::new()),
-            prompts: Arc::new(FindTextPrompt::new(HELLO, fs::read_to_string(&path)?)),
+            prompts: Arc::new(FindTextPrompt::new(HELLO, hello)),
             timer: Arc::new(TokioTimer),
         });
         let prompt = host.parse(HELLO)?;

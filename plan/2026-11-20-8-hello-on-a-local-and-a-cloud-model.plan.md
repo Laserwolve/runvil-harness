@@ -137,6 +137,7 @@ The change is itself a test. It is checked by running it against real Gateways.
   - Found in the first runs: the Gateway's caller is told only "upstream returned 400". The provider's reason is in the Gateway's log and nowhere in the run's error.
   - Found in the first runs: the Gateway lists the cloud model before the local one. The first live test selects no model, so it runs on the cloud model whenever the Gateway serves one.
   - Result of the exit criteria, in part. Passed: `cargo fmt --all --check`, `cargo clippy -p harness-gateway-client --all-targets --all-features`, the crate's tests with 157 passed and the 2 live tests skipped, `cargo test -p build-xtask`, and the wording check. `vibelight`, run on `live.rs` alone, reported no lead. Not run locally: the workspace-wide test and clippy runs, the docs builds, the facade check, and the custom lints.
+  - Found by the `dylint` job of the draft pull request, the one check not run locally: `io_try_without_context` refused the read of `hello.md` in the shared run, whose `?` passed on an error that named no file. The read now names its file, in the words the other tests of this repository use.
 
 ### Deferred and Out of Scope
 
