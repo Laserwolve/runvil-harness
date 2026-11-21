@@ -4,22 +4,22 @@ overview: Add `harness_gateway_client::TokioTimer`, replace every hand-written t
 todos:
   - id: plan-copy
     content: "Check that runvil-harness and runvil-workshop are clean and equal to origin and upstream, then Harness commit 0: copy the approved plan alone to runvil-harness/plan/2026-11-20-3-stock-tokio-timer.plan.md and commit it on master"
-    status: pending
+    status: completed
   - id: harness-add
     content: "Harness commit 1: add `TokioTimer` to harness-gateway-client (timer.rs, the wiring, the doc comments, `test-util` for the tests), its three tests on a paused clock, the three edits of harness-and-host.md, the clause in testing-and-debugging.md, and the two READMEs; run verify.ps1 -Tag t1a (3,979 tests expected, both listings unchanged); commit"
-    status: pending
+    status: completed
   - id: harness-use-plugin
     content: "Harness commit 2: add the Gateway client as a workspace dependency and as a dev-dependency of harness-test-plugin, switch the copy in test-plugin run.rs and clean up its call site (the stock finder in host_offering), refresh Cargo.lock (exactly one added line), run verify.ps1 -Tag t1b, commit"
-    status: pending
+    status: completed
   - id: harness-use-facade
     content: "Harness commit 3: add the Gateway client as a dev-dependency of runvil, switch the two copies (run-prompt.rs and the facade suite's support.rs) and clean up the suite's call site (the stock finder in launch), refresh Cargo.lock (exactly one added line), run verify.ps1 -Tag t1c and the example, commit"
-    status: pending
+    status: completed
   - id: workshop-dry-run
     content: "Workshop dry run under a temporary [patch] on the local Harness: remove `TokioTimer` from workshop-agents (file to cabinet/_trash), switch the four call sites and clean them up (the stock finder and the chained setup in run_for, the Host built inside its Arc in AgentSessions::new), edit the agents manifest, run clippy and nextest for workshop-agents and workshop-server, then restore the root Cargo.toml and Cargo.lock"
-    status: pending
+    status: completed
   - id: record
     content: "Harness commit 4: add 'What the build found' for both repos and the todo statuses to the repo copy of the plan, and commit it alone"
-    status: pending
+    status: completed
   - id: harness-pr
     content: Push Harness master to origin and open the pull request from vinniefalco:master
     status: pending
@@ -332,3 +332,51 @@ The Harness verification and the Workshop dry run are both full builds on one ma
 - PR #27 edits the example, so its conflict with `master` grows. That is expected.
 - The stock finder fails another name a little differently from the closures it replaces: its prose is its own, it holds the name as a fact, and in `run_for` the message changes from `no agent named {name}` to `no prompt named {name}`. I searched each file: each of these Hosts is parsed under its one name, and the old message is in no assertion. The tests are the proof.
 - After the cleanup, the facade suite and the test Plugin find their prompt through the stock finder. A closure as a finder stays covered by the runner's `host-tests.rs` and by Workshop's `agent_finder`.
+
+# What the build found
+
+The plan held in both repos. This record was written after the three Harness code commits and the Workshop dry run, and before anything was pushed. These points differ from the plan above, or add to it.
+
+## Harness commit 0, `a346bdab`: the plan
+
+- **The copy is the approved text, with every todo `pending`.** It was taken before the first todo changed its status.
+
+## Harness commit 1, `6300d5a1`: the type
+
+- **The run test passed as the plan wrote it.** The prompt returns `true|true|go`. The record holds one `Timer` effect whose payload is `{"Timer":{"seconds":3600.0}}`, its answer is `Timer`, and tokio's clock moved one hour during the run. That settles the second risk.
+- **A sleep of one hour ends within the bound that the first test sets**, at least 3600 seconds and less than 3601 on tokio's paused clock. That settles the third risk. The second test puts a `tokio::time::timeout` of 3599 seconds over the same sleep, and the time runs out.
+- **The custom lints passed the new code as the plan wrote it.**
+- **Both listings and `Cargo.lock` stayed as they were**, as the plan expected.
+- **Every command of the verification list passed.** The whole workspace ran 3,979 tests, all passing, with 25 skipped. The Gateway client has 160 tests, where it had 157.
+
+## Harness commit 2, `a45bcf6b`: the test Plugin
+
+- **The switch went as the plan wrote it.** `host_offering` takes `TokioTimer` and `FindTextPrompt`, and `Cargo.lock` gained its one line.
+- **`Timer` and `ErrorCode` left the imports of `run.rs`, and `BoxFuture` and `Error` stay.** The recorder that the file defines returns `BoxFuture`, and two assertions name `Error::is_canceled`.
+- **Every command of the verification list passed again**, and the count stayed at 3,979.
+
+## Harness commit 3, `b4f347d0`: the facade
+
+- **The dev-dependency that points back at `runvil` builds and passes every check**: clippy, both doc builds, `xtask api --check`, dylint, and the structural checks. That settles the first risk. `cargo doc -p runvil --no-deps` and `cargo deny check`, which CI runs beside that list, pass too.
+- **`launch` lost its closure and its `to_owned` line**, and `support.rs` lost five imports: `Duration`, `Timer`, `BoxFuture`, `Error`, and `ErrorCode`. The example lost three: `Duration`, `Timer`, and `BoxFuture`.
+- **The dev-dependency of `runvil` on `tokio` keeps its `time` feature.** The crate's tests and its example no longer call `tokio::time`, but the runtime that each of them builds must have tokio's timer, which a sleep of the stock timer needs.
+- **`Cargo.lock` gained its one line**, the count stayed at 3,979, and `cargo run -p runvil --example run-prompt` printed `Hello, desk.`.
+
+## The Workshop dry run
+
+- **Workshop built against the local Harness checkout** through a temporary `[patch]` section, which was taken out again with `git restore` on `Cargo.toml` and `Cargo.lock`.
+- **Clippy with warnings denied passed for `workshop-agents` and `workshop-server`.** Their tests passed too: 21 in `workshop-agents`, and 256 in `workshop-server` with 2 skipped, the same counts as before the switch.
+- **Workshop's structural checks accept the new dev-dependency of `workshop-agents`.** `cargo test -p build-xtask` ran after the restore, on the old pin, and passed its 86 tests, and the wording check passed. That settles the fourth risk as far as a run before the real pin can.
+- **The four call sites changed as the plan wrote them.** `run_for` uses `FindTextPrompt` and `RunSetup::new(..).has_user(true)`, `AgentSessions::new` builds its `Host` inside the `Arc`, and the two sites in the server's `tests.rs` changed their import alone.
+- **One edit goes beyond the plan.** The module doc of `server/src/agents.rs` still said that a run's setup takes the granted roots of the workspace. The walk that removed the roots left that sentence behind. The Workshop commit corrects it, because the same module doc names the timer and changes in this commit.
+- **Two doc comments of `server/src/agents.rs` say "the stock tokio timer"** where they said "the tokio timer": the module doc and the doc of the `host` field.
+- **The old `TokioTimer` of Workshop derived `Clone`, `Copy`, `Debug`, and `Default`, and the stock one derives `Debug` alone.** Each of the four call sites writes `Arc::new(TokioTimer)`, which needs none of the other three.
+- **The edits wait in Workshop's working tree** for the commit that pins the Harness.
+
+## Still to come when this record was written
+
+- The push of the Harness to the fork, and its pull request.
+- The Workshop commit on the real pin, with Workshop's whole verification list, and its pull request.
+- The two merges, the Harness first, once every check on both pull requests is green.
+
+Each of those is reported in its pull request and in the chat, because a record of them would be one more commit after the merge.
