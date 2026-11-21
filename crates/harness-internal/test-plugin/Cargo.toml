@@ -18,9 +18,11 @@ crate-type = ["cdylib", "rlib"]
 # the built library, the Plugin contract crate for `PackRegistry::new`,
 # `libloading` to open the library the loader already holds and read its
 # counters, the Harness facade with tokio to run a prompt that calls the
-# fixture's tools, and `serde_json` to read the payloads of a run's
+# fixture's tools, the Gateway client for the stock tokio timer that each
+# test Host sleeps on, and `serde_json` to read the payloads of a run's
 # records.
 [dev-dependencies]
+harness-gateway-client.workspace = true
 harness-plugin-loader.workspace = true
 libloading.workspace = true
 runvil.workspace = true

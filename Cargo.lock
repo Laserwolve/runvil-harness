@@ -697,6 +697,7 @@ dependencies = [
 name = "harness-test-plugin"
 version = "0.3.0"
 dependencies = [
+ "harness-gateway-client",
  "harness-plugin-loader",
  "libc",
  "libloading",

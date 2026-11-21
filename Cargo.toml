@@ -32,6 +32,7 @@ runvil-types = { path = "crates/runvil-internal/types" }
 runvil = { path = "crates/runvil" }
 harness-runner = { path = "crates/harness-internal/runner" }
 harness-plugin-loader = { path = "crates/harness-internal/plugin-loader" }
+harness-gateway-client = { path = "crates/harness-gateway-client" }
 runvil-lua = { path = "crates/runvil-internal/lua" }
 runvil-markdown = { path = "crates/runvil-internal/markdown" }
 runvil-model-client = { path = "crates/runvil-internal/model-client" }

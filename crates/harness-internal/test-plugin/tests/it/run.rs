@@ -16,12 +16,14 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+use harness_gateway_client::TokioTimer;
 use harness_plugin_loader::{HostResources, PluginReport, insert_plugin_dir};
 use runvil::harness::{
-    MemoryRecorder, OfflineBroker, Packs, Record, RecordKind, RunId, RunMeta, RunRecorder, Timer,
+    FindTextPrompt, MemoryRecorder, OfflineBroker, Packs, Record, RecordKind, RunId, RunMeta,
+    RunRecorder,
 };
 use runvil::vfs::{MemoryBackend, Op, Origin, Policy, Verdict, VfsError, VfsPath, VfsRef};
-use runvil::{BoxFuture, Error, ErrorCode, Harness, Host, RunControl, RunReport, RunSetup};
+use runvil::{BoxFuture, Error, Harness, Host, RunControl, RunReport, RunSetup};
 use runvil_plugin::PackRegistry;
 use serde_json::{Value, json};
 
@@ -43,15 +45,6 @@ fn prompt(lua: &str) -> String {
     prompt_of(&format!("## Only\n\n```lua\n{lua}\n```\n"))
 }
 
-/// Sleeps on tokio's timer.
-struct Clock;
-
-impl Timer for Clock {
-    fn sleep(&self, duration: Duration) -> BoxFuture<'static, ()> {
-        Box::pin(tokio::time::sleep(duration))
-    }
-}
-
 /// A Host over the library Plugins in `dir` that offers them no
 /// resources and finds `source` by [`PROMPT`], and the report of what
 /// `dir` loaded.
@@ -71,18 +64,8 @@ fn host_offering(
     assert!(report.failures().is_empty(), "{:?}", report.failures());
     let host = Arc::new(Host {
         packs: Packs::new(packs),
-        prompts: Arc::new(move |name: &str| {
-            if name == PROMPT {
-                return Ok(source.clone());
-            }
-            let code = ErrorCode::NotFound;
-            Err(Error::new(
-                code,
-                format!("no prompt named {name}"),
-                code.prose(),
-            ))
-        }),
-        timer: Arc::new(Clock),
+        prompts: Arc::new(FindTextPrompt::new(PROMPT, source)),
+        timer: Arc::new(TokioTimer),
     });
     (host, report)
 }
