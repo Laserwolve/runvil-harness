@@ -1,15 +1,15 @@
 //! A Host runs one prompt through a Harness: it builds a Host over a
 //! fresh Pack registry, which holds only the built-ins, a finder that
-//! serves its one prompt, and a tokio timer, parses the prompt by its
-//! name, hands the run a recorder, the stock offline broker, and the
+//! serves its one prompt, and the stock tokio timer, parses the prompt by
+//! its name, hands the run a recorder, the stock offline broker, and the
 //! operator's name, and prints the greeting the prompt returns.
 
 use std::sync::Arc;
-use std::time::Duration;
 
-use runvil::harness::{FindTextPrompt, MemoryRecorder, OfflineBroker, Packs, Timer};
+use harness_gateway_client::TokioTimer;
+use runvil::harness::{FindTextPrompt, MemoryRecorder, OfflineBroker, Packs};
 use runvil::plugin::PackRegistry;
-use runvil::{BoxFuture, Harness, Host, RunSetup};
+use runvil::{Harness, Host, RunSetup};
 
 /// The name the Host finds the greeting prompt by.
 const GREET_NAME: &str = "greet.md";
@@ -22,24 +22,16 @@ const GREET: &str = concat!(
     "```\n",
 );
 
-/// Sleeps on tokio's timer.
-struct Clock;
-
-impl Timer for Clock {
-    fn sleep(&self, duration: Duration) -> BoxFuture<'static, ()> {
-        Box::pin(tokio::time::sleep(duration))
-    }
-}
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Build the Host once: its installed Packs, how it finds prompts,
     //    and its timer. A stock finder serves the one prompt under its
-    //    name and finds no other.
+    //    name and finds no other, and the stock tokio timer comes from
+    //    the Gateway client.
     let host = Arc::new(Host {
         packs: Packs::new(PackRegistry::new()),
         prompts: Arc::new(FindTextPrompt::new(GREET_NAME, GREET)),
-        timer: Arc::new(Clock),
+        timer: Arc::new(TokioTimer),
     });
 
     // 2. Find the prompt by its name and parse it.

@@ -17,8 +17,10 @@ runvil-engine.workspace = true
 runvil-plugin.workspace = true
 
 # The suite and the `run-prompt` example run a Host on tokio, as a real
-# Host does; the facade's own items name no tokio type.
+# Host does, and each of their Hosts sleeps on the stock tokio timer of
+# the Gateway client; the facade's own items name no tokio type.
 [dev-dependencies]
+harness-gateway-client.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "signal", "time"] }
 
