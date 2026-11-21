@@ -196,7 +196,7 @@ The timer is a required field of `Host`, so a Host that leaves it out fails to c
 
 `harness-gateway-client` has a stock timer, `TokioTimer`. Its `sleep` returns one `tokio::time::sleep`, so the future needs a tokio runtime with its timer, and its `now` is the trait's default. A Host on tokio passes `Arc::new(TokioTimer)` as the `timer` of its `Host`, so the code that builds the `Host` still names the timer.
 
-The timer is in `harness-gateway-client` because `runvil` excludes tokio, and the Gateway client is the public Harness crate that depends on tokio. Each Host on tokio would otherwise write the same eight lines. A Host on another runtime implements `Timer` over that runtime's sleep.
+The timer is in `harness-gateway-client` because `runvil` excludes tokio, and the Gateway client is the public Harness crate that depends on tokio. Each Host on tokio would otherwise write that timer itself. A Host on another runtime implements `Timer` over that runtime's sleep.
 
 ### The Host hands a Rust Plugin what its Packs need as the arguments of `install`
 
