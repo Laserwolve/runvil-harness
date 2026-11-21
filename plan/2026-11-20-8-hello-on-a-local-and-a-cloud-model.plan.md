@@ -4,10 +4,10 @@ overview: A Gateway answers a request from a model it runs on its own machine or
 todos:
   - id: plan-copy
     content: "Copy this plan to plan/2026-11-20-8-hello-on-a-local-and-a-cloud-model.plan.md on the branch qa-plan-tests and commit it alone"
-    status: pending
+    status: completed
   - id: test
     content: "Add the test to crates/harness-gateway-client/tests/live.rs, and have both tests of that file share one run of hello.md"
-    status: pending
+    status: completed
   - id: runs
     content: "Run the test against a Gateway that serves a local chat model and a cloud chat model, and against one that serves no cloud model"
     status: pending
@@ -129,6 +129,13 @@ The change is itself a test. It is checked by running it against real Gateways.
 - Assumptions, risks, and notes:
   - The plan before this one, `plan/2026-11-20-7-a-host-through-a-real-gateway.plan.md`, turned down a test that starts its own Gateway, because it would tie this repository to the Gateway's settings format. This test reads eight names of that format and writes none.
   - This serves the test "Run one prompt on a local model, then on a cloud provider. Both runs end with text." of the QA plan of attack.
+  - The runs recorded here used a Gateway built from `cppalliance/runvil-gateway` at commit `52fd92d`. It served Qwen3 0.6B from a local file and Claude Haiku 5.5 at Anthropic's OpenAI-compatible address, `https://api.anthropic.com/v1`. The cloud entries of its settings are the ones the Gateway's settings page writes from its model sheet.
+  - Result of the runs so far: the test has not passed yet, so the `runs` item stays open. With both models served, the test found both, the local run ended with text, and the cloud run failed. The provider refused the request with status 400, because of the key and not because of the request: "This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header with the ID of the workspace to use." With no cloud model served, the test failed before any run with "the Gateway's settings name no chat model whose endpoint is off its machine", and the first live test passed as before.
+  - Found in those runs: a Gateway cannot use a provider key that is not scoped to one workspace. An `[[endpoint]]` entry has an id, a protocol, an address, a key, and a dominion, and no setting for a request header. The test needs a key that is scoped to one workspace.
+  - A trial the same day, which does not count as a run of this test: a relay on the Gateway's machine added the header and passed each request on to the provider. Through it, the first live test passed three times of three with `RUNVIL_E2E_MODEL=claude-haiku-5-5`, in about 0.65 seconds a run. So the header is the only thing between this test and a pass. The trial does not count, because the Gateway's endpoint was then an address on its own machine, which this test rightly does not take for a cloud model.
+  - Found in those runs: the Gateway's caller is told only "upstream returned 400". The provider's reason is in the Gateway's log and nowhere in the run's error.
+  - Found in those runs: the Gateway lists the cloud model before the local one. The first live test selects no model, so it runs on the cloud model whenever the Gateway serves one.
+  - Result of the exit criteria, in part. Passed: `cargo fmt --all --check`, `cargo clippy -p harness-gateway-client --all-targets --all-features`, the crate's tests with 157 passed and the 2 live tests skipped, `cargo test -p build-xtask`, and the wording check. `vibelight`, run on `live.rs` alone, reported no lead. Not run locally: the workspace-wide test and clippy runs, the docs builds, the facade check, and the custom lints.
 
 ### Deferred and Out of Scope
 
