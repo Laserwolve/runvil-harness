@@ -22,10 +22,10 @@ todos:
     status: completed
   - id: harness-pr
     content: Push Harness master to origin and open the pull request from vinniefalco:master
-    status: pending
+    status: completed
   - id: workshop-commit
     content: "Workshop commit: pin the three rev values to the Harness head, cargo fetch, run verify-workshop.ps1 -Tag t1w (706 and 353 tests expected), commit, push to origin, open the pull request"
-    status: pending
+    status: completed
   - id: merge
     content: "When every check on both pull requests is green (CI on both, and the Bundle workflow on Workshop) and neither upstream master moved: git push upstream master in the Harness and confirm, then the same in Workshop, then confirm that each fork equals its upstream"
     status: pending
@@ -380,3 +380,14 @@ The plan held in both repos. This record was written after the three Harness cod
 - The two merges, the Harness first, once every check on both pull requests is green.
 
 Each of those is reported in its pull request and in the chat, because a record of them would be one more commit after the merge.
+
+## After the pull requests opened
+
+A review of the Harness pull request led to one more commit, so this note was added with it, before either merge.
+
+- **The pull requests are [#59](https://github.com/cppalliance/runvil-harness/pull/59) on the Harness and [#31](https://github.com/cppalliance/runvil-workshop/pull/31) on Workshop.**
+- **`cargo fetch` got `f87bfbf5` from `cppalliance/runvil-harness` while only the open pull request held it**, so the planned order stood: both pull requests were open before either merge.
+- **Workshop commit `4666b17f` passed Workshop's whole verification list on the real pin.** Its two test groups ran 706 and 353 tests, all passing, the same counts as before. `Cargo.lock` changed its 14 source lines for `runvil-harness` and gained one line for the new dev-dependency of `workshop-agents`.
+- **The automatic review found a count in the new entry of the Harness page.** The entry said that each Host on tokio would otherwise write the same eight lines, and `AGENTS.md` keeps counts of things in the code out of an entry. Commit `33c90c64` says that each such Host would otherwise write that timer itself, so that sentence differs from the text this plan gave.
+- **The automatic reviews raised no other point in either pull request.**
+- **Workshop keeps its pin at `f87bfbf5`.** That commit holds all of the code, and `master` of `cppalliance/runvil-harness` holds it after the merge. The commits above it change text only.
