@@ -30,6 +30,11 @@
 //! that searches the web sends its request to the Gateway itself. The
 //! search vendor's credential also stays in the Gateway.
 //!
+//! [`TokioTimer`] is the stock timer of a Host that runs on tokio. Each of
+//! its sleeps is one sleep on tokio's timer. It is in this crate because
+//! `runvil` excludes tokio, and this crate depends on tokio for its
+//! per-receive timeout.
+//!
 //! Under the client sits the OpenAI chat-completions wire code. It turns a
 //! round into a request body, a streamed reply into a
 //! [`Completion`](runvil::model::Completion), and a failed response
@@ -76,6 +81,7 @@ mod catalog;
 mod config;
 mod failure;
 mod resources;
+mod timer;
 mod transport;
 mod wire;
 
@@ -84,6 +90,7 @@ pub use catalog::fetch_model_catalog;
 pub use config::GatewayEndpoint;
 pub use config::SecretString;
 pub use resources::provide_gateway_resources;
+pub use timer::TokioTimer;
 pub use transport::GatewayChat;
 pub use wire::classify::make_classify_http_failure_error;
 pub use wire::classify::make_classify_stream_error;

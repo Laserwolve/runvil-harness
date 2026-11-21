@@ -24,7 +24,8 @@ serde.workspace = true
 # The request body, every streamed payload, the reassembled response,
 # and the entry that offers the Gateway to a Host's Plugins are JSON.
 serde_json.workspace = true
-# `time` for the per-receive timeout. Non-test code spawns no task.
+# `time` for the per-receive timeout and for the sleeps of `TokioTimer`.
+# Non-test code spawns no task.
 tokio = { workspace = true, features = ["time"] }
 url.workspace = true
 
@@ -36,8 +37,8 @@ axum.workspace = true
 # constructor.
 runvil-engine.workspace = true
 # The raw-socket mocks read the request and write paced or truncated
-# responses by hand.
-tokio = { workspace = true, features = ["io-util"] }
+# responses by hand, and the timer's tests pause tokio's clock.
+tokio = { workspace = true, features = ["io-util", "test-util"] }
 
 [lints]
 workspace = true

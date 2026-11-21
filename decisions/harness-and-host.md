@@ -28,7 +28,7 @@ The owner's goal: "I want the outside world to only see one runvil crate, not ru
 
 ### `harness-gateway-client` is the Harness family's second public crate
 
-`harness-gateway-client` contains what a Host needs to use the Gateway: `GatewayBroker`, which implements `InferenceBroker`; `GatewayChat`, the HTTP client it uses; `fetch_model_catalog`; and `provide_gateway_resources`, which offers the Gateway to the Plugins of the C contract (see Inference, the clock, and what a Host hands its Plugins). It is the one Harness crate besides `runvil` that an outside crate may depend on.
+`harness-gateway-client` contains what a Host needs to use the Gateway: `GatewayBroker`, which implements `InferenceBroker`; `GatewayChat`, the HTTP client it uses; `fetch_model_catalog`; and `provide_gateway_resources`, which offers the Gateway to the Plugins of the C contract (see Inference, the clock, and what a Host hands its Plugins). It also has `TokioTimer`, the stock timer of a Host that runs on tokio (see the same section). It is the one Harness crate besides `runvil` that an outside crate may depend on.
 
 The client is a crate of its own for two reasons. The Host supplies inference and `runvil` excludes tokio, so `runvil` leaves HTTP to the Host. Every Host still needs a standard Gateway client.
 
@@ -36,7 +36,7 @@ The client is a crate of its own for two reasons. The Host supplies inference an
 
 `harness-runner`, the crate with the effect loop, uses `futures-util` for its async work, and a structural check fails when `runvil` or an internal Harness crate lists `tokio` under `[dependencies]`. A Host therefore awaits `Harness::run` on whichever executor it has.
 
-A Host's own parts may still need a runtime: the docs of `GatewayBroker` state that its futures need tokio.
+A Host's own parts may still need a runtime: the docs of `GatewayBroker` and of `TokioTimer` state that their futures need tokio.
 
 ## 2. `Host`, `RunSetup`, and one Harness per run
 
@@ -191,6 +191,12 @@ The owner's rule: "the engine, the harness would not know anything about streami
 `Timer` is a trait with the methods `sleep(duration)` and `now()`. `sleep` returns the future that the loop polls for a `Timer` effect. `now` returns the time that the Harness records as the run's start and passes to the Engine, and its default reads the system clock.
 
 The timer is a required field of `Host`, so a Host that leaves it out fails to compile. A timer that a Host could leave out would be missed only at a timed wait inside a run.
+
+### `TokioTimer` is the stock timer of a Host that runs on tokio
+
+`harness-gateway-client` has a stock timer, `TokioTimer`. Its `sleep` returns one `tokio::time::sleep`, so the future needs a tokio runtime with its timer, and its `now` is the trait's default. A Host on tokio passes `Arc::new(TokioTimer)` as the `timer` of its `Host`, so the code that builds the `Host` still names the timer.
+
+The timer is in `harness-gateway-client` because `runvil` excludes tokio, and the Gateway client is the public Harness crate that depends on tokio. Each Host on tokio would otherwise write the same eight lines. A Host on another runtime implements `Timer` over that runtime's sleep.
 
 ### The Host hands a Rust Plugin what its Packs need as the arguments of `install`
 

@@ -72,7 +72,7 @@ The owner's rule: "my instinct tells me that no runvil test should ever sleep or
 
 ### Some async tests outside the Engine crates pause tokio's clock, and tests on real sockets wait in real time
 
-Some async tests run with tokio's clock paused: in the Harness runner, in Workshop, and in the Gateway. A test that uses a real socket, a subprocess, or an operating-system thread waits in real time, because paused time with real sockets fires the timeouts of the code under test early.
+Some async tests run with tokio's clock paused: in the Harness runner and the Gateway client, in Workshop, and in the Gateway. A test that uses a real socket, a subprocess, or an operating-system thread waits in real time, because paused time with real sockets fires the timeouts of the code under test early.
 
 ### A test checks behavior, and its pass condition is a true-or-false property
 
